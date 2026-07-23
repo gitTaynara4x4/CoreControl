@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CoreTuner Central: diagnóstico e monitoramento seguro de computadores Windows para empresas e equipes de atendimento.">
+  <meta name="theme-color" content="#ffffff">
+  <title>CoreTuner — Diagnóstico e gestão segura de computadores</title>
+  <link rel="icon" href="/site/logo-mark.png">
+  <link rel="stylesheet" href="/site/site.css">
+</head>
+<body>
+  <header class="site-header" id="inicio">
+    <div class="container header-inner">
+      <a class="brand-link" href="#inicio" aria-label="CoreTuner — início">
+        <img src="/site/logo-full.png" alt="CoreTuner" class="brand-logo">
+      </a>
+      <nav class="desktop-nav" aria-label="Navegação principal">
+        <a href="#recursos">Recursos</a>
+        <a href="#seguranca">Segurança</a>
+        <a href="#planos">Planos</a>
+        <a href="#duvidas">Dúvidas</a>
+      </nav>
+      <div class="header-actions">
+        <button class="btn btn-ghost" id="accountButton" type="button">Entrar ou criar empresa</button>
+        <button class="btn btn-primary js-download">Baixar versão beta</button>
+      </div>
+      <button class="menu-button" id="menuButton" aria-expanded="false" aria-controls="mobileNav" aria-label="Abrir menu">☰</button>
+    </div>
+    <nav class="mobile-nav" id="mobileNav" aria-label="Navegação móvel">
+      <a href="#recursos">Recursos</a>
+      <a href="#seguranca">Segurança</a>
+      <a href="#planos">Planos</a>
+      <a href="#duvidas">Dúvidas</a>
+      <button class="mobile-account" id="mobileAccountButton" type="button">Entrar ou criar empresa</button>
+      <button class="btn btn-primary js-download">Baixar versão beta</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="status-dot"></span> CoreTuner Central — versão beta controlada</div>
+          <h1>Gerencie a saúde dos computadores dos seus clientes em um só lugar.</h1>
+          <p class="hero-lead">Cadastre empresas, acompanhe computadores online e offline, veja CPU, memória, disco, proteção do Windows e receba alertas técnicos sem acessar documentos ou dados pessoais.</p>
+          <div class="hero-actions">
+            <button class="btn btn-primary btn-large js-download">Criar empresa e baixar</button>
+            <a class="btn btn-secondary btn-large" href="/central">Abrir painel Central</a>
+          </div>
+          <div class="trust-row" aria-label="Garantias da fase beta">
+            <span>✓ Agente somente leitura</span>
+            <span>✓ Conta e empresa vinculadas</span>
+            <span>✓ Sem apagar arquivos</span>
+          </div>
+        </div>
+
+        <div class="hero-preview" aria-label="Prévia do painel CoreTuner Central">
+          <div class="preview-topbar">
+            <div class="preview-brand"><img src="/site/logo-mark.png" alt=""><strong>CoreTuner Central</strong></div>
+            <span class="preview-live"><i></i> Atualizando</span>
+          </div>
+          <div class="preview-stats">
+            <article><span>Computadores</span><strong>18</strong><small>16 online</small></article>
+            <article><span>Saúde média</span><strong>86</strong><small>de 100</small></article>
+            <article><span>Alertas</span><strong class="warning-text">4</strong><small>2 críticos</small></article>
+          </div>
+          <div class="preview-table">
+            <div class="preview-row preview-head"><span>Computador</span><span>Status</span><span>Saúde</span></div>
+            <div class="preview-row"><span><b>ATENDIMENTO 01</b><small>Telemarketing</small></span><span class="online-label">● Online</span><span class="score good">94</span></div>
+            <div class="preview-row"><span><b>FINANCEIRO 02</b><small>Administrativo</small></span><span class="online-label">● Online</span><span class="score warning">71</span></div>
+            <div class="preview-row"><span><b>RECEPÇÃO 01</b><small>Recepção</small></span><span class="offline-label">● Offline</span><span class="score bad">0</span></div>
+          </div>
+          <div class="preview-alert"><span>!</span><div><strong>Disco quase cheio</strong><small>PC FINANCEIRO 02 — 93% utilizado</small></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-soft" id="recursos">
+      <div class="container">
+        <div class="section-heading">
+          <span class="section-kicker">O que já existe na fase beta</span>
+          <h2>Visão profissional sem complicar a rotina do cliente.</h2>
+          <p>O CoreTuner Agent trabalha em segundo plano e envia somente informações técnicas autorizadas para o painel central.</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card"><div class="feature-icon">▦</div><h3>Empresas e computadores</h3><p>Crie a empresa, faça login no aplicativo e cadastre cada computador diretamente na conta autorizada.</p></article>
+          <article class="feature-card"><div class="feature-icon">◔</div><h3>Saúde em tempo real</h3><p>Acompanhe CPU, memória, disco, espaço livre, tempo ligado, Defender, Firewall e temperatura quando disponível.</p></article>
+          <article class="feature-card"><div class="feature-icon">!</div><h3>Alertas técnicos</h3><p>Identifique computador offline, memória alta, disco cheio, temperatura elevada e proteções desativadas.</p></article>
+          <article class="feature-card"><div class="feature-icon">⌁</div><h3>Histórico por máquina</h3><p>Consulte medições recentes, nota de saúde, último contato e evolução dos principais indicadores.</p></article>
+          <article class="feature-card"><div class="feature-icon">♙</div><h3>Usuários e permissões</h3><p>Separe administrador da plataforma, administrador da empresa, técnico e usuário de consulta.</p></article>
+          <article class="feature-card"><div class="feature-icon">✓</div><h3>Telemetria somente leitura</h3><p>Nesta fase, o agente não controla a tela, não executa scripts, não instala atualizações e não modifica o Windows.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="seguranca">
+      <div class="container security-grid">
+        <div>
+          <span class="section-kicker">Segurança como regra do produto</span>
+          <h2>Monitorar o computador não significa acessar a vida do cliente.</h2>
+          <p class="section-copy">O CoreTuner foi estruturado para separar informações técnicas de dados pessoais. O monitoramento da fase beta não lê documentos, senhas, conversas, histórico do navegador, imagens da tela ou arquivos do usuário.</p>
+          <ul class="check-list">
+            <li><span>✓</span> Comunicação do agente autenticada por credencial exclusiva.</li>
+            <li><span>✓</span> Empresas isoladas no painel central.</li>
+            <li><span>✓</span> Cada computador recebe uma credencial exclusiva que não é compartilhada com outras máquinas.</li>
+            <li><span>✓</span> Ações administrativas registradas para auditoria.</li>
+            <li><span>✓</span> HTTPS obrigatório antes de instalar em clientes reais.</li>
+          </ul>
+        </div>
+        <div class="security-panel">
+          <div class="shield-orbit"><img src="/site/logo-mark.png" alt="Símbolo CoreTuner"></div>
+          <h3>O agente beta não pode:</h3>
+          <div class="blocked-grid">
+            <span>Excluir arquivos</span><span>Controlar a tela</span><span>Executar scripts</span><span>Desativar proteções</span><span>Instalar programas</span><span>Ler documentos</span>
+          </div>
+          <div class="security-note">Recursos remotos só serão adicionados depois de autenticação forte, permissões, confirmação e auditoria completas.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-soft" id="planos">
+      <div class="container">
+        <div class="section-heading">
+          <span class="section-kicker">Estrutura comercial proposta</span>
+          <h2>Planos preparados para o lançamento.</h2>
+          <p>Os preços ainda não estão ativos. Esta divisão organiza o produto enquanto a versão beta é validada.</p>
+        </div>
+        <div class="plans-grid">
+          <article class="plan-card">
+            <div class="plan-label">Essencial</div>
+            <h3>Para uma pequena operação</h3>
+            <p class="plan-description">Diagnóstico e acompanhamento básico de poucos computadores.</p>
+            <div class="price-placeholder">Preço em definição</div>
+            <ul><li>1 empresa cadastrada</li><li>Até 5 computadores</li><li>Online e offline</li><li>CPU, memória e disco</li><li>Alertas essenciais</li><li>Histórico de saúde</li></ul>
+            <button class="btn btn-secondary js-download">Testar versão beta</button>
+          </article>
+          <article class="plan-card featured">
+            <div class="plan-badge">Recomendado</div>
+            <div class="plan-label">Profissional</div>
+            <h3>Para empresas em crescimento</h3>
+            <p class="plan-description">Mais máquinas, relatórios e alertas personalizados para o técnico.</p>
+            <div class="price-placeholder">Preço em definição</div>
+            <ul><li>Até 25 computadores</li><li>Usuários e permissões</li><li>Alertas personalizados</li><li>Relatórios técnicos</li><li>Notificações no celular <em>previsto</em></li><li>Acesso remoto <em>previsto</em></li></ul>
+            <button class="btn btn-primary js-download">Testar versão beta</button>
+          </article>
+          <article class="plan-card">
+            <div class="plan-label">Gestão TI</div>
+            <h3>Para técnicos e multiempresas</h3>
+            <p class="plan-description">Central completa para administrar vários clientes e equipes técnicas.</p>
+            <div class="price-placeholder">Plano personalizado</div>
+            <ul><li>Múltiplas empresas</li><li>Limites personalizados</li><li>Equipe técnica e auditoria</li><li>Atualizações remotas <em>roadmap</em></li><li>Scripts aprovados <em>roadmap</em></li><li>Descoberta de rede <em>roadmap</em></li></ul>
+            <button class="btn btn-secondary js-download">Acessar beta controlada</button>
+          </article>
+        </div>
+        <p class="plans-disclaimer">Os limites e recursos acima são uma proposta inicial e poderão ser ajustados antes da comercialização.</p>
+      </div>
+    </section>
+
+    <section class="section roadmap-section">
+      <div class="container">
+        <div class="section-heading left">
+          <span class="section-kicker">Próximas fases</span>
+          <h2>O caminho até uma plataforma completa de gestão remota.</h2>
+        </div>
+        <div class="roadmap-grid">
+          <article><span>01</span><strong>Central e telemetria</strong><p>Empresas, computadores, saúde, histórico e alertas.</p><b class="done">Fase beta atual</b></article>
+          <article><span>02</span><strong>Alertas móveis e acesso remoto</strong><p>Notificações, sessões auditadas e autorização do cliente.</p><b>Em desenvolvimento</b></article>
+          <article><span>03</span><strong>Atualizações e ações seguras</strong><p>Janelas de manutenção, scripts aprovados e registros completos.</p><b>Planejado</b></article>
+          <article><span>04</span><strong>Descoberta e automação</strong><p>Equipamentos de rede, políticas e correções previamente autorizadas.</p><b>Planejado</b></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="duvidas">
+      <div class="container faq-grid">
+        <div><span class="section-kicker">Dúvidas frequentes</span><h2>Antes de instalar.</h2><p class="section-copy">A versão disponível agora é uma beta técnica para testes controlados em computadores próprios.</p></div>
+        <div class="faq-list">
+          <details><summary>O CoreTuner altera o Windows nesta versão?</summary><p>Não. O agente desta fase coleta apenas telemetria técnica e não executa otimizações, scripts, atualizações ou controle remoto.</p></details>
+          <details><summary>Por que o download pede senha?</summary><p>Os planos e o processo comercial ainda estão sendo preparados. A senha limita o acesso ao instalador durante os testes internos.</p></details>
+          <details><summary>Posso instalar diretamente em um cliente?</summary><p>Somente depois de publicar o Central com HTTPS, criar a empresa, entrar no aplicativo e obter autorização do cliente.</p></details>
+          <details><summary>O painel funciona no celular?</summary><p>O site é responsivo. Notificações push e experiência de aplicativo serão adicionadas em uma fase posterior.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-section">
+      <div class="container cta-inner">
+        <div><span class="section-kicker light">Beta controlada</span><h2>Instale primeiro em uma máquina de teste.</h2><p>O download fica liberado por poucos minutos depois do login e da validação da senha.</p></div>
+        <button class="btn btn-white btn-large js-download">Baixar CoreTuner</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <img src="/site/logo-full.png" alt="CoreTuner" class="footer-logo">
+      <p>Diagnóstico e gestão segura de computadores Windows.</p>
+      <a href="/central">CoreTuner Central</a>
+    </div>
+  </footer>
+
+  <div class="modal-backdrop" id="authModal" aria-hidden="true">
+    <section class="download-modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <button class="modal-close" id="closeAuthModal" aria-label="Fechar">×</button>
+      <div class="auth-brand"><img src="/site/logo-mark.png" alt=""><div><strong>CoreTuner</strong><span>Conta da empresa</span></div></div>
+      <div class="auth-tabs" role="tablist">
+        <button type="button" id="loginTab" class="active">Entrar</button>
+        <button type="button" id="registerTab">Criar empresa</button>
+      </div>
+
+      <form id="siteLoginForm" class="auth-form">
+        <h2 id="authTitle">Entrar na sua empresa</h2>
+        <p>Use a mesma conta no site, no aplicativo e no CoreTuner Central.</p>
+        <label>E-mail<input id="siteLoginEmail" type="email" autocomplete="username" required></label>
+        <label>Senha<input id="siteLoginPassword" type="password" autocomplete="current-password" minlength="8" required></label>
+        <div class="form-error" id="siteLoginError" role="alert"></div>
+        <button class="btn btn-primary btn-full" type="submit">Entrar</button>
+      </form>
+
+      <form id="siteRegisterForm" class="auth-form" hidden>
+        <h2>Criar empresa</h2>
+        <p>O primeiro usuário será o administrador da empresa.</p>
+        <label>Nome da empresa<input id="registerCompanyName" required minlength="2" maxlength="160"></label>
+        <label>Nome do responsável<input id="registerResponsibleName" required minlength="2" maxlength="120"></label>
+        <label>E-mail<input id="registerEmail" type="email" autocomplete="username" required></label>
+        <div class="auth-grid">
+          <label>Senha<input id="registerPassword" type="password" autocomplete="new-password" minlength="10" required></label>
+          <label>Confirmar senha<input id="registerPasswordConfirmation" type="password" autocomplete="new-password" minlength="10" required></label>
+        </div>
+        <div class="form-error" id="siteRegisterError" role="alert"></div>
+        <button class="btn btn-primary btn-full" type="submit">Criar empresa e entrar</button>
+      </form>
+      <small>As senhas são enviadas ao servidor por HTTPS em produção e armazenadas com hash.</small>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="downloadModal" aria-hidden="true">
+    <section class="download-modal" role="dialog" aria-modal="true" aria-labelledby="downloadTitle">
+      <button class="modal-close" id="closeModal" aria-label="Fechar">×</button>
+      <div class="modal-icon">↓</div>
+      <span class="section-kicker">Acesso controlado</span>
+      <h2 id="downloadTitle">Baixar CoreTuner Setup</h2>
+      <p>Faça login na sua empresa e digite a senha autorizada para liberar o instalador.</p>
+      <form id="downloadForm">
+        <label for="downloadPassword">Senha de download</label>
+        <div class="password-field">
+          <input id="downloadPassword" type="password" inputmode="numeric" autocomplete="off" maxlength="128" required placeholder="Digite a senha">
+          <button type="button" id="togglePassword" aria-label="Mostrar ou ocultar senha">Mostrar</button>
+        </div>
+        <div class="form-error" id="downloadError" role="alert"></div>
+        <button class="btn btn-primary btn-full" id="unlockButton" type="submit">Validar e baixar</button>
+      </form>
+      <small>A senha é validada no servidor e não é armazenada no navegador.</small>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/site/site.js?v=20260722-auth-download-v1"></script>
+</body>
+</html>

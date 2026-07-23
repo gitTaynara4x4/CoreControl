@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CoreTuner Central</title>
+  <link rel="icon" href="/static/logo.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <section id="loginView" class="login-shell hidden">
+    <div class="login-card login-card-wide">
+      <img src="/static/logo.png" alt="CoreTuner" class="login-logo">
+      <h1>CoreTuner Central</h1>
+      <p>Entre na sua empresa ou crie o primeiro acesso.</p>
+      <div class="login-tabs">
+        <button id="centralLoginTab" type="button" class="active">Entrar</button>
+        <button id="centralRegisterTab" type="button">Criar empresa</button>
+      </div>
+      <form id="loginForm" class="stack">
+        <label>E-mail<input id="loginEmail" type="email" autocomplete="username" required></label>
+        <label>Senha<input id="loginPassword" type="password" autocomplete="current-password" required minlength="8"></label>
+        <button class="btn primary" type="submit">Entrar</button>
+      </form>
+      <form id="registerCompanyForm" class="stack hidden">
+        <label>Nome da empresa<input id="centralCompanyName" required minlength="2" maxlength="160"></label>
+        <label>Nome do responsável<input id="centralResponsibleName" required minlength="2" maxlength="120"></label>
+        <label>E-mail<input id="centralRegisterEmail" type="email" autocomplete="username" required></label>
+        <label>Senha<input id="centralRegisterPassword" type="password" autocomplete="new-password" required minlength="10"></label>
+        <label>Confirmar senha<input id="centralRegisterPasswordConfirmation" type="password" autocomplete="new-password" required minlength="10"></label>
+        <button class="btn primary" type="submit">Criar empresa</button>
+      </form>
+      <small>A mesma conta funciona no site, no aplicativo e no painel.</small>
+    </div>
+  </section>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="/static/logo.png" alt="CoreTuner">
+        <div><strong>CoreTuner</strong><span>Central</span></div>
+      </div>
+
+      <nav id="mainNav">
+        <button data-page="overview" class="nav-item active"><span>⌂</span> Visão geral</button>
+        <button data-page="companies" class="nav-item"><span>▦</span> Empresas</button>
+        <button data-page="devices" class="nav-item"><span>▣</span> Computadores</button>
+        <button data-page="alerts" class="nav-item"><span>!</span> Alertas <b id="navAlertCount" class="badge hidden">0</b></button>
+        <button data-page="users" class="nav-item"><span>♙</span> Usuários</button>
+        <div class="nav-section">Próximas fases</div>
+        <button class="nav-item muted" disabled><span>↗</span> Acesso remoto <em>Em breve</em></button>
+        <button class="nav-item muted" disabled><span>↻</span> Atualizações <em>Em breve</em></button>
+        <button class="nav-item muted" disabled><span>&gt;_</span> Scripts <em>Em breve</em></button>
+        <button class="nav-item muted" disabled><span>⌁</span> Rede <em>Em breve</em></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="security-note"><span>✓</span><div><strong>Proteção ativa</strong><small>Telemetria somente leitura</small></div></div>
+        <button id="logoutBtn" class="nav-item"><span>↪</span> Sair</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">Visão geral</h1>
+          <p id="pageSubtitle">Acompanhe as empresas e computadores em tempo quase real.</p>
+        </div>
+        <div class="top-actions">
+          <span id="lastRefresh" class="refresh-label">Aguardando atualização</span>
+          <button id="refreshBtn" class="icon-btn" title="Atualizar">↻</button>
+          <div class="user-chip"><span id="userInitial">A</span><div><strong id="userName">Administrador</strong><small id="userRole">Administrador</small></div></div>
+        </div>
+      </header>
+
+      <section id="content" class="content"></section>
+    </main>
+  </div>
+
+  <div id="modalBackdrop" class="modal-backdrop hidden">
+    <div id="modal" class="modal"></div>
+  </div>
+
+  <script src="/static/app.js?v=20260722-company-auth-v1"></script>
+</body>
+</html>

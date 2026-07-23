@@ -1,0 +1,819 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse
+from sqlalchemy import desc, func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from .alerts import evaluate_telemetry_alerts
+from .config import settings
+from .db import get_db
+from .models import Alert, AuditLog, Company, Device, EnrollmentToken, Telemetry, User
+from .schemas import (
+    CompanyCreate,
+    CompanyRegistrationRequest,
+    DeviceInstallRequest,
+    EnrollmentRequest,
+    LoginRequest,
+    TelemetryRequest,
+    UserCreate,
+)
+from .security import (
+    create_session_token,
+    get_session_payload,
+    hash_password,
+    new_secret,
+    sha256_text,
+    verify_password,
+)
+
+router = APIRouter(prefix="/api")
+Db = Annotated[Session, Depends(get_db)]
+
+
+COMPONENT_DIR = Path(__file__).resolve().parent / "downloads"
+DESKTOP_COMPONENTS = {
+    "CoreTuner.exe": "application/vnd.microsoft.portable-executable",
+    "CoreTunerAgent.exe": "application/vnd.microsoft.portable-executable",
+}
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def iso(value: datetime | None) -> str | None:
+    normalized = as_utc(value)
+    return normalized.isoformat() if normalized else None
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "empresa"
+
+
+def current_user(request: Request, db: Db) -> User:
+    payload = get_session_payload(request)
+    user = db.get(User, int(payload["sub"]))
+    if not user or not user.active:
+        raise HTTPException(status_code=401, detail="Usuário inválido")
+    return user
+
+
+CurrentUser = Annotated[User, Depends(current_user)]
+
+
+def require_roles(user: User, *roles: str) -> None:
+    if user.role not in roles:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado")
+
+
+def assert_company_access(user: User, company_id: int) -> None:
+    if user.role == "platform_admin":
+        return
+    if user.company_id != company_id:
+        raise HTTPException(status_code=403, detail="Empresa não permitida")
+
+
+def assert_device_access(user: User, device: Device) -> None:
+    assert_company_access(user, device.company_id)
+
+
+def serialize_company(company: Company, online: int = 0, total: int = 0, alerts: int = 0) -> dict:
+    return {
+        "id": company.id,
+        "name": company.name,
+        "slug": company.slug,
+        "active": company.active,
+        "created_at": iso(company.created_at),
+        "devices_total": total,
+        "devices_online": online,
+        "alerts_open": alerts,
+    }
+
+
+def latest_telemetry(db: Session, device_id: int) -> Telemetry | None:
+    return db.scalar(
+        select(Telemetry).where(Telemetry.device_id == device_id).order_by(desc(Telemetry.recorded_at)).limit(1)
+    )
+
+
+def device_online(device: Device) -> bool:
+    last_seen = as_utc(device.last_seen)
+    return bool(last_seen and (utcnow() - last_seen).total_seconds() <= settings.offline_after_seconds)
+
+
+def health_score(sample: Telemetry | None, online: bool) -> int:
+    if not online:
+        return 0
+    if sample is None:
+        return 50
+    score = 100
+    if sample.cpu_percent is not None:
+        score -= max(0, int((sample.cpu_percent - 70) * 0.45))
+    if sample.memory_percent is not None:
+        score -= max(0, int((sample.memory_percent - 70) * 0.75))
+    if sample.disk_percent is not None:
+        score -= max(0, int((sample.disk_percent - 75) * 0.85))
+    if sample.temperature_c is not None:
+        score -= max(0, int((sample.temperature_c - 70) * 1.2))
+    if sample.defender_active is False:
+        score -= 18
+    if sample.firewall_active is False:
+        score -= 18
+    return max(0, min(100, score))
+
+
+def serialize_sample(sample: Telemetry | None) -> dict | None:
+    if not sample:
+        return None
+    return {
+        "recorded_at": iso(sample.recorded_at),
+        "cpu_percent": sample.cpu_percent,
+        "memory_percent": sample.memory_percent,
+        "memory_used_gb": sample.memory_used_gb,
+        "memory_total_gb": sample.memory_total_gb,
+        "disk_percent": sample.disk_percent,
+        "disk_free_gb": sample.disk_free_gb,
+        "disk_total_gb": sample.disk_total_gb,
+        "temperature_c": sample.temperature_c,
+        "uptime_seconds": sample.uptime_seconds,
+        "ip_local": sample.ip_local,
+        "network_name": sample.network_name,
+        "defender_active": sample.defender_active,
+        "firewall_active": sample.firewall_active,
+    }
+
+
+def serialize_device(db: Session, device: Device, include_sample: bool = True) -> dict:
+    online = device_online(device)
+    sample = latest_telemetry(db, device.id) if include_sample else None
+    open_alerts = db.scalar(
+        select(func.count(Alert.id)).where(Alert.device_id == device.id, Alert.status.in_(["open", "acknowledged"]))
+    ) or 0
+    return {
+        "id": device.id,
+        "company_id": device.company_id,
+        "device_uid": device.device_uid,
+        "name": device.name,
+        "hostname": device.hostname,
+        "sector": device.sector,
+        "location": device.location,
+        "manufacturer": device.manufacturer,
+        "model": device.model,
+        "serial_number": device.serial_number,
+        "os_name": device.os_name,
+        "os_version": device.os_version,
+        "agent_version": device.agent_version,
+        "profile": device.profile,
+        "first_seen": iso(device.first_seen),
+        "last_seen": iso(device.last_seen),
+        "online": online,
+        "health_score": health_score(sample, online),
+        "alerts_open": int(open_alerts),
+        "telemetry": serialize_sample(sample),
+    }
+
+
+def sync_offline_alerts(db: Session, devices: list[Device]) -> None:
+    now = utcnow()
+    for device in devices:
+        active = not device_online(device)
+        current = db.scalar(
+            select(Alert).where(
+                Alert.device_id == device.id,
+                Alert.alert_type == "device_offline",
+                Alert.status.in_(["open", "acknowledged"]),
+            )
+        )
+        if active and not current:
+            last_seen = as_utc(device.last_seen)
+            db.add(
+                Alert(
+                    company_id=device.company_id,
+                    device_id=device.id,
+                    alert_type="device_offline",
+                    severity="critical",
+                    title="Computador offline",
+                    message=f"Sem comunicação desde {last_seen.strftime('%d/%m/%Y %H:%M:%S') if last_seen else 'horário desconhecido'}.",
+                    status="open",
+                    opened_at=now,
+                    last_seen_at=now,
+                )
+            )
+        elif active and current:
+            current.last_seen_at = now
+        elif not active and current:
+            current.status = "resolved"
+            current.resolved_at = now
+            current.last_seen_at = now
+    db.commit()
+
+
+def unique_company_slug(db: Session, company_name: str) -> str:
+    base = slugify(company_name)
+    slug = base
+    suffix = 2
+    while db.scalar(select(Company.id).where(Company.slug == slug)):
+        slug = f"{base}-{suffix}"
+        suffix += 1
+    return slug
+
+
+def auth_payload(user: User, db: Session, token: str) -> dict:
+    company = db.get(Company, user.company_id) if user.company_id else None
+    return {
+        "ok": True,
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in_seconds": settings.token_minutes * 60,
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+            "company_id": user.company_id,
+        },
+        "company": serialize_company(company) if company else None,
+    }
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        "coretuner_session",
+        token,
+        httponly=True,
+        secure=settings.secure_cookies,
+        samesite="strict",
+        max_age=settings.token_minutes * 60,
+        path="/",
+    )
+
+
+@router.get("/desktop/manifest")
+def desktop_manifest(user: CurrentUser):
+    files: dict[str, dict] = {}
+    for filename in DESKTOP_COMPONENTS:
+        path = COMPONENT_DIR / filename
+        if not path.exists() or not path.is_file():
+            raise HTTPException(status_code=503, detail=f"Componente indisponível: {filename}")
+        files[filename] = {
+            "filename": filename,
+            "url": f"/api/desktop/components/{filename}",
+            "sha256": file_sha256(path),
+            "size": path.stat().st_size,
+        }
+    return {"version": "0.4.3", "files": files}
+
+
+@router.get("/desktop/components/{filename}")
+def desktop_component(filename: str, user: CurrentUser):
+    media_type = DESKTOP_COMPONENTS.get(filename)
+    if not media_type:
+        raise HTTPException(status_code=404, detail="Componente não encontrado")
+    path = COMPONENT_DIR / filename
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Componente indisponível")
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=filename,
+        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.post("/auth/register-company", status_code=201)
+def register_company(payload: CompanyRegistrationRequest, response: Response, db: Db):
+    email = payload.email.lower().strip()
+    if db.scalar(select(User.id).where(func.lower(User.email) == email)):
+        raise HTTPException(status_code=409, detail="Este e-mail já está cadastrado")
+
+    company = Company(name=payload.company_name.strip(), slug=unique_company_slug(db, payload.company_name))
+    db.add(company)
+    db.flush()
+
+    owner = User(
+        company_id=company.id,
+        name=payload.responsible_name.strip(),
+        email=email,
+        password_hash=hash_password(payload.password),
+        role="company_admin",
+        active=True,
+    )
+    db.add(owner)
+    db.flush()
+    db.add(
+        AuditLog(
+            company_id=company.id,
+            actor_user_id=owner.id,
+            action="company.self_register",
+            details=json.dumps({"company": company.name, "email": owner.email}, ensure_ascii=False),
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Este e-mail ou nome de empresa já está cadastrado") from exc
+
+    token = create_session_token(owner.id, owner.role, owner.company_id)
+    set_session_cookie(response, token)
+    return auth_payload(owner, db, token)
+
+
+@router.post("/auth/login")
+def login(payload: LoginRequest, response: Response, db: Db):
+    user = db.scalar(select(User).where(func.lower(User.email) == payload.email.lower().strip()))
+    if not user or not user.active or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="E-mail ou senha inválidos")
+    token = create_session_token(user.id, user.role, user.company_id)
+    set_session_cookie(response, token)
+    db.add(AuditLog(company_id=user.company_id, actor_user_id=user.id, action="auth.login", details="Login realizado"))
+    db.commit()
+    return auth_payload(user, db, token)
+
+
+@router.post("/auth/logout")
+def logout(response: Response):
+    response.delete_cookie("coretuner_session", path="/")
+    return {"ok": True}
+
+
+@router.get("/auth/me")
+def me(user: CurrentUser, db: Db):
+    company = db.get(Company, user.company_id) if user.company_id else None
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "company_id": user.company_id,
+        "company": serialize_company(company) if company else None,
+    }
+
+
+@router.get("/dashboard/summary")
+def dashboard_summary(user: CurrentUser, db: Db):
+    company_filter = [] if user.role == "platform_admin" else [Device.company_id == user.company_id]
+    devices = list(db.scalars(select(Device).where(Device.active.is_(True), *company_filter)).all())
+    sync_offline_alerts(db, devices)
+    companies_stmt = select(Company).where(Company.active.is_(True))
+    if user.role != "platform_admin":
+        companies_stmt = companies_stmt.where(Company.id == user.company_id)
+    companies = list(db.scalars(companies_stmt.order_by(Company.name)).all())
+    online = sum(1 for device in devices if device_online(device))
+    alert_stmt = select(func.count(Alert.id)).where(Alert.status.in_(["open", "acknowledged"]))
+    if user.role != "platform_admin":
+        alert_stmt = alert_stmt.where(Alert.company_id == user.company_id)
+    open_alerts = int(db.scalar(alert_stmt) or 0)
+    return {
+        "companies": len(companies),
+        "devices": len(devices),
+        "online": online,
+        "offline": len(devices) - online,
+        "alerts_open": open_alerts,
+    }
+
+
+@router.get("/companies")
+def list_companies(user: CurrentUser, db: Db):
+    stmt = select(Company).where(Company.active.is_(True)).order_by(Company.name)
+    if user.role != "platform_admin":
+        stmt = stmt.where(Company.id == user.company_id)
+    companies = list(db.scalars(stmt).all())
+    result = []
+    for company in companies:
+        devices = list(db.scalars(select(Device).where(Device.company_id == company.id, Device.active.is_(True))).all())
+        online = sum(1 for d in devices if device_online(d))
+        alerts = db.scalar(
+            select(func.count(Alert.id)).where(
+                Alert.company_id == company.id, Alert.status.in_(["open", "acknowledged"])
+            )
+        ) or 0
+        result.append(serialize_company(company, online, len(devices), int(alerts)))
+    return result
+
+
+@router.post("/companies", status_code=201)
+def create_company(payload: CompanyCreate, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin")
+    company = Company(name=payload.name.strip(), slug=unique_company_slug(db, payload.name))
+    db.add(company)
+    db.flush()
+    db.add(
+        AuditLog(
+            company_id=company.id,
+            actor_user_id=user.id,
+            action="company.create",
+            details=json.dumps({"name": company.name}, ensure_ascii=False),
+        )
+    )
+    db.commit()
+    return serialize_company(company)
+
+
+@router.get("/companies/{company_id}")
+def get_company(company_id: int, user: CurrentUser, db: Db):
+    assert_company_access(user, company_id)
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    devices = list(db.scalars(select(Device).where(Device.company_id == company_id, Device.active.is_(True))).all())
+    sync_offline_alerts(db, devices)
+    return {
+        **serialize_company(company),
+        "devices": [serialize_device(db, d) for d in devices],
+    }
+
+
+@router.post("/companies/{company_id}/enrollment-token")
+def create_enrollment_token(company_id: int, user: CurrentUser, db: Db):
+    assert_company_access(user, company_id)
+    require_roles(user, "platform_admin", "company_admin", "technician")
+    if not db.get(Company, company_id):
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    raw = f"ctenr_{new_secret(32)}"
+    expires = utcnow() + timedelta(hours=24)
+    db.add(
+        EnrollmentToken(
+            company_id=company_id,
+            token_hash=sha256_text(raw),
+            expires_at=expires,
+            created_by=user.id,
+        )
+    )
+    db.add(
+        AuditLog(
+            company_id=company_id,
+            actor_user_id=user.id,
+            action="agent.enrollment_token.create",
+            details=f"Token válido até {expires.isoformat()}",
+        )
+    )
+    db.commit()
+    return {"token": raw, "expires_at": expires.isoformat(), "single_use": True}
+
+
+@router.get("/devices")
+def list_devices(user: CurrentUser, db: Db, company_id: int | None = None):
+    stmt = select(Device).where(Device.active.is_(True))
+    if user.role == "platform_admin":
+        if company_id is not None:
+            stmt = stmt.where(Device.company_id == company_id)
+    else:
+        stmt = stmt.where(Device.company_id == user.company_id)
+    devices = list(db.scalars(stmt.order_by(Device.name)).all())
+    sync_offline_alerts(db, devices)
+    return [serialize_device(db, d) for d in devices]
+
+
+@router.get("/devices/{device_id}")
+def get_device(device_id: int, user: CurrentUser, db: Db):
+    device = db.get(Device, device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    result = serialize_device(db, device)
+    samples = list(
+        db.scalars(
+            select(Telemetry).where(Telemetry.device_id == device.id).order_by(desc(Telemetry.recorded_at)).limit(60)
+        ).all()
+    )
+    result["history"] = [serialize_sample(sample) for sample in reversed(samples)]
+    result["company_name"] = db.get(Company, device.company_id).name
+    return result
+
+
+@router.get("/alerts")
+def list_alerts(user: CurrentUser, db: Db, status_filter: str = "active"):
+    stmt = select(Alert).order_by(desc(Alert.opened_at))
+    if user.role != "platform_admin":
+        stmt = stmt.where(Alert.company_id == user.company_id)
+    if status_filter == "active":
+        stmt = stmt.where(Alert.status.in_(["open", "acknowledged"]))
+    elif status_filter in {"open", "acknowledged", "resolved"}:
+        stmt = stmt.where(Alert.status == status_filter)
+    alerts = list(db.scalars(stmt.limit(300)).all())
+    return [
+        {
+            "id": alert.id,
+            "company_id": alert.company_id,
+            "device_id": alert.device_id,
+            "device_name": alert.device.name,
+            "type": alert.alert_type,
+            "severity": alert.severity,
+            "title": alert.title,
+            "message": alert.message,
+            "status": alert.status,
+            "opened_at": iso(alert.opened_at),
+            "last_seen_at": iso(alert.last_seen_at),
+            "resolved_at": iso(alert.resolved_at),
+        }
+        for alert in alerts
+    ]
+
+
+@router.post("/alerts/{alert_id}/ack")
+def acknowledge_alert(alert_id: int, user: CurrentUser, db: Db):
+    alert = db.get(Alert, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alerta não encontrado")
+    assert_company_access(user, alert.company_id)
+    require_roles(user, "platform_admin", "company_admin", "technician")
+    if alert.status == "open":
+        alert.status = "acknowledged"
+        alert.acknowledged_at = utcnow()
+        db.add(
+            AuditLog(
+                company_id=alert.company_id,
+                actor_user_id=user.id,
+                device_id=alert.device_id,
+                action="alert.acknowledge",
+                details=f"Alerta {alert.id}: {alert.title}",
+            )
+        )
+        db.commit()
+    return {"ok": True, "status": alert.status}
+
+
+@router.get("/users")
+def list_users(user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin")
+    stmt = select(User).order_by(User.name)
+    if user.role != "platform_admin":
+        stmt = stmt.where(User.company_id == user.company_id)
+    users = list(db.scalars(stmt).all())
+    return [
+        {
+            "id": item.id,
+            "name": item.name,
+            "email": item.email,
+            "role": item.role,
+            "company_id": item.company_id,
+            "active": item.active,
+        }
+        for item in users
+    ]
+
+
+@router.post("/users", status_code=201)
+def create_user(payload: UserCreate, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin")
+    valid_roles = {"platform_admin", "company_admin", "technician", "viewer"}
+    if payload.role not in valid_roles:
+        raise HTTPException(status_code=400, detail="Perfil inválido")
+    if user.role != "platform_admin":
+        if payload.company_id not in (None, user.company_id):
+            raise HTTPException(status_code=403, detail="Empresa não permitida")
+        if payload.role == "platform_admin":
+            raise HTTPException(status_code=403, detail="Perfil não permitido")
+        company_id = user.company_id
+    else:
+        company_id = None if payload.role == "platform_admin" else payload.company_id
+    if db.scalar(select(User.id).where(func.lower(User.email) == payload.email.lower())):
+        raise HTTPException(status_code=409, detail="E-mail já cadastrado")
+    new_user = User(
+        name=payload.name.strip(),
+        email=payload.email.lower().strip(),
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        company_id=company_id,
+    )
+    db.add(new_user)
+    db.flush()
+    db.add(
+        AuditLog(
+            company_id=company_id,
+            actor_user_id=user.id,
+            action="user.create",
+            details=json.dumps({"email": new_user.email, "role": new_user.role}, ensure_ascii=False),
+        )
+    )
+    db.commit()
+    return {"id": new_user.id, "name": new_user.name, "email": new_user.email, "role": new_user.role}
+
+
+@router.post("/devices/install", status_code=201)
+def install_device(payload: DeviceInstallRequest, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin", "technician")
+
+    if user.role == "platform_admin":
+        if payload.company_id is None:
+            raise HTTPException(status_code=400, detail="Selecione a empresa para instalar este computador")
+        company_id = payload.company_id
+    else:
+        if user.company_id is None:
+            raise HTTPException(status_code=403, detail="Usuário sem empresa vinculada")
+        if payload.company_id not in (None, user.company_id):
+            raise HTTPException(status_code=403, detail="Empresa não permitida")
+        company_id = user.company_id
+
+    company = db.get(Company, company_id)
+    if not company or not company.active:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    now = utcnow()
+    raw_secret = f"ctagt_{new_secret(36)}"
+    device = db.scalar(
+        select(Device).where(Device.company_id == company_id, Device.device_uid == payload.device_uid)
+    )
+    created = device is None
+    if device is None:
+        device = Device(
+            company_id=company_id,
+            device_uid=payload.device_uid,
+            name=payload.name.strip(),
+            hostname=payload.hostname.strip(),
+            sector=payload.sector,
+            location=payload.location,
+            manufacturer=payload.manufacturer,
+            model=payload.model,
+            serial_number=payload.serial_number,
+            os_name=payload.os_name,
+            os_version=payload.os_version,
+            agent_version=payload.agent_version,
+            agent_secret_hash=sha256_text(raw_secret),
+            first_seen=now,
+            last_seen=now,
+            active=True,
+        )
+        db.add(device)
+        db.flush()
+    else:
+        device.name = payload.name.strip()
+        device.hostname = payload.hostname.strip()
+        device.sector = payload.sector
+        device.location = payload.location
+        device.manufacturer = payload.manufacturer
+        device.model = payload.model
+        device.serial_number = payload.serial_number
+        device.os_name = payload.os_name
+        device.os_version = payload.os_version
+        device.agent_version = payload.agent_version
+        device.agent_secret_hash = sha256_text(raw_secret)
+        device.last_seen = now
+        device.active = True
+
+    db.add(
+        AuditLog(
+            company_id=company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action="device.install" if created else "device.reinstall",
+            details=json.dumps(
+                {"hostname": device.hostname, "uid": device.device_uid, "source": "CoreTunerSetup"},
+                ensure_ascii=False,
+            ),
+        )
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "created": created,
+        "device_id": device.id,
+        "company_id": company.id,
+        "company_name": company.name,
+        "agent_secret": raw_secret,
+        "device": serialize_device(db, device),
+    }
+
+
+# ---------------- Agent API ----------------
+
+
+def get_agent_secret(authorization: str | None) -> str:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Credencial do agente necessária")
+    return authorization.split(" ", 1)[1].strip()
+
+
+@router.post("/agent/enroll", status_code=201)
+def agent_enroll(payload: EnrollmentRequest, db: Db):
+    token_hash = sha256_text(payload.enrollment_token)
+    enrollment = db.scalar(select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash))
+    now = utcnow()
+    if not enrollment or enrollment.used_at is not None:
+        raise HTTPException(status_code=401, detail="Token de instalação inválido ou já utilizado")
+    expires_at = as_utc(enrollment.expires_at)
+    if not expires_at or expires_at < now:
+        raise HTTPException(status_code=401, detail="Token de instalação expirado")
+    existing = db.scalar(
+        select(Device).where(Device.company_id == enrollment.company_id, Device.device_uid == payload.device_uid)
+    )
+    raw_secret = f"ctagt_{new_secret(36)}"
+    if existing:
+        device = existing
+        device.name = payload.name
+        device.hostname = payload.hostname
+        device.sector = payload.sector
+        device.location = payload.location
+        device.manufacturer = payload.manufacturer
+        device.model = payload.model
+        device.serial_number = payload.serial_number
+        device.os_name = payload.os_name
+        device.os_version = payload.os_version
+        device.agent_version = payload.agent_version
+        device.agent_secret_hash = sha256_text(raw_secret)
+        device.last_seen = now
+        device.active = True
+    else:
+        device = Device(
+            company_id=enrollment.company_id,
+            device_uid=payload.device_uid,
+            name=payload.name,
+            hostname=payload.hostname,
+            sector=payload.sector,
+            location=payload.location,
+            manufacturer=payload.manufacturer,
+            model=payload.model,
+            serial_number=payload.serial_number,
+            os_name=payload.os_name,
+            os_version=payload.os_version,
+            agent_version=payload.agent_version,
+            agent_secret_hash=sha256_text(raw_secret),
+            first_seen=now,
+            last_seen=now,
+        )
+        db.add(device)
+        db.flush()
+    enrollment.used_at = now
+    db.add(
+        AuditLog(
+            company_id=device.company_id,
+            device_id=device.id,
+            action="agent.enroll",
+            details=json.dumps({"hostname": device.hostname, "uid": device.device_uid}, ensure_ascii=False),
+        )
+    )
+    db.commit()
+    return {"device_id": device.id, "agent_secret": raw_secret, "company_id": device.company_id}
+
+
+@router.post("/agent/telemetry")
+def agent_telemetry(
+    payload: TelemetryRequest,
+    db: Db,
+    authorization: Annotated[str | None, Header()] = None,
+):
+    raw_secret = get_agent_secret(authorization)
+    secret_hash = sha256_text(raw_secret)
+    device = db.scalar(
+        select(Device).where(
+            Device.agent_secret_hash == secret_hash,
+            Device.device_uid == payload.device_uid,
+            Device.active.is_(True),
+        )
+    )
+    if not device:
+        raise HTTPException(status_code=401, detail="Agente não autorizado")
+    now = utcnow()
+    device.last_seen = now
+    if payload.profile:
+        device.profile = payload.profile
+    sample = Telemetry(
+        device_id=device.id,
+        recorded_at=now,
+        cpu_percent=payload.cpu_percent,
+        memory_percent=payload.memory_percent,
+        memory_used_gb=payload.memory_used_gb,
+        memory_total_gb=payload.memory_total_gb,
+        disk_percent=payload.disk_percent,
+        disk_free_gb=payload.disk_free_gb,
+        disk_total_gb=payload.disk_total_gb,
+        temperature_c=payload.temperature_c,
+        uptime_seconds=payload.uptime_seconds,
+        ip_local=payload.ip_local,
+        network_name=payload.network_name,
+        defender_active=payload.defender_active,
+        firewall_active=payload.firewall_active,
+        raw_json=json.dumps(payload.extra or {}, ensure_ascii=False),
+    )
+    db.add(sample)
+    db.flush()
+    evaluate_telemetry_alerts(db, device, sample)
+    db.commit()
+    return {"ok": True, "server_time": now.isoformat(), "next_interval_seconds": 30}

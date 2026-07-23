@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+!.env.production.example
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+data
+agent/src
+.DS_Store
+Thumbs.db

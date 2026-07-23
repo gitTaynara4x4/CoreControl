@@ -1,0 +1,25 @@
+services:
+  coretuner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coretuner-central
+    restart: unless-stopped
+    ports:
+      - "8280:8280"
+    environment:
+      CORETUNER_ENV: ${CORETUNER_DOCKER_ENV:-production}
+      CORETUNER_PORT: 8280
+      CORETUNER_SECRET_KEY: ${CORETUNER_SECRET_KEY}
+      CORETUNER_ADMIN_EMAIL: ${CORETUNER_ADMIN_EMAIL}
+      CORETUNER_ADMIN_PASSWORD: ${CORETUNER_ADMIN_PASSWORD}
+      CORETUNER_DOWNLOAD_PASSWORD: ${CORETUNER_DOWNLOAD_PASSWORD}
+      CORETUNER_DATABASE_URL: ${CORETUNER_DATABASE_URL}
+      CORETUNER_PUBLIC_URL: ${CORETUNER_PUBLIC_URL}
+      CORETUNER_OFFLINE_AFTER_SECONDS: ${CORETUNER_OFFLINE_AFTER_SECONDS:-180}
+      CORETUNER_TELEMETRY_RETENTION_DAYS: ${CORETUNER_TELEMETRY_RETENTION_DAYS:-30}
+    volumes:
+      - coretuner_data:/data
+
+volumes:
+  coretuner_data:

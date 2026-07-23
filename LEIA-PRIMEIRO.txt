@@ -1,0 +1,11 @@
+CORETUNER 0.4.3 — PROJETO LIMPO
+
+1. Apague a pasta antiga do projeto.
+2. Extraia este pacote em uma pasta nova.
+3. Crie/ative a .venv e instale requirements.txt.
+4. Execute python run.py.
+5. Acesse http://127.0.0.1:8002 e baixe novamente o CoreTunerSetup.exe.
+6. Execute o novo Setup e clique em instalar/cadastrar este computador.
+
+O novo Setup encerra o Agent antigo instalado pelo CoreTuner antes de instalar a versão 0.4.3.
+A versão 0.4.3 não chama PowerShell para realizar as coletas técnicas.

@@ -1,0 +1,4 @@
+CORETUNER AGENT 0.4.3
+
+Agente Windows somente leitura. Coleta dados técnicos usando APIs nativas do Windows, sem abrir PowerShell ou console.
+O executável oficial fica em app/downloads/CoreTunerAgent.exe e é instalado automaticamente pelo CoreTunerSetup.exe.

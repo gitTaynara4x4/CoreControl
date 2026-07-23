@@ -1,0 +1,10 @@
+{
+  "server_url": "https://coretuner.seudominio.com.br",
+  "agent_secret": "GERADO_AUTOMATICAMENTE_PELO_CORETUNER_SETUP",
+  "device_id": 1,
+  "interval_seconds": 30,
+  "allow_insecure_http": false,
+  "name": "PC ATENDIMENTO 01",
+  "sector": "Telemarketing",
+  "location": "Unidade principal"
+}
