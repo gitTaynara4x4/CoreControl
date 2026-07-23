@@ -1,70 +1,95 @@
 from __future__ import annotations
 
-import html
+import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.policy import SMTP
+from email.utils import formatdate, make_msgid
 
 from .config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class EmailDeliveryError(RuntimeError):
     """Falha controlada ao entregar uma mensagem de e-mail."""
 
 
+def _mask_email(value: str) -> str:
+    local, separator, domain = value.partition("@")
+    if not separator:
+        return "***"
+    visible = local[:2] if len(local) > 2 else local[:1]
+    return f"{visible}***@{domain}"
+
+
 def send_password_reset_email(*, recipient_name: str, recipient_email: str, reset_url: str) -> None:
+    """Envia a recuperação em texto simples para maximizar a entrega.
+
+    A versão anterior usava uma mensagem HTML elaborada. O Gmail aceitava a
+    mensagem no SMTP, mas podia retê-la silenciosamente pelos filtros
+    antiphishing. Esta versão usa o mesmo formato simples que já foi confirmado
+    como entregue no servidor de produção.
+    """
     if not settings.smtp_configured:
         raise EmailDeliveryError("O envio de e-mail ainda não foi configurado no servidor.")
 
-    safe_name = html.escape(recipient_name or "usuário")
-    safe_url = html.escape(reset_url, quote=True)
+    recipient = recipient_email.strip()
+    if not recipient or "@" not in recipient:
+        raise EmailDeliveryError("O endereço de e-mail do destinatário é inválido.")
+
+    display_name = (recipient_name or "usuário").strip() or "usuário"
     expires_minutes = settings.password_reset_minutes
 
-    message = EmailMessage()
-    message["Subject"] = "Redefinição de senha | CoreTuner"
-    message["From"] = formataddr((settings.smtp_from_name, settings.smtp_sender))
-    message["To"] = recipient_email
+    message = EmailMessage(policy=SMTP)
+    message["Subject"] = "CoreTuner - link para criar nova senha"
+    # Mantém o remetente exatamente igual à conta autenticada no SMTP.
+    message["From"] = settings.smtp_sender
+    message["To"] = recipient
+    message["Reply-To"] = settings.smtp_sender
+    message["Date"] = formatdate(localtime=False, usegmt=True)
+    message_id = make_msgid(domain=settings.smtp_sender.partition("@")[2] or None)
+    message["Message-ID"] = message_id
+    message["Auto-Submitted"] = "auto-generated"
+    message["X-Auto-Response-Suppress"] = "All"
     message.set_content(
-        f"Olá, {recipient_name or 'usuário'}.\n\n"
-        "Recebemos uma solicitação para redefinir sua senha do CoreTuner.\n"
-        f"Use o link abaixo em até {expires_minutes} minutos:\n\n"
+        f"Olá, {display_name}.\n\n"
+        "Recebemos uma solicitação para criar uma nova senha da sua conta CoreTuner.\n\n"
+        f"Abra este endereço em até {expires_minutes} minutos:\n"
         f"{reset_url}\n\n"
-        "Caso você não tenha solicitado a alteração, ignore esta mensagem. "
-        "Sua senha continuará a mesma.\n"
-    )
-    message.add_alternative(
-        f"""
-        <!doctype html>
-        <html lang="pt-BR">
-          <body style="margin:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#10213d">
-            <div style="max-width:580px;margin:0 auto;padding:32px 18px">
-              <div style="background:#ffffff;border:1px solid #dce5f0;border-radius:18px;padding:34px;box-shadow:0 10px 35px rgba(15,36,72,.08)">
-                <div style="font-size:24px;font-weight:800;margin-bottom:24px">Core<span style="color:#1467f4">Tuner</span></div>
-                <h1 style="font-size:24px;margin:0 0 14px">Redefinir sua senha</h1>
-                <p style="font-size:15px;line-height:1.6;color:#5e6f88">Olá, {safe_name}. Recebemos uma solicitação para redefinir sua senha.</p>
-                <p style="font-size:15px;line-height:1.6;color:#5e6f88">O botão abaixo ficará disponível por <strong>{expires_minutes} minutos</strong> e poderá ser usado uma única vez.</p>
-                <p style="margin:28px 0">
-                  <a href="{safe_url}" style="display:inline-block;background:#1467f4;color:#ffffff;text-decoration:none;font-weight:700;padding:14px 22px;border-radius:10px">Criar nova senha</a>
-                </p>
-                <p style="font-size:12px;line-height:1.55;color:#8190a5;word-break:break-all">Se o botão não abrir, copie este endereço:<br>{safe_url}</p>
-                <hr style="border:0;border-top:1px solid #e4eaf2;margin:26px 0">
-                <p style="font-size:12px;line-height:1.55;color:#8190a5">Caso você não tenha solicitado a alteração, ignore esta mensagem. Sua senha continuará a mesma.</p>
-              </div>
-            </div>
-          </body>
-        </html>
-        """,
-        subtype="html",
+        "O link funciona uma única vez.\n\n"
+        "Caso você não tenha solicitado esta alteração, ignore esta mensagem. "
+        "Sua senha atual continuará funcionando.\n\n"
+        "Equipe CoreTuner\n"
     )
 
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=25) as smtp:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
             smtp.ehlo()
             if settings.smtp_starttls:
                 smtp.starttls(context=ssl.create_default_context())
                 smtp.ehlo()
+
             smtp.login(settings.smtp_user, settings.smtp_password)
-            smtp.send_message(message)
+            refused = smtp.send_message(
+                message,
+                from_addr=settings.smtp_user,
+                to_addrs=[recipient],
+            )
+
+            if refused:
+                raise EmailDeliveryError(
+                    "O servidor SMTP recusou o destinatário do e-mail de recuperação."
+                )
+
+        logger.info(
+            "E-mail de recuperação aceito pelo SMTP: destinatário=%s message_id=%s",
+            _mask_email(recipient),
+            message_id,
+        )
+    except EmailDeliveryError:
+        raise
     except (OSError, smtplib.SMTPException) as exc:
         raise EmailDeliveryError("Não foi possível entregar o e-mail de recuperação.") from exc
