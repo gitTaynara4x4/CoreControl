@@ -44,6 +44,13 @@ async function boot(){
 function bindBaseEvents(){
   $('#centralLoginTab').addEventListener('click',()=>setCentralAuthMode('login'));
   $('#centralRegisterTab').addEventListener('click',()=>setCentralAuthMode('register'));
+  $('#centralForgotPassword').addEventListener('click',()=>{
+    const email=$('#loginEmail').value.trim();
+    const target=new URL('/',window.location.origin);
+    target.searchParams.set('forgot','1');
+    if(email) target.searchParams.set('email',email);
+    window.location.assign(target.toString());
+  });
   $('#loginForm').addEventListener('submit',async e=>{
     e.preventDefault();
     const button=e.submitter; button.disabled=true; button.textContent='Entrando...';

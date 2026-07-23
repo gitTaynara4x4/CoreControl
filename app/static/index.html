@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CoreTuner Central</title>
   <link rel="icon" href="/static/logo.png">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=20260723-forgot-central-v1">
 </head>
 <body>
   <div id="toast" class="toast"></div>
@@ -22,6 +22,9 @@
       <form id="loginForm" class="stack">
         <label>E-mail<input id="loginEmail" type="email" autocomplete="username" required></label>
         <label>Senha<input id="loginPassword" type="password" autocomplete="current-password" required minlength="8"></label>
+        <div class="login-help-row">
+          <button id="centralForgotPassword" type="button" class="login-help-link">Esqueci minha senha</button>
+        </div>
         <button class="btn primary" type="submit">Entrar</button>
       </form>
       <form id="registerCompanyForm" class="stack hidden">
@@ -83,6 +86,6 @@
     <div id="modal" class="modal"></div>
   </div>
 
-  <script src="/static/app.js?v=20260722-company-auth-v1"></script>
+  <script src="/static/app.js?v=20260723-forgot-central-v1"></script>
 </body>
 </html>

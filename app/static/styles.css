@@ -14,3 +14,10 @@ button{cursor:pointer}.app-shell{min-height:100%;display:grid;grid-template-colu
 
 /* CoreTuner 0.4.3 — cadastro da empresa no painel */
 .login-card-wide{width:min(470px,calc(100% - 30px))}.login-tabs{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:5px;background:#eef3f9;border-radius:12px;margin:18px 0}.login-tabs button{border:0;background:transparent;border-radius:9px;padding:10px;color:var(--muted);font-weight:800}.login-tabs button.active{background:#fff;color:var(--blue);box-shadow:0 3px 12px rgba(15,36,72,.09)}
+
+
+/* CoreTuner 0.4.5 — recuperação de senha no login do Central */
+.login-help-row{display:flex;justify-content:flex-end;margin-top:-6px}
+.login-help-link{border:0;background:transparent;padding:0;color:var(--blue);font-weight:700;font-size:13px;cursor:pointer}
+.login-help-link:hover{text-decoration:underline}
+.login-help-link:focus-visible{outline:2px solid rgba(31,103,255,.35);outline-offset:4px;border-radius:4px}
