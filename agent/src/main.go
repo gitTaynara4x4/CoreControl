@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.4.3"
+const agentVersion = "0.4.7"
 
 type Config struct {
 	ServerURL         string `json:"server_url"`
@@ -35,27 +35,30 @@ type Config struct {
 }
 
 type MachineSnapshot struct {
-	DeviceUID      string   `json:"device_uid"`
-	Hostname       string   `json:"hostname"`
-	Manufacturer   string   `json:"manufacturer"`
-	Model          string   `json:"model"`
-	SerialNumber   string   `json:"serial_number"`
-	OSName         string   `json:"os_name"`
-	OSVersion      string   `json:"os_version"`
-	CPUPercent     *float64 `json:"cpu_percent"`
-	MemoryPercent  *float64 `json:"memory_percent"`
-	MemoryUsedGB   *float64 `json:"memory_used_gb"`
-	MemoryTotalGB  *float64 `json:"memory_total_gb"`
-	DiskPercent    *float64 `json:"disk_percent"`
-	DiskFreeGB     *float64 `json:"disk_free_gb"`
-	DiskTotalGB    *float64 `json:"disk_total_gb"`
-	TemperatureC   *float64 `json:"temperature_c"`
-	UptimeSeconds  *int64   `json:"uptime_seconds"`
-	IPLocal        string   `json:"ip_local"`
-	NetworkName    string   `json:"network_name"`
-	DefenderActive *bool    `json:"defender_active"`
-	FirewallActive *bool    `json:"firewall_active"`
-	Profile        string   `json:"profile"`
+	DeviceUID            string   `json:"device_uid"`
+	Hostname             string   `json:"hostname"`
+	Manufacturer         string   `json:"manufacturer"`
+	Model                string   `json:"model"`
+	SerialNumber         string   `json:"serial_number"`
+	OSName               string   `json:"os_name"`
+	OSVersion            string   `json:"os_version"`
+	CPUPercent           *float64 `json:"cpu_percent"`
+	MemoryPercent        *float64 `json:"memory_percent"`
+	MemoryUsedGB         *float64 `json:"memory_used_gb"`
+	MemoryTotalGB        *float64 `json:"memory_total_gb"`
+	DiskPercent          *float64 `json:"disk_percent"`
+	DiskFreeGB           *float64 `json:"disk_free_gb"`
+	DiskTotalGB          *float64 `json:"disk_total_gb"`
+	TemperatureC         *float64 `json:"temperature_c"`
+	UptimeSeconds        *int64   `json:"uptime_seconds"`
+	IPLocal              string   `json:"ip_local"`
+	NetworkName          string   `json:"network_name"`
+	DefenderActive       *bool    `json:"defender_active"`
+	FirewallActive       *bool    `json:"firewall_active"`
+	Profile              string   `json:"profile"`
+	RemoteAgentInstalled bool     `json:"remote_agent_installed"`
+	RemoteAgentRunning   bool     `json:"remote_agent_running"`
+	RemoteServiceName    string   `json:"remote_service_name"`
 }
 
 type enrollRequest struct {
@@ -327,8 +330,11 @@ func (a *Agent) runCycle() error {
 		FirewallActive: snapshot.FirewallActive,
 		Profile:        snapshot.Profile,
 		Extra: map[string]interface{}{
-			"agent_version": agentVersion,
-			"runtime":       runtime.GOOS + "/" + runtime.GOARCH,
+			"agent_version":          agentVersion,
+			"runtime":                runtime.GOOS + "/" + runtime.GOARCH,
+			"remote_agent_installed": snapshot.RemoteAgentInstalled,
+			"remote_agent_running":   snapshot.RemoteAgentRunning,
+			"remote_service_name":    snapshot.RemoteServiceName,
 		},
 	}
 	if err := a.postJSON("/api/agent/telemetry", payload, a.cfg.AgentSecret, nil); err != nil {

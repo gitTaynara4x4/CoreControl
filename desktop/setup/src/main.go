@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.4"
+const appVersion = "0.4.7"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -222,6 +222,7 @@ type App struct {
 	status         syscall.Handle
 	title          syscall.Handle
 	subtitle       syscall.Handle
+	installNotice  string
 }
 
 var app *App
@@ -620,11 +621,17 @@ func (a *App) installCurrent() {
 		"manufacturer": machine.Manufacturer, "model": machine.Model, "serial_number": machine.SerialNumber,
 		"os_name": machine.OSName, "os_version": machine.OSVersion, "agent_version": appVersion,
 	}
+	installRemote := message(
+		"Acesso remoto CoreTuner",
+		"Deseja instalar também o acesso remoto para suporte técnico?\n\nO Windows solicitará autorização de administrador. Técnicos autorizados poderão controlar a tela deste computador durante um atendimento.",
+		MB_YESNO|MB_ICONQUESTION,
+	) == IDYES
+
 	setText(a.status, "Cadastrando o computador na empresa...")
 	var resp InstallResponse
 	err = a.request("POST", a.serverURL+"/api/devices/install", payload, a.token, &resp)
 	if err == nil {
-		err = a.installFiles(machine, name, getText(a.controls[idSector]), getText(a.controls[idLocation]), resp)
+		err = a.installFiles(machine, name, getText(a.controls[idSector]), getText(a.controls[idLocation]), resp, installRemote)
 	}
 	enable(a.controls[idInstall], true)
 	if err != nil {
@@ -633,12 +640,17 @@ func (a *App) installCurrent() {
 		return
 	}
 	setText(a.status, "CoreTuner instalado e conectado com sucesso.")
-	message("CoreTuner instalado", fmt.Sprintf("Empresa: %s\nComputador: %s\n\nO agente foi instalado e já está enviando o diagnóstico técnico.", resp.CompanyName, name), MB_OK|MB_ICONINFORMATION)
+	notice := strings.TrimSpace(a.installNotice)
+	if notice == "" {
+		notice = "Acesso remoto não foi solicitado nesta instalação."
+	}
+	message("CoreTuner instalado", fmt.Sprintf("Empresa: %s\nComputador: %s\n\nO agente de diagnóstico já está enviando informações técnicas.\n%s", resp.CompanyName, name, notice), MB_OK|MB_ICONINFORMATION)
 	time.Sleep(1200 * time.Millisecond)
 	a.refreshDevices()
 }
 
-func (a *App) installFiles(machine Machine, name, sector, location string, resp InstallResponse) error {
+func (a *App) installFiles(machine Machine, name, sector, location string, resp InstallResponse, installRemote bool) error {
+	a.installNotice = ""
 	localAppData := os.Getenv("LOCALAPPDATA")
 	if localAppData == "" {
 		home, _ := os.UserHomeDir()
@@ -725,8 +737,54 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 	}
 	cmd := hiddenCommand(agentPath, "-config", configPath)
 	_ = cmd.Start()
+
+	if installRemote {
+		setText(a.status, "Instalando acesso remoto autorizado...")
+		if err := a.installRemoteAgent(manifest); err != nil {
+			a.installNotice = "O CoreTuner foi instalado, mas o acesso remoto não foi concluído: " + err.Error()
+		} else {
+			a.installNotice = "Acesso remoto instalado e vinculado ao CoreTuner Remote."
+		}
+	}
+
 	_ = exec.Command(corePath).Start()
 	return nil
+}
+
+func (a *App) installRemoteAgent(manifest ComponentManifest) error {
+	if installed, running := remoteAgentStatus(); installed && running {
+		return nil
+	}
+	info, ok := manifest.Files["CoreTunerRemoteAgent.exe"]
+	if !ok {
+		return errors.New("o servidor não forneceu o módulo de acesso remoto")
+	}
+	raw, err := a.downloadComponent(info)
+	if err != nil {
+		return fmt.Errorf("falha ao baixar o módulo remoto: %w", err)
+	}
+	tempDir := filepath.Join(os.TempDir(), "CoreTuner")
+	if err := os.MkdirAll(tempDir, 0700); err != nil {
+		return fmt.Errorf("não foi possível preparar o instalador remoto: %w", err)
+	}
+	installerPath := filepath.Join(tempDir, "CoreTunerRemoteAgent.exe")
+	defer os.Remove(installerPath)
+	if err := writeAtomic(installerPath, raw, 0700); err != nil {
+		return fmt.Errorf("não foi possível preparar o instalador remoto: %w", err)
+	}
+	if err := runElevatedAndWait(installerPath, "-fullinstall", 2*time.Minute); err != nil {
+		if installed, running := remoteAgentStatus(); installed && running {
+			return nil
+		}
+		return err
+	}
+	for i := 0; i < 30; i++ {
+		if installed, running := remoteAgentStatus(); installed && running {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+	return errors.New("o serviço remoto não iniciou dentro do tempo esperado")
 }
 
 func (a *App) downloadComponent(info ComponentInfo) ([]byte, error) {

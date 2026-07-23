@@ -86,13 +86,14 @@ function setupUser(){
   $('#userInitial').textContent=(state.user.name||'A').slice(0,1).toUpperCase();
   const usersBtn=$('[data-page="users"]'); usersBtn.classList.toggle('hidden',!['platform_admin','company_admin'].includes(state.user.role));
 }
-function startRefresh(){ clearInterval(state.refreshTimer); state.refreshTimer=setInterval(()=>{ if(['overview','devices','alerts'].includes(state.page)) renderCurrent(false); },15000); }
+function startRefresh(){ clearInterval(state.refreshTimer); state.refreshTimer=setInterval(()=>{ if(['overview','devices','alerts','remote'].includes(state.page)) renderCurrent(false); },15000); }
 
 const pageMeta={
   overview:['Visão geral','Acompanhe as empresas e computadores em tempo quase real.'],
   companies:['Empresas','Organize cada cliente e os computadores vinculados.'],
   devices:['Computadores','Veja saúde, uso e alertas de todas as máquinas autorizadas.'],
   alerts:['Alertas','Priorize o que exige atenção técnica.'],
+  remote:['Acesso remoto','Acesse computadores autorizados com registro da solicitação.'],
   users:['Usuários e permissões','Controle quem pode visualizar ou administrar cada empresa.'],
   company:['Detalhes da empresa','Computadores, situação e instalação de novos agentes.'],
   device:['Detalhes do computador','Diagnóstico técnico e histórico de telemetria.']
@@ -110,6 +111,7 @@ async function renderCurrent(showBusy=true){
     else if(state.page==='companies') await renderCompanies();
     else if(state.page==='devices') await renderDevices();
     else if(state.page==='alerts') await renderAlerts();
+    else if(state.page==='remote') await renderRemote();
     else if(state.page==='users') await renderUsers();
     else if(state.page==='company') await renderCompany(state.selectedCompany);
     else if(state.page==='device') await renderDevice(state.selectedDevice);
@@ -165,8 +167,14 @@ async function renderCompany(companyId){
   $('#backCompanies').onclick=()=>navigate('companies'); $('#enrollBtn').onclick=()=>createEnrollmentToken(c.id,c.name); bindDeviceRows();
 }
 
+function remoteLabel(d){
+  if(!d.remote?.enabled) return '<span class="pill">Não configurado</span>';
+  if(d.remote?.running) return '<span class="pill resolved">Disponível</span>';
+  if(d.remote?.installed) return '<span class="pill warning">Parado</span>';
+  return '<span class="pill critical">Não instalado</span>';
+}
 function deviceTable(devices){
-  return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa/Setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Alertas</th></tr></thead><tbody>${devices.map(d=>`<tr data-device="${d.id}" style="cursor:pointer"><td><strong>${esc(d.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${esc(d.hostname)}</small></td><td>${esc(d.sector||'Não informado')}</td><td><span class="status"><i class="dot ${d.online?'online':'offline'}"></i>${d.online?'Online':'Offline'}</span></td><td><span class="health ${healthClass(d.health_score)}">${d.health_score}/100</span></td><td>${fmtNum(d.telemetry?.cpu_percent)}%</td><td>${fmtNum(d.telemetry?.memory_percent)}%</td><td>${fmtNum(d.telemetry?.disk_percent)}%</td><td>${d.alerts_open?`<span class="pill critical">${d.alerts_open}</span>`:'—'}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa/Setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Remoto</th><th>Alertas</th></tr></thead><tbody>${devices.map(d=>`<tr data-device="${d.id}" style="cursor:pointer"><td><strong>${esc(d.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${esc(d.hostname)}</small></td><td>${esc(d.sector||'Não informado')}</td><td><span class="status"><i class="dot ${d.online?'online':'offline'}"></i>${d.online?'Online':'Offline'}</span></td><td><span class="health ${healthClass(d.health_score)}">${d.health_score}/100</span></td><td>${fmtNum(d.telemetry?.cpu_percent)}%</td><td>${fmtNum(d.telemetry?.memory_percent)}%</td><td>${fmtNum(d.telemetry?.disk_percent)}%</td><td>${remoteLabel(d)}</td><td>${d.alerts_open?`<span class="pill critical">${d.alerts_open}</span>`:'—'}</td></tr>`).join('')}</tbody></table></div>`;
 }
 async function renderDevices(){
   const devices=await api('/devices');
@@ -190,8 +198,33 @@ async function renderDevice(deviceId){
         ${info('Fabricante',d.manufacturer)}${info('Modelo',d.model)}${info('Número de série',d.serial_number)}${info('Windows',`${d.os_name||''} ${d.os_version||''}`.trim())}${info('IP local',t.ip_local)}${info('Último contato',fmtDate(d.last_seen))}${info('Agente',d.agent_version)}${info('Perfil aplicado',d.profile||'Nenhum')}
       </div></div>
     </div>
-    <div class="card" style="margin-top:18px"><div class="card-header"><div><h2>Proteções e capacidade</h2><p>Coleta técnica, sem acesso a arquivos do cliente.</p></div></div><div class="info-list">${info('Memória instalada',t.memory_total_gb==null?'—':fmtNum(t.memory_total_gb,1)+' GB')}${info('Memória usada',t.memory_used_gb==null?'—':fmtNum(t.memory_used_gb,1)+' GB')}${info('Disco total',t.disk_total_gb==null?'—':fmtNum(t.disk_total_gb,1)+' GB')}${info('Espaço livre',t.disk_free_gb==null?'—':fmtNum(t.disk_free_gb,1)+' GB')}${info('Microsoft Defender',t.defender_active==null?'Não informado':t.defender_active?'Ativo':'Desativado')}${info('Firewall',t.firewall_active==null?'Não informado':t.firewall_active?'Ativo':'Desativado')}</div></div>`;
-  $('#backDevices').onclick=()=>navigate('devices'); drawChart($('#telemetryChart'),d.history);
+    <div class="grid split" style="margin-top:18px">
+      <div class="card"><div class="card-header"><div><h2>Proteções e capacidade</h2><p>Coleta técnica, sem acesso a arquivos do cliente.</p></div></div><div class="info-list">${info('Memória instalada',t.memory_total_gb==null?'—':fmtNum(t.memory_total_gb,1)+' GB')}${info('Memória usada',t.memory_used_gb==null?'—':fmtNum(t.memory_used_gb,1)+' GB')}${info('Disco total',t.disk_total_gb==null?'—':fmtNum(t.disk_total_gb,1)+' GB')}${info('Espaço livre',t.disk_free_gb==null?'—':fmtNum(t.disk_free_gb,1)+' GB')}${info('Microsoft Defender',t.defender_active==null?'Não informado':t.defender_active?'Ativo':'Desativado')}${info('Firewall',t.firewall_active==null?'Não informado':t.firewall_active?'Ativo':'Desativado')}</div></div>
+      <div class="card"><div class="card-header"><div><h2>Acesso remoto</h2><p>A solicitação fica registrada no histórico administrativo.</p></div></div><div class="remote-panel"><div>${remoteLabel(d)}<p>${d.remote?.running?'O agente remoto está conectado e pronto para suporte.':d.remote?.installed?'O módulo está instalado, mas não está conectado.':'Instale novamente pelo CoreTuner Setup autorizando o acesso remoto.'}</p></div><button id="remoteAccessBtn" class="btn primary" ${d.remote?.available?'':'disabled'}>Acessar computador</button></div></div>
+    </div>`;
+  $('#backDevices').onclick=()=>navigate('devices');
+  $('#remoteAccessBtn')?.addEventListener('click',()=>openRemoteSession(d.id));
+  drawChart($('#telemetryChart'),d.history);
+}
+
+async function openRemoteSession(deviceId){
+  const popup=window.open('about:blank','_blank');
+  try{
+    const data=await api(`/devices/${deviceId}/remote-session`,{method:'POST'});
+    if(popup){ popup.opener=null; popup.location=data.url; } else { window.location.href=data.url; }
+    toast('Acesso remoto aberto.');
+  }catch(err){
+    if(popup) popup.close();
+    toast(err.message,true);
+  }
+}
+
+async function renderRemote(){
+  const devices=await api('/devices');
+  const ready=devices.filter(d=>d.remote?.available);
+  const unavailable=devices.filter(d=>!d.remote?.available);
+  $('#content').innerHTML=`<div class="grid stats-grid" style="grid-template-columns:repeat(3,1fr)">${stat('Remoto disponível',ready.length,'Prontos para conexão','var(--green)')}${stat('Indisponíveis',unavailable.length,'Sem agente conectado','var(--amber)')}${stat('Total',devices.length,'Computadores autorizados')}</div><div class="card" style="margin-top:18px"><div class="card-header"><div><h2>Computadores com acesso remoto</h2><p>Somente administradores e técnicos autorizados podem iniciar uma sessão.</p></div></div>${devices.length?`<div class="remote-list">${devices.map(d=>`<div class="remote-row"><div><strong>${esc(d.name)}</strong><small>${esc(d.hostname)} · ${esc(d.sector||'Sem setor')}</small></div>${remoteLabel(d)}<button class="btn small ${d.remote?.available?'primary':''}" data-remote="${d.id}" ${d.remote?.available?'':'disabled'}>Acessar</button></div>`).join('')}</div>`:'<div class="empty">Nenhum computador vinculado.</div>'}</div>`;
+  $$('[data-remote]').forEach(button=>button.onclick=()=>openRemoteSession(Number(button.dataset.remote)));
 }
 function metric(label,value,suffix,percent,extra=''){ const n=value==null?'—':fmtNum(value); const level=extra||(Number(percent)>=90?'critical':Number(percent)>=75?'warning':''); return `<div class="metric ${level}"><small>${esc(label)}</small><div class="big">${n}${value==null?'':suffix}</div><div class="bar"><span style="width:${Math.max(0,Math.min(100,Number(percent)||0))}%"></span></div></div>`; }
 function info(label,value){ return `<div class="info-row"><span>${esc(label)}</span><strong>${esc(value||'—')}</strong></div>`; }

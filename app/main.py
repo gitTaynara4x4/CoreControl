@@ -62,7 +62,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.4",
+    version="0.4.7",
     docs_url="/api/docs" if not settings.is_production else None,
     redoc_url=None,
     lifespan=lifespan,
@@ -76,7 +76,7 @@ app.mount("/site", StaticFiles(directory=PUBLIC_DIR), name="site")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name, "version": "0.4.4"}
+    return {"status": "ok", "app": settings.app_name, "version": "0.4.7"}
 
 
 @app.get("/downloads/{filename}")

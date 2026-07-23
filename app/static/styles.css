@@ -21,3 +21,7 @@ button{cursor:pointer}.app-shell{min-height:100%;display:grid;grid-template-colu
 .login-help-link{border:0;background:transparent;padding:0;color:var(--blue);font-weight:700;font-size:13px;cursor:pointer}
 .login-help-link:hover{text-decoration:underline}
 .login-help-link:focus-visible{outline:2px solid rgba(31,103,255,.35);outline-offset:4px;border-radius:4px}
+
+/* CoreTuner Remote */
+.remote-panel{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:10px 2px}.remote-panel p{margin:10px 0 0;color:var(--muted);line-height:1.5}.remote-list{display:flex;flex-direction:column}.remote-row{display:grid;grid-template-columns:minmax(260px,1fr) 150px 110px;gap:18px;align-items:center;padding:16px 4px;border-bottom:1px solid var(--border)}.remote-row:last-child{border-bottom:0}.remote-row small{display:block;color:var(--muted);margin-top:5px}.btn:disabled{opacity:.48;cursor:not-allowed;box-shadow:none}
+@media(max-width:900px){.remote-row{grid-template-columns:1fr auto}.remote-row .btn{grid-column:1/-1}.remote-panel{align-items:flex-start;flex-direction:column}}

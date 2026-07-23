@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
@@ -44,6 +45,8 @@ DESKTOP_COMPONENTS = {
     "CoreTuner.exe": "application/vnd.microsoft.portable-executable",
     "CoreTunerAgent.exe": "application/vnd.microsoft.portable-executable",
 }
+if settings.remote_enabled:
+    DESKTOP_COMPONENTS[settings.remote_agent_filename] = "application/vnd.microsoft.portable-executable"
 
 
 def file_sha256(path: Path) -> str:
@@ -148,6 +151,29 @@ def health_score(sample: Telemetry | None, online: bool) -> int:
     return max(0, min(100, score))
 
 
+def sample_extra(sample: Telemetry | None) -> dict:
+    if not sample or not sample.raw_json:
+        return {}
+    try:
+        value = json.loads(sample.raw_json)
+        return value if isinstance(value, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def remote_state(sample: Telemetry | None) -> dict:
+    extra = sample_extra(sample)
+    installed = bool(extra.get("remote_agent_installed"))
+    running = bool(extra.get("remote_agent_running"))
+    return {
+        "enabled": bool(settings.remote_enabled and settings.remote_url),
+        "installed": installed,
+        "running": running,
+        "available": bool(settings.remote_enabled and settings.remote_url and running),
+        "service_name": extra.get("remote_service_name"),
+    }
+
+
 def serialize_sample(sample: Telemetry | None) -> dict | None:
     if not sample:
         return None
@@ -166,6 +192,9 @@ def serialize_sample(sample: Telemetry | None) -> dict | None:
         "network_name": sample.network_name,
         "defender_active": sample.defender_active,
         "firewall_active": sample.firewall_active,
+        "remote_agent_installed": bool(sample_extra(sample).get("remote_agent_installed")),
+        "remote_agent_running": bool(sample_extra(sample).get("remote_agent_running")),
+        "remote_service_name": sample_extra(sample).get("remote_service_name"),
     }
 
 
@@ -196,6 +225,7 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "health_score": health_score(sample, online),
         "alerts_open": int(open_alerts),
         "telemetry": serialize_sample(sample),
+        "remote": remote_state(sample),
     }
 
 
@@ -287,7 +317,7 @@ def desktop_manifest(user: CurrentUser):
             "sha256": file_sha256(path),
             "size": path.stat().st_size,
         }
-    return {"version": "0.4.3", "files": files}
+    return {"version": "0.4.7", "files": files}
 
 
 @router.get("/desktop/components/{filename}")
@@ -506,6 +536,46 @@ def get_device(device_id: int, user: CurrentUser, db: Db):
     result["history"] = [serialize_sample(sample) for sample in reversed(samples)]
     result["company_name"] = db.get(Company, device.company_id).name
     return result
+
+
+@router.post("/devices/{device_id}/remote-session")
+def create_remote_session(device_id: int, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin", "technician")
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    if not settings.remote_enabled or not settings.remote_url:
+        raise HTTPException(status_code=503, detail="Acesso remoto ainda não foi configurado no servidor")
+
+    state = remote_state(latest_telemetry(db, device.id))
+    if not state["running"]:
+        raise HTTPException(status_code=409, detail="O agente de acesso remoto não está conectado neste computador")
+
+    remote_url = (
+        f"{settings.remote_url}/?gotodevicername={quote(device.hostname, safe='')}"
+        "&viewmode=11"
+    )
+    db.add(
+        AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action="remote.session.request",
+            details=json.dumps(
+                {"hostname": device.hostname, "remote_url": settings.remote_url},
+                ensure_ascii=False,
+            ),
+        )
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "device_id": device.id,
+        "device_name": device.name,
+        "hostname": device.hostname,
+        "url": remote_url,
+    }
 
 
 @router.get("/alerts")

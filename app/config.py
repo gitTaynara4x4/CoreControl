@@ -58,6 +58,9 @@ class Settings:
     token_minutes: int = _int_env("CORETUNER_TOKEN_MINUTES", 720)
     offline_after_seconds: int = _int_env("CORETUNER_OFFLINE_AFTER_SECONDS", 180)
     telemetry_retention_days: int = _int_env("CORETUNER_TELEMETRY_RETENTION_DAYS", 30)
+    remote_enabled: bool = _bool_env("CORETUNER_REMOTE_ENABLED", False)
+    remote_url: str = os.getenv("CORETUNER_REMOTE_URL", "").strip().rstrip("/")
+    remote_agent_filename: str = os.getenv("CORETUNER_REMOTE_AGENT_FILENAME", "CoreTunerRemoteAgent.exe").strip() or "CoreTunerRemoteAgent.exe"
     smtp_host: str = os.getenv("CORETUNER_SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port: int = _int_env("CORETUNER_SMTP_PORT", 587)
     smtp_user: str = os.getenv("CORETUNER_SMTP_USER", "").strip()

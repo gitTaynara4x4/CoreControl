@@ -24,6 +24,7 @@ const (
 	serviceQueryStatus  = 0x0004
 	scStatusProcessInfo = 0
 	serviceRunning      = 4
+	th32csSnapProcess   = 0x00000002
 )
 
 type memoryStatusEx struct {
@@ -41,6 +42,19 @@ type serviceStatusProcess struct {
 	CheckPoint, WaitHint, ProcessID, ServiceFlags uint32
 }
 
+type processEntry32 struct {
+	Size            uint32
+	Usage           uint32
+	ProcessID       uint32
+	DefaultHeapID   uintptr
+	ModuleID        uint32
+	Threads         uint32
+	ParentProcessID uint32
+	PriClassBase    int32
+	Flags           uint32
+	ExeFile         [260]uint16
+}
+
 var (
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 	advapi32 = syscall.NewLazyDLL("advapi32.dll")
@@ -51,6 +65,9 @@ var (
 	procGetDiskFreeSpaceExW  = kernel32.NewProc("GetDiskFreeSpaceExW")
 	procGetSystemTimes       = kernel32.NewProc("GetSystemTimes")
 	procGetTickCount64       = kernel32.NewProc("GetTickCount64")
+	procCreateToolhelp32Snap = kernel32.NewProc("CreateToolhelp32Snapshot")
+	procProcess32FirstW      = kernel32.NewProc("Process32FirstW")
+	procProcess32NextW       = kernel32.NewProc("Process32NextW")
 
 	procRegOpenKeyExW        = advapi32.NewProc("RegOpenKeyExW")
 	procRegQueryValueExW     = advapi32.NewProc("RegQueryValueExW")
@@ -137,6 +154,10 @@ func collectWindowsSnapshotNative() (MachineSnapshot, error) {
 	if value, known := serviceIsRunning("MpsSvc"); known {
 		snapshot.FirewallActive = boolPtr(value)
 	}
+	installed, running, serviceName := meshRemoteStatus()
+	snapshot.RemoteAgentInstalled = installed
+	snapshot.RemoteAgentRunning = running
+	snapshot.RemoteServiceName = serviceName
 
 	// Temperatura permanece nula quando o hardware não oferece uma API nativa segura.
 	// Esta versão não abre PowerShell, WMI externo ou console para consultar sensores.
@@ -269,6 +290,60 @@ func serviceIsRunning(name string) (bool, bool) {
 		return false, false
 	}
 	return status.CurrentState == serviceRunning, true
+}
+
+func meshRemoteStatus() (bool, bool, string) {
+	serviceNames := []string{"Mesh Agent", "MeshAgent", "MeshCentral Agent"}
+	for _, serviceName := range serviceNames {
+		if running, known := serviceIsRunning(serviceName); known {
+			return true, running, serviceName
+		}
+	}
+	if processExists("meshagent.exe") {
+		return true, true, "Mesh Agent"
+	}
+	paths := []string{
+		filepath.Join(os.Getenv("ProgramFiles"), "Mesh Agent", "MeshAgent.exe"),
+		filepath.Join(os.Getenv("ProgramFiles"), "Mesh Agent", "meshagent.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Mesh Agent", "MeshAgent.exe"),
+	}
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err == nil {
+			return true, false, "Mesh Agent"
+		}
+	}
+	return false, false, ""
+}
+
+func processExists(target string) bool {
+	snapshot, _, _ := procCreateToolhelp32Snap.Call(th32csSnapProcess, 0)
+	if snapshot == 0 || snapshot == ^uintptr(0) {
+		return false
+	}
+	defer procCloseHandle.Call(snapshot)
+	entry := processEntry32{Size: uint32(unsafe.Sizeof(processEntry32{}))}
+	ok, _, _ := procProcess32FirstW.Call(snapshot, uintptr(unsafe.Pointer(&entry)))
+	for ok != 0 {
+		name := strings.ToLower(string(utf16.Decode(trimUTF16(entry.ExeFile[:]))))
+		if name == strings.ToLower(target) {
+			return true
+		}
+		entry.Size = uint32(unsafe.Sizeof(processEntry32{}))
+		ok, _, _ = procProcess32NextW.Call(snapshot, uintptr(unsafe.Pointer(&entry)))
+	}
+	return false
+}
+
+func trimUTF16(values []uint16) []uint16 {
+	for index, value := range values {
+		if value == 0 {
+			return values[:index]
+		}
+	}
+	return values
 }
 
 func regString(subkey, name string) string {

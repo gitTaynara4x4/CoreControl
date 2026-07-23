@@ -14,7 +14,9 @@ os.environ["CORETUNER_SMTP_PORT"] = "587"
 os.environ["CORETUNER_SMTP_USER"] = "sender@test.example.com"
 os.environ["CORETUNER_SMTP_PASSWORD"] = "test-app-password"
 os.environ["CORETUNER_SMTP_FROM_EMAIL"] = "sender@test.example.com"
-os.environ.pop("CORETUNER_DATABASE_URL", None)
+os.environ["CORETUNER_REMOTE_ENABLED"] = "true"
+os.environ["CORETUNER_REMOTE_URL"] = "https://remote.test.example.com"
+os.environ["CORETUNER_DATABASE_URL"] = f"sqlite:///{_tmp.name}/coretuner-test.db"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
@@ -104,6 +106,11 @@ def test_setup_directly_registers_current_device_and_agent_sends_telemetry():
                 "defender_active": True,
                 "firewall_active": True,
                 "profile": "Nenhum",
+                "extra": {
+                    "remote_agent_installed": True,
+                    "remote_agent_running": True,
+                    "remote_service_name": "Mesh Agent",
+                },
             },
         )
         assert telemetry.status_code == 200, telemetry.text
@@ -112,6 +119,12 @@ def test_setup_directly_registers_current_device_and_agent_sends_telemetry():
         assert devices.status_code == 200
         assert len(devices.json()) == 1
         assert devices.json()[0]["telemetry"]["disk_percent"] == 93.0
+        assert devices.json()[0]["remote"]["available"] is True
+
+        remote = client.post(f"/api/devices/{devices.json()[0]['id']}/remote-session")
+        assert remote.status_code == 200, remote.text
+        assert "gotodevicername=DESKTOP-TEST" in remote.json()["url"]
+        assert "viewmode=11" in remote.json()["url"]
 
         alerts = client.get("/api/alerts?status_filter=active")
         assert any(item["type"] == "disk_low" for item in alerts.json())
@@ -125,6 +138,11 @@ def test_download_requires_company_login_and_password():
         assert unauthenticated.status_code == 401
 
         register_company(client, "download")
+
+        manifest = client.get("/api/desktop/manifest")
+        assert manifest.status_code == 200, manifest.text
+        assert "CoreTunerRemoteAgent.exe" in manifest.json()["files"]
+        assert manifest.json()["files"]["CoreTunerRemoteAgent.exe"]["sha256"]
 
         wrong = client.post("/api/public/download-ticket", json={"password": "0000"})
         assert wrong.status_code == 401
@@ -248,4 +266,4 @@ def test_site_central_and_health_are_served():
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.4.4"
+        assert health.json()["version"] == "0.4.7"
