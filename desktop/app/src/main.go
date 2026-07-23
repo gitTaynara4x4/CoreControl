@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.3"
+const appVersion = "0.4.4"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -73,18 +73,19 @@ const (
 )
 
 const (
-	idServer       = 101
-	idEmail        = 102
-	idPassword     = 103
-	idLogin        = 104
-	idShowRegister = 105
-	idCompany      = 111
-	idResponsible  = 112
-	idRegEmail     = 113
-	idRegPassword  = 114
-	idRegConfirm   = 115
-	idRegister     = 116
-	idShowLogin    = 117
+	idServer         = 101
+	idEmail          = 102
+	idPassword       = 103
+	idLogin          = 104
+	idShowRegister   = 105
+	idForgotPassword = 106
+	idCompany        = 111
+	idResponsible    = 112
+	idRegEmail       = 113
+	idRegPassword    = 114
+	idRegConfirm     = 115
+	idRegister       = 116
+	idShowLogin      = 117
 )
 
 type POINT struct{ X, Y int32 }
@@ -483,6 +484,7 @@ func (a *App) buildLogin() {
 	add(idPassword, "EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, false)
 	add(idLogin, "BUTTON", "Entrar", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON, false)
 	add(idShowRegister, "BUTTON", "Criar empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, false)
+	add(idForgotPassword, "BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, false)
 	add(idCompany, "EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, true)
 	add(idResponsible, "EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, true)
 	add(idRegEmail, "EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, true)
@@ -511,6 +513,7 @@ func (a *App) layoutLogin() {
 	setpos(idPassword, cx, int32(top+140), w, 34)
 	setpos(idLogin, cx, int32(top+200), 230, 42)
 	setpos(idShowRegister, cx+250, int32(top+200), 230, 42)
+	setpos(idForgotPassword, cx, int32(top+255), w, 36)
 	ys := []int{top, top + 62, top + 124, top + 186, top + 248}
 	ids := []int{idCompany, idResponsible, idRegEmail, idRegPassword, idRegConfirm}
 	for i, id := range ids {
@@ -546,6 +549,8 @@ func (a *App) command(id int) {
 		a.showLogin("login")
 	case idLogin:
 		go a.login()
+	case idForgotPassword:
+		a.openPasswordRecovery()
 	case idRegister:
 		go a.register()
 	}
@@ -565,6 +570,16 @@ func (a *App) server() (string, error) {
 	saveServerURL(raw)
 	return raw, nil
 }
+func (a *App) openPasswordRecovery() {
+	server, err := a.server()
+	if err != nil {
+		message("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+		return
+	}
+	target := server + "/?forgot=1"
+	procShellExecute.Call(uintptr(a.hwnd), uintptr(unsafe.Pointer(utf16("open"))), uintptr(unsafe.Pointer(utf16(target))), 0, 0, SW_SHOWNORMAL)
+}
+
 func (a *App) login() {
 	a.setBusy(true, "Entrando na empresa...")
 	defer a.setBusy(false, "")

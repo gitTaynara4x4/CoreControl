@@ -13,6 +13,7 @@ from .config import settings
 from .db import Base, SessionLocal, engine
 from .models import User
 from .public_api import DOWNLOAD_FILENAME, router as public_router
+from .password_reset import router as password_reset_router
 from .security import decode_download_token, hash_password
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -61,12 +62,13 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.3",
+    version="0.4.4",
     docs_url="/api/docs" if not settings.is_production else None,
     redoc_url=None,
     lifespan=lifespan,
 )
 app.include_router(public_router)
+app.include_router(password_reset_router)
 app.include_router(api_router)
 app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
 app.mount("/site", StaticFiles(directory=PUBLIC_DIR), name="site")
@@ -74,7 +76,7 @@ app.mount("/site", StaticFiles(directory=PUBLIC_DIR), name="site")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name, "version": "0.4.3"}
+    return {"status": "ok", "app": settings.app_name, "version": "0.4.4"}
 
 
 @app.get("/downloads/{filename}")

@@ -10,6 +10,23 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=8, max_length=200)
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=300)
+    password: str = Field(min_length=10, max_length=200)
+    password_confirmation: str = Field(min_length=10, max_length=200)
+
+    @field_validator("password_confirmation")
+    @classmethod
+    def reset_passwords_match(cls, value: str, info):
+        if info.data.get("password") and value != info.data["password"]:
+            raise ValueError("As senhas não conferem")
+        return value
+
+
 class CompanyRegistrationRequest(BaseModel):
     company_name: str = Field(min_length=2, max_length=160)
     responsible_name: str = Field(min_length=2, max_length=120)

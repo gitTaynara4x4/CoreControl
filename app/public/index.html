@@ -216,6 +216,7 @@
         <label>Senha<input id="siteLoginPassword" type="password" autocomplete="current-password" minlength="8" required></label>
         <div class="form-error" id="siteLoginError" role="alert"></div>
         <button class="btn btn-primary btn-full" type="submit">Entrar</button>
+        <div class="auth-link-row"><button type="button" class="auth-link" id="forgotPasswordButton">Esqueci minha senha</button></div>
       </form>
 
       <form id="siteRegisterForm" class="auth-form" hidden>
@@ -231,7 +232,29 @@
         <div class="form-error" id="siteRegisterError" role="alert"></div>
         <button class="btn btn-primary btn-full" type="submit">Criar empresa e entrar</button>
       </form>
-      <small>As senhas são enviadas ao servidor por HTTPS em produção e armazenadas com hash.</small>
+
+      <form id="siteForgotForm" class="auth-form" hidden>
+        <h2>Recuperar senha</h2>
+        <p>Informe o e-mail da conta. Enviaremos um link seguro e temporário para criar uma nova senha.</p>
+        <label>E-mail<input id="forgotEmail" type="email" autocomplete="email" required></label>
+        <div class="form-error" id="siteForgotError" role="alert"></div>
+        <div class="form-success" id="siteForgotSuccess" role="status"></div>
+        <button class="btn btn-primary btn-full" type="submit">Enviar link de recuperação</button>
+        <div class="auth-link-row"><button type="button" class="auth-link" id="backToLoginButton">Voltar para o login</button></div>
+      </form>
+
+      <form id="siteResetForm" class="auth-form" hidden>
+        <h2>Criar nova senha</h2>
+        <p>Defina uma nova senha com pelo menos 10 caracteres.</p>
+        <div class="auth-grid">
+          <label>Nova senha<input id="resetPassword" type="password" autocomplete="new-password" minlength="10" required></label>
+          <label>Confirmar senha<input id="resetPasswordConfirmation" type="password" autocomplete="new-password" minlength="10" required></label>
+        </div>
+        <div class="form-error" id="siteResetError" role="alert"></div>
+        <button class="btn btn-primary btn-full" type="submit">Salvar nova senha</button>
+        <div class="auth-link-row"><button type="button" class="auth-link" id="cancelResetButton">Voltar para o login</button></div>
+      </form>
+      <small>Os links de recuperação expiram, funcionam uma única vez e a nova senha é armazenada somente como hash.</small>
     </section>
   </div>
 
@@ -256,6 +279,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/site/site.js?v=20260722-auth-download-v1"></script>
+  <script src="/site/site.js?v=20260723-password-reset-v1"></script>
 </body>
 </html>

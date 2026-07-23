@@ -20,6 +20,13 @@ def _int_env(name: str, default: int) -> int:
         raise RuntimeError(f"A variável {name} precisa ser um número inteiro.") from exc
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on", "sim"}
+
+
 def _database_url() -> str:
     raw = os.getenv(
         "CORETUNER_DATABASE_URL",
@@ -51,6 +58,16 @@ class Settings:
     token_minutes: int = _int_env("CORETUNER_TOKEN_MINUTES", 720)
     offline_after_seconds: int = _int_env("CORETUNER_OFFLINE_AFTER_SECONDS", 180)
     telemetry_retention_days: int = _int_env("CORETUNER_TELEMETRY_RETENTION_DAYS", 30)
+    smtp_host: str = os.getenv("CORETUNER_SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port: int = _int_env("CORETUNER_SMTP_PORT", 587)
+    smtp_user: str = os.getenv("CORETUNER_SMTP_USER", "").strip()
+    smtp_password: str = os.getenv("CORETUNER_SMTP_PASSWORD", "").strip()
+    smtp_from_email: str = os.getenv("CORETUNER_SMTP_FROM_EMAIL", "").strip()
+    smtp_from_name: str = os.getenv("CORETUNER_SMTP_FROM_NAME", "CoreTuner").strip() or "CoreTuner"
+    smtp_starttls: bool = _bool_env("CORETUNER_SMTP_STARTTLS", True)
+    password_reset_minutes: int = _int_env("CORETUNER_PASSWORD_RESET_MINUTES", 20)
+    password_reset_max_attempts: int = _int_env("CORETUNER_PASSWORD_RESET_MAX_ATTEMPTS", 5)
+    password_reset_window_seconds: int = _int_env("CORETUNER_PASSWORD_RESET_WINDOW_SECONDS", 900)
 
     @property
     def secure_cookies(self) -> bool:
@@ -59,6 +76,14 @@ class Settings:
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+    @property
+    def smtp_sender(self) -> str:
+        return self.smtp_from_email or self.smtp_user
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_port and self.smtp_user and self.smtp_password and self.smtp_sender)
 
 
 settings = Settings()

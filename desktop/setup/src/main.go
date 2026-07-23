@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.3"
+const appVersion = "0.4.4"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -66,6 +66,7 @@ const (
 	idLoginPassword    = 103
 	idLoginButton      = 104
 	idShowRegister     = 105
+	idForgotPassword   = 106
 	idRegisterCompany  = 110
 	idRegisterName     = 111
 	idRegisterEmail    = 112
@@ -349,7 +350,8 @@ func buildUI() {
 	a.add(idLoginPassword, createControl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, 44, 342, 440, 32, a.hwnd, idLoginPassword), &a.loginGroup)
 	a.add(idLoginButton, createControl("BUTTON", "Entrar", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON, 44, 396, 210, 38, a.hwnd, idLoginButton), &a.loginGroup)
 	a.add(idShowRegister, createControl("BUTTON", "Criar uma empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, 274, 396, 210, 38, a.hwnd, idShowRegister), &a.loginGroup)
-	loginNote := createControl("STATIC", "Use a mesma conta criada no site ou no CoreTuner Central.", WS_CHILD|WS_VISIBLE, 44, 458, 600, 24, a.hwnd, 0)
+	a.add(idForgotPassword, createControl("BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, 44, 446, 440, 34, a.hwnd, idForgotPassword), &a.loginGroup)
+	loginNote := createControl("STATIC", "A recuperação de senha será aberta no site seguro do CoreTuner.", WS_CHILD|WS_VISIBLE, 44, 494, 600, 24, a.hwnd, 0)
 	a.loginGroup = append(a.loginGroup, loginNote)
 
 	// Register
@@ -441,6 +443,8 @@ func (a *App) handleCommand(id int) {
 		a.showMode("login")
 	case idLoginButton:
 		a.login()
+	case idForgotPassword:
+		a.openPasswordRecovery()
 	case idRegisterButton:
 		a.register()
 	case idRefresh:
@@ -779,6 +783,16 @@ func writeAtomic(path string, data []byte, perm os.FileMode) error {
 func procMessageBoxSimple(title, text string, flags uintptr) int {
 	r, _, _ := procMessageBox.Call(0, uintptr(unsafe.Pointer(utf16(text))), uintptr(unsafe.Pointer(utf16(title))), flags)
 	return int(r)
+}
+
+func (a *App) openPasswordRecovery() {
+	server, err := a.server()
+	if err != nil {
+		procMessageBoxSimple("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+		return
+	}
+	target := server + "/?forgot=1"
+	procShellExecute.Call(uintptr(a.hwnd), uintptr(unsafe.Pointer(utf16("open"))), uintptr(unsafe.Pointer(utf16(target))), 0, 0, SW_SHOWNORMAL)
 }
 
 func (a *App) openCentral() {

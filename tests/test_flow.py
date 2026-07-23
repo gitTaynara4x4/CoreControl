@@ -9,6 +9,11 @@ os.environ["CORETUNER_ADMIN_PASSWORD"] = "TestPassword123!"
 os.environ["CORETUNER_ENV"] = "development"
 os.environ["CORETUNER_DOWNLOAD_PASSWORD"] = "test-download-password"
 os.environ["CORETUNER_DOWNLOAD_MAX_ATTEMPTS"] = "20"
+os.environ["CORETUNER_SMTP_HOST"] = "smtp.test.example.com"
+os.environ["CORETUNER_SMTP_PORT"] = "587"
+os.environ["CORETUNER_SMTP_USER"] = "sender@test.example.com"
+os.environ["CORETUNER_SMTP_PASSWORD"] = "test-app-password"
+os.environ["CORETUNER_SMTP_FROM_EMAIL"] = "sender@test.example.com"
 os.environ.pop("CORETUNER_DATABASE_URL", None)
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -166,6 +171,65 @@ def test_duplicate_email_and_password_confirmation_are_rejected():
         assert mismatch.status_code == 422
 
 
+def test_password_reset_email_token_and_single_use(monkeypatch):
+    sent = {}
+
+    def fake_send_password_reset_email(*, recipient_name, recipient_email, reset_url):
+        sent["name"] = recipient_name
+        sent["email"] = recipient_email
+        sent["url"] = reset_url
+
+    monkeypatch.setattr(
+        "app.password_reset.send_password_reset_email",
+        fake_send_password_reset_email,
+    )
+
+    with TestClient(app) as client:
+        register_company(client, "reset")
+        client.post("/api/auth/logout")
+
+        requested = client.post(
+            "/api/auth/password-reset/request",
+            json={"email": "cliente-reset@example.com"},
+        )
+        assert requested.status_code == 200, requested.text
+        assert "Se o e-mail" in requested.json()["message"]
+        assert sent["email"] == "cliente-reset@example.com"
+        token = sent["url"].split("reset_token=", 1)[1]
+
+        changed = client.post(
+            "/api/auth/password-reset/confirm",
+            json={
+                "token": token,
+                "password": "NewCompanyPassword123!",
+                "password_confirmation": "NewCompanyPassword123!",
+            },
+        )
+        assert changed.status_code == 200, changed.text
+
+        old_login = client.post(
+            "/api/auth/login",
+            json={"email": "cliente-reset@example.com", "password": "CompanyPassword123!"},
+        )
+        assert old_login.status_code == 401
+
+        new_login = client.post(
+            "/api/auth/login",
+            json={"email": "cliente-reset@example.com", "password": "NewCompanyPassword123!"},
+        )
+        assert new_login.status_code == 200, new_login.text
+
+        reused = client.post(
+            "/api/auth/password-reset/confirm",
+            json={
+                "token": token,
+                "password": "AnotherPassword123!",
+                "password_confirmation": "AnotherPassword123!",
+            },
+        )
+        assert reused.status_code == 400
+
+
 def test_site_central_and_health_are_served():
     with TestClient(app) as client:
         landing = client.get("/")
@@ -184,4 +248,4 @@ def test_site_central_and_health_are_served():
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.4.3"
+        assert health.json()["version"] == "0.4.4"
