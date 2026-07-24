@@ -207,14 +207,66 @@ async function renderDevice(deviceId){
   drawChart($('#telemetryChart'),d.history);
 }
 
+function ensureRemoteViewer(){
+  let viewer=$('#remoteViewer');
+  if(viewer) return viewer;
+  viewer=document.createElement('section');
+  viewer.id='remoteViewer';
+  viewer.className='remote-viewer hidden';
+  viewer.innerHTML=`
+    <header class="remote-viewer-header">
+      <div><strong id="remoteViewerTitle">Acesso remoto</strong><small id="remoteViewerStatus">Preparando conexão segura...</small></div>
+      <div class="remote-viewer-actions">
+        <button id="remoteViewerNewTab" type="button" class="btn small">Abrir em nova guia</button>
+        <button id="remoteViewerClose" type="button" class="btn danger small">Encerrar</button>
+      </div>
+    </header>
+    <div class="remote-viewer-body">
+      <div id="remoteViewerLoading" class="remote-viewer-loading"><span></span><p>Conectando ao computador...</p></div>
+      <iframe id="remoteViewerFrame" title="Área de trabalho remota" allow="clipboard-read; clipboard-write" referrerpolicy="no-referrer"></iframe>
+    </div>`;
+  document.body.appendChild(viewer);
+  $('#remoteViewerClose').onclick=closeRemoteViewer;
+  document.addEventListener('keydown',event=>{ if(event.key==='Escape'&&!viewer.classList.contains('hidden')) closeRemoteViewer(); });
+  return viewer;
+}
+function closeRemoteViewer(){
+  const viewer=$('#remoteViewer');
+  const frame=$('#remoteViewerFrame');
+  if(frame) frame.src='about:blank';
+  if(viewer) viewer.classList.add('hidden');
+  document.body.classList.remove('remote-viewer-open');
+}
+async function requestRemoteUrl(deviceId){
+  return api(`/devices/${deviceId}/remote-session`,{method:'POST'});
+}
 async function openRemoteSession(deviceId){
-  const popup=window.open('about:blank','_blank');
+  const viewer=ensureRemoteViewer();
+  const frame=$('#remoteViewerFrame');
+  const loading=$('#remoteViewerLoading');
+  viewer.classList.remove('hidden');
+  document.body.classList.add('remote-viewer-open');
+  loading.classList.remove('hidden');
+  frame.classList.remove('ready');
+  frame.src='about:blank';
+  $('#remoteViewerTitle').textContent='Acesso remoto';
+  $('#remoteViewerStatus').textContent='Gerando acesso temporário...';
   try{
-    const data=await api(`/devices/${deviceId}/remote-session`,{method:'POST'});
-    if(popup){ popup.opener=null; popup.location=data.url; } else { window.location.href=data.url; }
-    toast('Acesso remoto aberto.');
+    const data=await requestRemoteUrl(deviceId);
+    $('#remoteViewerTitle').textContent=`Acesso remoto — ${data.device_name}`;
+    $('#remoteViewerStatus').textContent='Sessão autorizada pelo CoreTuner';
+    frame.onload=()=>{ loading.classList.add('hidden'); frame.classList.add('ready'); };
+    frame.src=data.url;
+    $('#remoteViewerNewTab').onclick=async()=>{
+      const tab=window.open('about:blank','_blank');
+      try{
+        const fresh=await requestRemoteUrl(deviceId);
+        if(tab){ tab.opener=null; tab.location=fresh.url; }
+      }catch(err){ if(tab)tab.close(); toast(err.message,true); }
+    };
+    toast('Conexão remota autorizada.');
   }catch(err){
-    if(popup) popup.close();
+    closeRemoteViewer();
     toast(err.message,true);
   }
 }

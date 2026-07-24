@@ -25,3 +25,22 @@ button{cursor:pointer}.app-shell{min-height:100%;display:grid;grid-template-colu
 /* CoreTuner Remote */
 .remote-panel{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:10px 2px}.remote-panel p{margin:10px 0 0;color:var(--muted);line-height:1.5}.remote-list{display:flex;flex-direction:column}.remote-row{display:grid;grid-template-columns:minmax(260px,1fr) 150px 110px;gap:18px;align-items:center;padding:16px 4px;border-bottom:1px solid var(--border)}.remote-row:last-child{border-bottom:0}.remote-row small{display:block;color:var(--muted);margin-top:5px}.btn:disabled{opacity:.48;cursor:not-allowed;box-shadow:none}
 @media(max-width:900px){.remote-row{grid-template-columns:1fr auto}.remote-row .btn{grid-column:1/-1}.remote-panel{align-items:flex-start;flex-direction:column}}
+
+
+/* CoreTuner 0.4.8 — visualização remota integrada */
+body.remote-viewer-open{overflow:hidden}
+.remote-viewer{position:fixed;inset:0;z-index:120;background:#0d1728;display:grid;grid-template-rows:64px minmax(0,1fr)}
+.remote-viewer.hidden{display:none}
+.remote-viewer-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:10px 18px;background:#fff;border-bottom:1px solid #dfe6ef;box-shadow:0 4px 18px rgba(4,18,42,.15)}
+.remote-viewer-header strong{display:block;font-size:16px;color:#16243a}
+.remote-viewer-header small{display:block;margin-top:3px;color:#6b7890}
+.remote-viewer-actions{display:flex;align-items:center;gap:9px}
+.remote-viewer-body{position:relative;min-height:0;background:#0d1728}
+.remote-viewer iframe{display:block;width:100%;height:100%;border:0;background:#0d1728;opacity:0;transition:opacity .18s ease}
+.remote-viewer iframe.ready{opacity:1}
+.remote-viewer-loading{position:absolute;inset:0;z-index:2;display:grid;place-content:center;justify-items:center;gap:13px;color:#eaf1ff;background:#0d1728}
+.remote-viewer-loading.hidden{display:none}
+.remote-viewer-loading span{width:36px;height:36px;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;border-radius:50%;animation:remote-spin .8s linear infinite}
+.remote-viewer-loading p{margin:0;font-size:14px}
+@keyframes remote-spin{to{transform:rotate(360deg)}}
+@media(max-width:650px){.remote-viewer{grid-template-rows:auto minmax(0,1fr)}.remote-viewer-header{align-items:flex-start;flex-direction:column}.remote-viewer-actions{width:100%}.remote-viewer-actions .btn{flex:1}}

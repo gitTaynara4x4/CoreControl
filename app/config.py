@@ -61,6 +61,10 @@ class Settings:
     remote_enabled: bool = _bool_env("CORETUNER_REMOTE_ENABLED", False)
     remote_url: str = os.getenv("CORETUNER_REMOTE_URL", "").strip().rstrip("/")
     remote_agent_filename: str = os.getenv("CORETUNER_REMOTE_AGENT_FILENAME", "CoreTunerRemoteAgent.exe").strip() or "CoreTunerRemoteAgent.exe"
+    remote_login_token_key: str = os.getenv("CORETUNER_REMOTE_LOGIN_TOKEN_KEY", "").strip()
+    remote_login_user: str = os.getenv("CORETUNER_REMOTE_LOGIN_USER", "").strip()
+    remote_login_domain: str = os.getenv("CORETUNER_REMOTE_LOGIN_DOMAIN", "").strip()
+    remote_login_token_minutes: int = _int_env("CORETUNER_REMOTE_LOGIN_TOKEN_MINUTES", 2)
     smtp_host: str = os.getenv("CORETUNER_SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port: int = _int_env("CORETUNER_SMTP_PORT", 587)
     smtp_user: str = os.getenv("CORETUNER_SMTP_USER", "").strip()
@@ -79,6 +83,16 @@ class Settings:
     @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
+
+
+    @property
+    def remote_token_configured(self) -> bool:
+        return bool(
+            self.remote_enabled
+            and self.remote_url
+            and self.remote_login_token_key
+            and self.remote_login_user
+        )
 
     @property
     def smtp_sender(self) -> str:

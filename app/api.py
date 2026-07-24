@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
@@ -18,6 +17,7 @@ from .alerts import evaluate_telemetry_alerts
 from .config import settings
 from .db import get_db
 from .models import Alert, AuditLog, Company, Device, EnrollmentToken, Telemetry, User
+from .meshcentral import MeshCentralTokenError, build_remote_desktop_url, create_login_token
 from .schemas import (
     CompanyCreate,
     CompanyRegistrationRequest,
@@ -547,15 +547,31 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
     assert_device_access(user, device)
     if not settings.remote_enabled or not settings.remote_url:
         raise HTTPException(status_code=503, detail="Acesso remoto ainda não foi configurado no servidor")
+    if not settings.remote_token_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="Login automático do acesso remoto ainda não foi configurado",
+        )
 
     state = remote_state(latest_telemetry(db, device.id))
     if not state["running"]:
         raise HTTPException(status_code=409, detail="O agente de acesso remoto não está conectado neste computador")
 
-    remote_url = (
-        f"{settings.remote_url}/?gotodevicername={quote(device.hostname, safe='')}"
-        "&viewmode=11"
-    )
+    try:
+        login_token = create_login_token(
+            login_token_key=settings.remote_login_token_key,
+            username=settings.remote_login_user,
+            domain=settings.remote_login_domain,
+            expire_minutes=settings.remote_login_token_minutes,
+        )
+        remote_url = build_remote_desktop_url(
+            base_url=settings.remote_url,
+            login_token=login_token,
+            hostname=device.hostname,
+        )
+    except MeshCentralTokenError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     db.add(
         AuditLog(
             company_id=device.company_id,
@@ -563,7 +579,11 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
             device_id=device.id,
             action="remote.session.request",
             details=json.dumps(
-                {"hostname": device.hostname, "remote_url": settings.remote_url},
+                {
+                    "hostname": device.hostname,
+                    "remote_user": settings.remote_login_user,
+                    "embedded": True,
+                },
                 ensure_ascii=False,
             ),
         )
@@ -575,6 +595,8 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
         "device_name": device.name,
         "hostname": device.hostname,
         "url": remote_url,
+        "embedded": True,
+        "expires_in_seconds": settings.remote_login_token_minutes * 60,
     }
 
 

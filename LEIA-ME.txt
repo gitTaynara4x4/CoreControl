@@ -1,0 +1,21 @@
+CoreTuner — Correção 0.4.8 (acesso remoto direto)
+
+Este pacote contém somente arquivos novos ou modificados em relação à correção 0.4.7.
+
+Substitua mantendo as pastas. Depois execute:
+  pip install -r requirements.txt
+  git add .
+  git commit -m "Abre acesso remoto direto no CoreTuner"
+  git push origin main
+
+Faça o redeploy do serviço coretuner. Não é necessário recompilar os executáveis Windows nesta correção.
+
+Variáveis obrigatórias no serviço coretuner:
+  CORETUNER_REMOTE_ENABLED=true
+  CORETUNER_REMOTE_URL=https://apps-coretuner-remote.9ywrah.easypanel.host
+  CORETUNER_REMOTE_LOGIN_TOKEN_KEY=<chave privada vigente>
+  CORETUNER_REMOTE_LOGIN_USER=coretuner-integracao
+  CORETUNER_REMOTE_LOGIN_DOMAIN=
+  CORETUNER_REMOTE_LOGIN_TOKEN_MINUTES=2
+
+O token é de uso único e expira em 2 minutos. A chave nunca deve ser enviada ao navegador, gravada no GitHub ou colocada nos executáveis.

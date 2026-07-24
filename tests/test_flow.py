@@ -16,6 +16,10 @@ os.environ["CORETUNER_SMTP_PASSWORD"] = "test-app-password"
 os.environ["CORETUNER_SMTP_FROM_EMAIL"] = "sender@test.example.com"
 os.environ["CORETUNER_REMOTE_ENABLED"] = "true"
 os.environ["CORETUNER_REMOTE_URL"] = "https://remote.test.example.com"
+os.environ["CORETUNER_REMOTE_LOGIN_TOKEN_KEY"] = "11" * 80
+os.environ["CORETUNER_REMOTE_LOGIN_USER"] = "coretuner-integracao"
+os.environ["CORETUNER_REMOTE_LOGIN_DOMAIN"] = ""
+os.environ["CORETUNER_REMOTE_LOGIN_TOKEN_MINUTES"] = "2"
 os.environ["CORETUNER_DATABASE_URL"] = f"sqlite:///{_tmp.name}/coretuner-test.db"
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -125,6 +129,9 @@ def test_setup_directly_registers_current_device_and_agent_sends_telemetry():
         assert remote.status_code == 200, remote.text
         assert "gotodevicername=DESKTOP-TEST" in remote.json()["url"]
         assert "viewmode=11" in remote.json()["url"]
+        assert "hide=63" in remote.json()["url"]
+        assert "login=" in remote.json()["url"]
+        assert remote.json()["embedded"] is True
 
         alerts = client.get("/api/alerts?status_filter=active")
         assert any(item["type"] == "disk_low" for item in alerts.json())
