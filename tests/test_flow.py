@@ -1,5 +1,6 @@
 import os
 import tempfile
+from datetime import datetime, timezone
 
 _tmp = tempfile.TemporaryDirectory()
 os.environ["CORETUNER_DATA_DIR"] = _tmp.name
@@ -20,10 +21,13 @@ os.environ["CORETUNER_REMOTE_LOGIN_TOKEN_KEY"] = "11" * 80
 os.environ["CORETUNER_REMOTE_LOGIN_USER"] = "coretuner-integracao"
 os.environ["CORETUNER_REMOTE_LOGIN_DOMAIN"] = ""
 os.environ["CORETUNER_REMOTE_LOGIN_TOKEN_MINUTES"] = "2"
+os.environ["CORETUNER_REMOTE_ADMIN_USER"] = ""
 os.environ["CORETUNER_DATABASE_URL"] = f"sqlite:///{_tmp.name}/coretuner-test.db"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
+from app.db import SessionLocal  # noqa: E402
+from app.models import Device  # noqa: E402
 
 
 def register_company(client, suffix="1"):
@@ -88,7 +92,8 @@ def test_setup_directly_registers_current_device_and_agent_sends_telemetry():
                 "serial_number": "SERIAL001",
                 "os_name": "Windows 11 Pro",
                 "os_version": "10.0",
-                "agent_version": "0.4.3",
+                "agent_version": "0.4.9",
+                "install_remote": False,
             },
         )
         assert install.status_code == 201, install.text
@@ -123,11 +128,22 @@ def test_setup_directly_registers_current_device_and_agent_sends_telemetry():
         assert devices.status_code == 200
         assert len(devices.json()) == 1
         assert devices.json()[0]["telemetry"]["disk_percent"] == 93.0
+        assert devices.json()[0]["remote"]["available"] is False
+
+        with SessionLocal() as db:
+            device = db.get(Device, devices.json()[0]["id"])
+            device.mesh_node_id = "node//NODETEST123"
+            device.remote_online = True
+            device.remote_checked_at = datetime.now(timezone.utc)
+            device.remote_last_seen = datetime.now(timezone.utc)
+            db.commit()
+
+        devices = client.get("/api/devices")
         assert devices.json()[0]["remote"]["available"] is True
 
         remote = client.post(f"/api/devices/{devices.json()[0]['id']}/remote-session")
         assert remote.status_code == 200, remote.text
-        assert "gotodevicername=DESKTOP-TEST" in remote.json()["url"]
+        assert "gotonode=NODETEST123" in remote.json()["url"]
         assert "viewmode=11" in remote.json()["url"]
         assert "hide=63" in remote.json()["url"]
         assert "login=" in remote.json()["url"]
@@ -148,8 +164,9 @@ def test_download_requires_company_login_and_password():
 
         manifest = client.get("/api/desktop/manifest")
         assert manifest.status_code == 200, manifest.text
-        assert "CoreTunerRemoteAgent.exe" in manifest.json()["files"]
-        assert manifest.json()["files"]["CoreTunerRemoteAgent.exe"]["sha256"]
+        assert "CoreTuner.exe" in manifest.json()["files"]
+        assert "CoreTunerAgent.exe" in manifest.json()["files"]
+        assert "CoreTunerRemoteAgent.exe" not in manifest.json()["files"]
 
         wrong = client.post("/api/public/download-ticket", json={"password": "0000"})
         assert wrong.status_code == 401
@@ -166,6 +183,27 @@ def test_download_requires_company_login_and_password():
         assert download.status_code == 200
         assert download.content[:2] == b"MZ"
         assert len(download.content) > 5_000_000
+
+
+def test_remote_install_returns_clear_warning_when_provisioning_is_not_configured():
+    with TestClient(app) as client:
+        auth = register_company(client, "remote-warning")
+        token = auth["access_token"]
+        response = client.post(
+            "/api/devices/install",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "device_uid": "machine-guid-remote-warning",
+                "name": "PC REMOTO",
+                "hostname": "DESKTOP-REMOTE",
+                "agent_version": "0.4.9",
+                "install_remote": True,
+            },
+        )
+        assert response.status_code == 201, response.text
+        payload = response.json()
+        assert payload["remote_agent"] is None
+        assert "automação remota" in payload["remote_warning"].lower()
 
 
 def test_duplicate_email_and_password_confirmation_are_rejected():
@@ -273,4 +311,4 @@ def test_site_central_and_health_are_served():
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.4.7"
+        assert health.json()["version"] == "0.4.9"

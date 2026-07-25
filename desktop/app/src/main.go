@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.7"
+const appVersion = "0.4.9"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 

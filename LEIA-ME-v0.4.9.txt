@@ -1,0 +1,31 @@
+CORETUNER v0.4.9 — ACESSO REMOTO AUTOMÁTICO
+
+O que foi corrigido:
+- cria um grupo MeshCentral exclusivo para cada empresa;
+- cria/garante o usuário coretuner-integracao;
+- baixa o MeshAgent correto e dinâmico do grupo;
+- substitui MeshAgent antigo ou ligado ao grupo errado, mediante confirmação do usuário;
+- espera o computador ficar realmente online no MeshCentral;
+- salva o ID real do dispositivo remoto;
+- abre diretamente o computador selecionado;
+- não considera mais o remoto disponível só porque existe um serviço Mesh Agent no Windows.
+
+DEPLOY
+1. Extraia este pacote sobre a raiz do projeto, preservando as pastas.
+2. Confira as variáveis CORETUNER_REMOTE_* descritas em docs/ACESSO_REMOTO.md.
+3. Faça commit/push e reimplante o serviço principal coretuner.
+4. Baixe um CoreTunerSetup.exe novo pelo site.
+5. Execute o Setup, escolha SIM para o acesso remoto e autorize o Windows.
+
+Não envie chaves, senhas ou arquivos .env para o GitHub.
+
+VALIDAÇÃO REALIZADA NESTE PACOTE
+- Python compileall: OK
+- Pytest: 10 testes aprovados
+- Go test/vet para Agent, Console e Setup: OK
+- Executáveis Windows x64 recompilados e validados como PE32+
+
+SHA-256 DOS EXECUTÁVEIS
+CoreTuner.exe: d704b38d7608844409af4d5e842fb5e9940e655ee54af7d5dbd2dbd70627e772
+CoreTunerAgent.exe: b8c908a710ad598d5fc6ee83858d608806552f19e8c0913bee83536f57dd428d
+CoreTunerSetup.exe: 7b3c7d45c28a02b4c0cde69896874415db3f851d86541e0c6b09948dcb131a66

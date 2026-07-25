@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from .api import router as api_router
 from .config import settings
-from .db import Base, SessionLocal, engine
+from .db import Base, SessionLocal, apply_runtime_migrations, engine
 from .models import User
 from .public_api import DOWNLOAD_FILENAME, router as public_router
 from .password_reset import router as password_reset_router
@@ -38,6 +38,7 @@ def validate_runtime_settings() -> None:
 
 def initialize_database() -> None:
     Base.metadata.create_all(bind=engine)
+    apply_runtime_migrations()
     with SessionLocal() as db:
         admin = db.scalar(select(User).where(User.email == settings.admin_email.lower()))
         if not admin:
@@ -62,7 +63,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.7",
+    version="0.4.9",
     docs_url="/api/docs" if not settings.is_production else None,
     redoc_url=None,
     lifespan=lifespan,
@@ -76,7 +77,7 @@ app.mount("/site", StaticFiles(directory=PUBLIC_DIR), name="site")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name, "version": "0.4.7"}
+    return {"status": "ok", "app": settings.app_name, "version": "0.4.9"}
 
 
 @app.get("/downloads/{filename}")

@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.7"
+const appVersion = "0.4.9"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -184,10 +184,12 @@ type Machine struct {
 }
 
 type InstallResponse struct {
-	DeviceID    int    `json:"device_id"`
-	CompanyID   int    `json:"company_id"`
-	CompanyName string `json:"company_name"`
-	AgentSecret string `json:"agent_secret"`
+	DeviceID      int              `json:"device_id"`
+	CompanyID     int              `json:"company_id"`
+	CompanyName   string           `json:"company_name"`
+	AgentSecret   string           `json:"agent_secret"`
+	RemoteAgent   *RemoteAgentInfo `json:"remote_agent"`
+	RemoteWarning string           `json:"remote_warning"`
 }
 
 type ComponentInfo struct {
@@ -195,6 +197,25 @@ type ComponentInfo struct {
 	URL      string `json:"url"`
 	SHA256   string `json:"sha256"`
 	Size     int64  `json:"size"`
+}
+
+type RemoteAgentInfo struct {
+	Filename      string `json:"filename"`
+	URL           string `json:"url"`
+	SHA256        string `json:"sha256"`
+	Size          int64  `json:"size"`
+	MeshGroupID   string `json:"mesh_group_id"`
+	MeshGroupHex  string `json:"mesh_group_hex"`
+	MeshGroupName string `json:"mesh_group_name"`
+	ServerURL     string `json:"server_url"`
+}
+
+type RemoteStatusResponse struct {
+	MeshConnected  bool   `json:"mesh_connected"`
+	MeshNodeID     string `json:"mesh_node_id"`
+	ServiceRunning bool   `json:"service_running"`
+	Available      bool   `json:"available"`
+	Warning        string `json:"warning"`
 }
 
 type ComponentManifest struct {
@@ -623,9 +644,10 @@ func (a *App) installCurrent() {
 	}
 	installRemote := message(
 		"Acesso remoto CoreTuner",
-		"Deseja instalar também o acesso remoto para suporte técnico?\n\nO Windows solicitará autorização de administrador. Técnicos autorizados poderão controlar a tela deste computador durante um atendimento.",
+		"Deseja instalar também o acesso remoto para suporte técnico?\n\nO CoreTuner criará e vinculará automaticamente este computador à empresa correta no servidor remoto. Se existir um Mesh Agent antigo ou ligado a outro servidor, ele será substituído após a autorização do Windows.\n\nTécnicos autorizados poderão controlar a tela somente durante um atendimento.",
 		MB_YESNO|MB_ICONQUESTION,
 	) == IDYES
+	payload["install_remote"] = installRemote
 
 	setText(a.status, "Cadastrando o computador na empresa...")
 	var resp InstallResponse
@@ -739,11 +761,17 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 	_ = cmd.Start()
 
 	if installRemote {
-		setText(a.status, "Instalando acesso remoto autorizado...")
-		if err := a.installRemoteAgent(manifest); err != nil {
+		setText(a.status, "Preparando acesso remoto automático...")
+		if resp.RemoteAgent == nil {
+			reason := strings.TrimSpace(resp.RemoteWarning)
+			if reason == "" {
+				reason = "o servidor não forneceu o agente remoto da empresa"
+			}
+			a.installNotice = "O CoreTuner foi instalado, mas o acesso remoto não foi concluído: " + reason
+		} else if err := a.installRemoteAgent(*resp.RemoteAgent, resp.DeviceID); err != nil {
 			a.installNotice = "O CoreTuner foi instalado, mas o acesso remoto não foi concluído: " + err.Error()
 		} else {
-			a.installNotice = "Acesso remoto instalado e vinculado ao CoreTuner Remote."
+			a.installNotice = "Acesso remoto instalado, vinculado à empresa correta e confirmado online."
 		}
 	}
 
@@ -751,40 +779,100 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 	return nil
 }
 
-func (a *App) installRemoteAgent(manifest ComponentManifest) error {
-	if installed, running := remoteAgentStatus(); installed && running {
-		return nil
+func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int) error {
+	if strings.TrimSpace(info.URL) == "" || strings.TrimSpace(info.SHA256) == "" || strings.TrimSpace(info.MeshGroupHex) == "" {
+		return errors.New("o servidor retornou dados incompletos para o acesso remoto")
 	}
-	info, ok := manifest.Files["CoreTunerRemoteAgent.exe"]
-	if !ok {
-		return errors.New("o servidor não forneceu o módulo de acesso remoto")
+
+	installed, running := remoteAgentStatus()
+	matches := installed && remoteAgentMatches(info.MeshGroupHex, info.ServerURL)
+	if matches && running {
+		setText(a.status, "Confirmando o acesso remoto no servidor...")
+		if connected, warning := a.waitRemoteRegistration(deviceID, 90*time.Second); connected {
+			return nil
+		} else if warning != "" {
+			return fmt.Errorf("o Mesh Agent correto está instalado, mas o servidor não confirmou a conexão: %s", warning)
+		}
+		return errors.New("o Mesh Agent correto está instalado, mas o computador não apareceu online no MeshCentral")
 	}
-	raw, err := a.downloadComponent(info)
+
+	if installed && !matches {
+		setText(a.status, "Substituindo vínculo remoto antigo...")
+		if err := uninstallExistingRemoteAgent(); err != nil {
+			return fmt.Errorf("não foi possível remover o Mesh Agent antigo: %w", err)
+		}
+	} else if installed && !running {
+		setText(a.status, "Reinstalando o serviço remoto...")
+		if err := uninstallExistingRemoteAgent(); err != nil {
+			return fmt.Errorf("não foi possível limpar a instalação remota incompleta: %w", err)
+		}
+	}
+
+	setText(a.status, "Baixando o agente remoto exclusivo desta empresa...")
+	raw, err := a.downloadComponent(ComponentInfo{
+		Filename: info.Filename,
+		URL:      info.URL,
+		SHA256:   info.SHA256,
+		Size:     info.Size,
+	})
 	if err != nil {
-		return fmt.Errorf("falha ao baixar o módulo remoto: %w", err)
+		return fmt.Errorf("falha ao baixar o agente remoto da empresa: %w", err)
 	}
 	tempDir := filepath.Join(os.TempDir(), "CoreTuner")
 	if err := os.MkdirAll(tempDir, 0700); err != nil {
 		return fmt.Errorf("não foi possível preparar o instalador remoto: %w", err)
 	}
-	installerPath := filepath.Join(tempDir, "CoreTunerRemoteAgent.exe")
+	filename := strings.TrimSpace(info.Filename)
+	if filename == "" {
+		filename = "CoreTunerRemoteAgent.exe"
+	}
+	installerPath := filepath.Join(tempDir, filename)
 	defer os.Remove(installerPath)
 	if err := writeAtomic(installerPath, raw, 0700); err != nil {
 		return fmt.Errorf("não foi possível preparar o instalador remoto: %w", err)
 	}
-	if err := runElevatedAndWait(installerPath, "-fullinstall", 2*time.Minute); err != nil {
-		if installed, running := remoteAgentStatus(); installed && running {
-			return nil
-		}
+
+	setText(a.status, "Aguardando autorização do Windows para instalar o acesso remoto...")
+	if err := runElevatedAndWait(installerPath, "-fullinstall", 3*time.Minute); err != nil {
 		return err
 	}
-	for i := 0; i < 30; i++ {
-		if installed, running := remoteAgentStatus(); installed && running {
-			return nil
+	for i := 0; i < 45; i++ {
+		if installedNow, runningNow := remoteAgentStatus(); installedNow && runningNow {
+			if !remoteAgentMatches(info.MeshGroupHex, info.ServerURL) {
+				return errors.New("o Mesh Agent foi instalado, mas não ficou vinculado ao grupo remoto desta empresa")
+			}
+			setText(a.status, "Aguardando o computador aparecer online no servidor remoto...")
+			if connected, warning := a.waitRemoteRegistration(deviceID, 90*time.Second); connected {
+				return nil
+			} else if warning != "" {
+				return fmt.Errorf("o agente iniciou, mas o servidor remoto não confirmou a conexão: %s", warning)
+			}
+			return errors.New("o agente iniciou, mas o computador não apareceu online no MeshCentral dentro do prazo")
 		}
 		time.Sleep(time.Second)
 	}
 	return errors.New("o serviço remoto não iniciou dentro do tempo esperado")
+}
+
+func (a *App) waitRemoteRegistration(deviceID int, timeout time.Duration) (bool, string) {
+	deadline := time.Now().Add(timeout)
+	lastWarning := ""
+	for time.Now().Before(deadline) {
+		var status RemoteStatusResponse
+		err := a.request("GET", fmt.Sprintf("%s/api/devices/%d/remote-status", a.serverURL, deviceID), nil, a.token, &status)
+		if err == nil {
+			if status.MeshConnected && status.ServiceRunning && status.Available && strings.TrimSpace(status.MeshNodeID) != "" {
+				return true, ""
+			}
+			if strings.TrimSpace(status.Warning) != "" {
+				lastWarning = strings.TrimSpace(status.Warning)
+			}
+		} else {
+			lastWarning = err.Error()
+		}
+		time.Sleep(3 * time.Second)
+	}
+	return false, lastWarning
 }
 
 func (a *App) downloadComponent(info ComponentInfo) ([]byte, error) {

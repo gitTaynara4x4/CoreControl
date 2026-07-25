@@ -71,6 +71,7 @@ class EnrollmentRequest(BaseModel):
 
 class DeviceInstallRequest(BaseModel):
     company_id: int | None = None
+    install_remote: bool = False
     device_uid: str = Field(min_length=3, max_length=190)
     name: str = Field(min_length=1, max_length=160)
     hostname: str = Field(min_length=1, max_length=160)

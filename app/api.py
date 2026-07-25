@@ -17,7 +17,13 @@ from .alerts import evaluate_telemetry_alerts
 from .config import settings
 from .db import get_db
 from .models import Alert, AuditLog, Company, Device, EnrollmentToken, Telemetry, User
-from .meshcentral import MeshCentralTokenError, build_remote_desktop_url, create_login_token
+from .meshcentral import (
+    MeshCentralCommandError,
+    MeshCentralTokenError,
+    build_remote_desktop_url,
+    create_login_token,
+    meshcentral_client,
+)
 from .schemas import (
     CompanyCreate,
     CompanyRegistrationRequest,
@@ -45,8 +51,6 @@ DESKTOP_COMPONENTS = {
     "CoreTuner.exe": "application/vnd.microsoft.portable-executable",
     "CoreTunerAgent.exe": "application/vnd.microsoft.portable-executable",
 }
-if settings.remote_enabled:
-    DESKTOP_COMPONENTS[settings.remote_agent_filename] = "application/vnd.microsoft.portable-executable"
 
 
 def file_sha256(path: Path) -> str:
@@ -161,15 +165,26 @@ def sample_extra(sample: Telemetry | None) -> dict:
         return {}
 
 
-def remote_state(sample: Telemetry | None) -> dict:
+def remote_state(device: Device, sample: Telemetry | None) -> dict:
     extra = sample_extra(sample)
     installed = bool(extra.get("remote_agent_installed"))
     running = bool(extra.get("remote_agent_running"))
+    checked_at = as_utc(device.remote_checked_at)
+    verified_recently = bool(
+        checked_at
+        and (utcnow() - checked_at).total_seconds() <= settings.remote_status_stale_seconds
+    )
+    mesh_connected = bool(device.mesh_node_id and device.remote_online and verified_recently)
+    enabled = bool(settings.remote_enabled and settings.remote_url)
     return {
-        "enabled": bool(settings.remote_enabled and settings.remote_url),
+        "enabled": enabled,
         "installed": installed,
         "running": running,
-        "available": bool(settings.remote_enabled and settings.remote_url and running),
+        "mesh_connected": mesh_connected,
+        "mesh_node_id": device.mesh_node_id,
+        "checked_at": iso(device.remote_checked_at),
+        "last_seen": iso(device.remote_last_seen),
+        "available": bool(enabled and running and mesh_connected),
         "service_name": extra.get("remote_service_name"),
     }
 
@@ -225,9 +240,90 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "health_score": health_score(sample, online),
         "alerts_open": int(open_alerts),
         "telemetry": serialize_sample(sample),
-        "remote": remote_state(sample),
+        "remote": remote_state(device, sample),
     }
 
+
+
+def sync_company_remote_devices(
+    db: Session,
+    company: Company,
+    *,
+    force: bool = False,
+) -> None:
+    """Refresh exact MeshCentral connection state for all devices in one company."""
+    if not meshcentral_client.provisioning_configured or not company.mesh_group_id:
+        return
+    remote_devices = meshcentral_client.list_group_devices(company.mesh_group_id, force=force)
+    local_devices = list(
+        db.scalars(
+            select(Device).where(Device.company_id == company.id, Device.active.is_(True))
+        ).all()
+    )
+    now = utcnow()
+    for local in local_devices:
+        local.remote_checked_at = now
+        local.remote_online = False
+        matched = meshcentral_client.match_device(local, remote_devices)
+        if matched is None:
+            continue
+        local.mesh_node_id = matched.node_id
+        local.remote_online = matched.connected
+        if matched.connected:
+            local.remote_last_seen = now
+    db.commit()
+
+
+def refresh_remote_for_devices(
+    db: Session,
+    devices: list[Device],
+    *,
+    force: bool = False,
+    suppress_errors: bool = True,
+) -> None:
+    company_ids = sorted({device.company_id for device in devices})
+    for company_id in company_ids:
+        company = db.get(Company, company_id)
+        if not company or not company.mesh_group_id:
+            continue
+        try:
+            sync_company_remote_devices(db, company, force=force)
+        except MeshCentralCommandError:
+            if not suppress_errors:
+                raise
+            # A falha do serviço remoto não pode derrubar a telemetria/painel.
+            continue
+
+
+def prepare_remote_install(db: Session, company: Company, device: Device) -> tuple[dict | None, str | None]:
+    if not settings.remote_enabled:
+        return None, "O acesso remoto está desativado no servidor."
+    if not meshcentral_client.provisioning_configured:
+        return None, (
+            "A automação remota não está completa. Configure CORETUNER_REMOTE_ADMIN_USER "
+            "e reimplante o CoreTuner com o MeshCtrl."
+        )
+    try:
+        prepared = meshcentral_client.prepare_company_agent(company)
+    except (MeshCentralCommandError, MeshCentralTokenError) as exc:
+        return None, str(exc)
+    company.mesh_group_id = prepared.mesh_group_id
+    company.mesh_group_name = prepared.mesh_group_name
+    company.mesh_group_synced_at = utcnow()
+    db.commit()
+    return (
+        {
+            "filename": prepared.filename,
+            "url": f"/api/devices/{device.id}/remote-agent",
+            "sha256": prepared.sha256,
+            "size": prepared.size,
+            "mesh_group_id": prepared.mesh_group_id,
+            "mesh_group_hex": prepared.mesh_group_hex,
+            "mesh_group_name": prepared.mesh_group_name,
+            "server_url": prepared.server_url,
+        },
+        None,
+    )
 
 def sync_offline_alerts(db: Session, devices: list[Device]) -> None:
     now = utcnow()
@@ -317,7 +413,7 @@ def desktop_manifest(user: CurrentUser):
             "sha256": file_sha256(path),
             "size": path.stat().st_size,
         }
-    return {"version": "0.4.7", "files": files}
+    return {"version": "0.4.9", "files": files}
 
 
 @router.get("/desktop/components/{filename}")
@@ -332,6 +428,34 @@ def desktop_component(filename: str, user: CurrentUser):
         path,
         media_type=media_type,
         filename=filename,
+        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/devices/{device_id}/remote-agent")
+def download_remote_agent(device_id: int, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin", "technician")
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    company = db.get(Company, device.company_id)
+    if not company or not company.active:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    if not meshcentral_client.provisioning_configured:
+        raise HTTPException(status_code=503, detail="A automação do acesso remoto não está configurada")
+    try:
+        prepared = meshcentral_client.prepare_company_agent(company)
+    except (MeshCentralCommandError, MeshCentralTokenError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    company.mesh_group_id = prepared.mesh_group_id
+    company.mesh_group_name = prepared.mesh_group_name
+    company.mesh_group_synced_at = utcnow()
+    db.commit()
+    return FileResponse(
+        prepared.path,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename=prepared.filename,
         headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"},
     )
 
@@ -518,6 +642,7 @@ def list_devices(user: CurrentUser, db: Db, company_id: int | None = None):
         stmt = stmt.where(Device.company_id == user.company_id)
     devices = list(db.scalars(stmt.order_by(Device.name)).all())
     sync_offline_alerts(db, devices)
+    refresh_remote_for_devices(db, devices)
     return [serialize_device(db, d) for d in devices]
 
 
@@ -527,6 +652,7 @@ def get_device(device_id: int, user: CurrentUser, db: Db):
     if not device:
         raise HTTPException(status_code=404, detail="Computador não encontrado")
     assert_device_access(user, device)
+    refresh_remote_for_devices(db, [device])
     result = serialize_device(db, device)
     samples = list(
         db.scalars(
@@ -536,6 +662,32 @@ def get_device(device_id: int, user: CurrentUser, db: Db):
     result["history"] = [serialize_sample(sample) for sample in reversed(samples)]
     result["company_name"] = db.get(Company, device.company_id).name
     return result
+
+
+@router.get("/devices/{device_id}/remote-status")
+def get_remote_status(device_id: int, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin", "technician")
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    sync_error = None
+    try:
+        refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
+    except MeshCentralCommandError as exc:
+        sync_error = str(exc)
+    state = remote_state(device, latest_telemetry(db, device.id))
+    return {
+        "ok": True,
+        "device_id": device.id,
+        "hostname": device.hostname,
+        "mesh_connected": state["mesh_connected"],
+        "mesh_node_id": device.mesh_node_id,
+        "service_running": state["running"],
+        "available": state["available"],
+        "checked_at": state["checked_at"],
+        "warning": sync_error,
+    }
 
 
 @router.post("/devices/{device_id}/remote-session")
@@ -553,9 +705,18 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
             detail="Login automático do acesso remoto ainda não foi configurado",
         )
 
-    state = remote_state(latest_telemetry(db, device.id))
+    try:
+        refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
+    except MeshCentralCommandError as exc:
+        raise HTTPException(status_code=503, detail=f"MeshCentral indisponível: {exc}") from exc
+    state = remote_state(device, latest_telemetry(db, device.id))
     if not state["running"]:
-        raise HTTPException(status_code=409, detail="O agente de acesso remoto não está conectado neste computador")
+        raise HTTPException(status_code=409, detail="O serviço Mesh Agent não está rodando neste computador")
+    if not state["mesh_connected"] or not device.mesh_node_id:
+        raise HTTPException(
+            status_code=409,
+            detail="O computador ainda não apareceu online no MeshCentral. Reinstale pelo CoreTuner Setup atualizado.",
+        )
 
     try:
         login_token = create_login_token(
@@ -567,7 +728,7 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
         remote_url = build_remote_desktop_url(
             base_url=settings.remote_url,
             login_token=login_token,
-            hostname=device.hostname,
+            node_id=device.mesh_node_id,
         )
     except MeshCentralTokenError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -581,6 +742,7 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
             details=json.dumps(
                 {
                     "hostname": device.hostname,
+                    "mesh_node_id": device.mesh_node_id,
                     "remote_user": settings.remote_login_user,
                     "embedded": True,
                 },
@@ -777,12 +939,21 @@ def install_device(payload: DeviceInstallRequest, user: CurrentUser, db: Db):
             device_id=device.id,
             action="device.install" if created else "device.reinstall",
             details=json.dumps(
-                {"hostname": device.hostname, "uid": device.device_uid, "source": "CoreTunerSetup"},
+                {
+                    "hostname": device.hostname,
+                    "uid": device.device_uid,
+                    "source": "CoreTunerSetup",
+                    "install_remote": payload.install_remote,
+                },
                 ensure_ascii=False,
             ),
         )
     )
     db.commit()
+    remote_agent = None
+    remote_warning = None
+    if payload.install_remote:
+        remote_agent, remote_warning = prepare_remote_install(db, company, device)
     return {
         "ok": True,
         "created": created,
@@ -790,6 +961,8 @@ def install_device(payload: DeviceInstallRequest, user: CurrentUser, db: Db):
         "company_id": company.id,
         "company_name": company.name,
         "agent_secret": raw_secret,
+        "remote_agent": remote_agent,
+        "remote_warning": remote_warning,
         "device": serialize_device(db, device),
     }
 

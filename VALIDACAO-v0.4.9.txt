@@ -1,0 +1,18 @@
+CORETUNER CENTRAL COMPLETO v0.4.9
+
+Base utilizada:
+- CoreTuner Central(3).zip
+
+Correção integrada:
+- CoreTuner_Correcao_Remoto_Automatico_v0_4_9.zip
+
+Validações executadas após a integração:
+- Python compileall: OK
+- Pytest: 10 testes aprovados
+- Go test para Windows AMD64: OK (Agent, Setup e Desktop)
+- Go vet para Windows AMD64: OK (Agent, Setup e Desktop)
+- Integridade dos três executáveis conferida por SHA-256
+
+Observação:
+- O teste final de cadastro automático no MeshCentral depende das credenciais e do servidor de produção.
+- Não publique arquivos .env ou segredos no GitHub.

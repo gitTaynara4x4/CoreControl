@@ -65,6 +65,25 @@ class Settings:
     remote_login_user: str = os.getenv("CORETUNER_REMOTE_LOGIN_USER", "").strip()
     remote_login_domain: str = os.getenv("CORETUNER_REMOTE_LOGIN_DOMAIN", "").strip()
     remote_login_token_minutes: int = _int_env("CORETUNER_REMOTE_LOGIN_TOKEN_MINUTES", 2)
+    remote_admin_user: str = os.getenv("CORETUNER_REMOTE_ADMIN_USER", "user-mesh-adm").strip()
+    remote_node_path: str = os.getenv("CORETUNER_REMOTE_NODE_PATH", "node").strip() or "node"
+    remote_meshctrl_path: str = os.getenv(
+        "CORETUNER_REMOTE_MESHCTRL_PATH",
+        "/opt/meshcentral-client/node_modules/meshcentral/meshctrl.js",
+    ).strip()
+    remote_agent_type: int = _int_env("CORETUNER_REMOTE_AGENT_TYPE", 4)
+    remote_agent_install_flags: int = _int_env("CORETUNER_REMOTE_AGENT_INSTALL_FLAGS", 2)
+    remote_group_features: int = _int_env("CORETUNER_REMOTE_GROUP_FEATURES", 2)
+    remote_group_consent: int = _int_env("CORETUNER_REMOTE_GROUP_CONSENT", 73)
+    remote_command_timeout_seconds: int = _int_env("CORETUNER_REMOTE_COMMAND_TIMEOUT_SECONDS", 45)
+    remote_agent_download_timeout_seconds: int = _int_env("CORETUNER_REMOTE_AGENT_DOWNLOAD_TIMEOUT_SECONDS", 90)
+    remote_agent_cache_seconds: int = _int_env("CORETUNER_REMOTE_AGENT_CACHE_SECONDS", 86400)
+    remote_status_cache_seconds: int = _int_env("CORETUNER_REMOTE_STATUS_CACHE_SECONDS", 15)
+    remote_status_stale_seconds: int = _int_env("CORETUNER_REMOTE_STATUS_STALE_SECONDS", 120)
+    remote_agent_cache_dir: str = os.getenv(
+        "CORETUNER_REMOTE_AGENT_CACHE_DIR",
+        str(Path(os.getenv("CORETUNER_DATA_DIR", "./data")).resolve() / "remote-agents"),
+    ).strip()
     smtp_host: str = os.getenv("CORETUNER_SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port: int = _int_env("CORETUNER_SMTP_PORT", 587)
     smtp_user: str = os.getenv("CORETUNER_SMTP_USER", "").strip()
@@ -92,6 +111,15 @@ class Settings:
             and self.remote_url
             and self.remote_login_token_key
             and self.remote_login_user
+        )
+
+    @property
+    def remote_provisioning_configured(self) -> bool:
+        return bool(
+            self.remote_token_configured
+            and self.remote_admin_user
+            and self.remote_meshctrl_path
+            and self.remote_agent_type > 0
         )
 
     @property

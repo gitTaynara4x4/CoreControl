@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -318,4 +319,82 @@ func setupRegString(subkey, name string) string {
 		units = append(units, unit)
 	}
 	return strings.TrimSpace(string(unicodeutf16.Decode(units)))
+}
+
+func remoteAgentPaths() (string, string) {
+	roots := []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramFiles(x86)")}
+	for _, root := range roots {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		directory := filepath.Join(root, "Mesh Agent")
+		executable := filepath.Join(directory, "MeshAgent.exe")
+		if _, err := os.Stat(executable); err != nil {
+			continue
+		}
+		for _, filename := range []string{"MeshAgent.msh", "meshagent.msh"} {
+			configuration := filepath.Join(directory, filename)
+			if _, err := os.Stat(configuration); err == nil {
+				return executable, configuration
+			}
+		}
+		return executable, filepath.Join(directory, "MeshAgent.msh")
+	}
+	return "", ""
+}
+
+func normalizeMeshHex(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.TrimPrefix(value, "0x")
+	value = strings.ReplaceAll(value, "-", "")
+	return value
+}
+
+func remoteAgentMatches(expectedGroupHex, serverURL string) bool {
+	_, configuration := remoteAgentPaths()
+	if configuration == "" {
+		return false
+	}
+	raw, err := os.ReadFile(configuration)
+	if err != nil {
+		return false
+	}
+	content := strings.ToLower(strings.ReplaceAll(string(raw), "\r", ""))
+	expectedHex := normalizeMeshHex(expectedGroupHex)
+	if len(expectedHex) != 64 || !strings.Contains(content, "meshid=0x"+expectedHex) {
+		return false
+	}
+
+	expectedHost := strings.TrimSpace(strings.ToLower(serverURL))
+	if parsed, err := url.Parse(serverURL); err == nil && parsed.Hostname() != "" {
+		expectedHost = strings.ToLower(parsed.Hostname())
+	}
+	if expectedHost == "" {
+		return false
+	}
+	return strings.Contains(content, expectedHost)
+}
+
+func uninstallExistingRemoteAgent() error {
+	executable, _ := remoteAgentPaths()
+	installed, _ := remoteAgentStatus()
+	if !installed {
+		return nil
+	}
+	if executable == "" {
+		return fmt.Errorf("o serviço Mesh Agent existe, mas o executável instalado não foi encontrado")
+	}
+	if err := runElevatedAndWait(executable, "-fulluninstall", 3*time.Minute); err != nil {
+		if installedNow, _ := remoteAgentStatus(); !installedNow {
+			return nil
+		}
+		return err
+	}
+	for i := 0; i < 30; i++ {
+		if installedNow, _ := remoteAgentStatus(); !installedNow {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+	return fmt.Errorf("o serviço Mesh Agent antigo continuou instalado após a desinstalação")
 }
