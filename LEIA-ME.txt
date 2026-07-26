@@ -1,21 +1,19 @@
-CoreTuner — Correção 0.4.8 (acesso remoto direto)
+CORETUNER CENTRAL COMPLETO — v0.4.9 CORRIGIDO
 
-Este pacote contém somente arquivos novos ou modificados em relação à correção 0.4.7.
+Projeto completo com:
+- backend FastAPI;
+- banco SQLite local ou PostgreSQL em produção;
+- site público e painel multiempresa;
+- CoreTunerSetup.exe;
+- CoreTuner.exe;
+- CoreTunerAgent.exe;
+- integração automática com MeshCentral;
+- recuperação de senha por e-mail;
+- testes automatizados.
 
-Substitua mantendo as pastas. Depois execute:
-  pip install -r requirements.txt
-  git add .
-  git commit -m "Abre acesso remoto direto no CoreTuner"
-  git push origin main
+CORREÇÃO PRINCIPAL DESTE PACOTE
+O MeshCentral atual usa identificadores de grupo com 48 bytes, equivalentes a 96 caracteres hexadecimais. O CoreTuner aceitava somente o formato antigo de 32 bytes/64 caracteres. O backend, o instalador e os testes foram atualizados para aceitar os dois formatos.
 
-Faça o redeploy do serviço coretuner. Não é necessário recompilar os executáveis Windows nesta correção.
+O agente remoto não fica fixo no repositório. O backend baixa do MeshCentral o executável específico do grupo de cada empresa durante a instalação.
 
-Variáveis obrigatórias no serviço coretuner:
-  CORETUNER_REMOTE_ENABLED=true
-  CORETUNER_REMOTE_URL=https://apps-coretuner-remote.9ywrah.easypanel.host
-  CORETUNER_REMOTE_LOGIN_TOKEN_KEY=<chave privada vigente>
-  CORETUNER_REMOTE_LOGIN_USER=coretuner-integracao
-  CORETUNER_REMOTE_LOGIN_DOMAIN=
-  CORETUNER_REMOTE_LOGIN_TOKEN_MINUTES=2
-
-O token é de uso único e expira em 2 minutos. A chave nunca deve ser enviada ao navegador, gravada no GitHub ou colocada nos executáveis.
+Para produção, mantenha senhas e chaves apenas nas variáveis protegidas do EasyPanel. Não publique .env preenchido.

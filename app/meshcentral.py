@@ -135,14 +135,17 @@ def _mesh_id_to_hex(mesh_id: str) -> str:
     if not value:
         raise MeshCentralCommandError("O grupo remoto não possui identificador.")
 
-    # O MeshCtrl pode devolver o identificador em três formatos:
-    # 1) 0x + 64 caracteres hexadecimais;
-    # 2) 64 caracteres hexadecimais sem prefixo quando usado --hex;
-    # 3) mesh// + identificador Base64 modificado do MeshCentral.
+    # O MeshCentral atual gera identificadores de grupo com 48 bytes
+    # (96 caracteres hexadecimais). Instalações antigas podem usar 32 bytes
+    # (64 caracteres hexadecimais). O MeshCtrl pode devolver qualquer um dos
+    # formatos abaixo, por isso aceitamos ambos os tamanhos:
+    # 1) 0x + hexadecimal;
+    # 2) hexadecimal sem prefixo quando usado --hex;
+    # 3) mesh/<domínio>/<Base64 modificado do MeshCentral>.
     candidate = value.rsplit("/", 1)[-1]
     if candidate.lower().startswith("0x"):
         candidate = candidate[2:]
-    if len(candidate) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in candidate):
+    if len(candidate) in {64, 96} and all(ch in "0123456789abcdefABCDEF" for ch in candidate):
         return candidate.lower()
 
     encoded = candidate.replace("@", "+").replace("$", "/")
@@ -151,8 +154,10 @@ def _mesh_id_to_hex(mesh_id: str) -> str:
         decoded = base64.b64decode(encoded, validate=True)
     except (ValueError, binascii.Error) as exc:
         raise MeshCentralCommandError("O identificador do grupo remoto é inválido.") from exc
-    if len(decoded) != 32:
-        raise MeshCentralCommandError("O identificador do grupo remoto não possui 32 bytes.")
+    if len(decoded) not in {32, 48}:
+        raise MeshCentralCommandError(
+            f"O identificador do grupo remoto possui {len(decoded)} bytes; eram esperados 32 ou 48 bytes."
+        )
     return decoded.hex()
 
 
@@ -346,11 +351,8 @@ class MeshCentralClient:
             raise MeshCentralCommandError("O grupo remoto da empresa não pôde ser criado.")
 
         mesh_id = str(selected.get("_id") or selected.get("id") or "").strip()
-        mesh_hex = str(selected.get("_idhex") or selected.get("idhex") or "").strip()
-        if mesh_hex.lower().startswith("0x"):
-            mesh_hex = mesh_hex[2:]
-        if len(mesh_hex) != 64:
-            mesh_hex = _mesh_id_to_hex(mesh_id)
+        mesh_hex_value = str(selected.get("_idhex") or selected.get("idhex") or "").strip()
+        mesh_hex = _mesh_id_to_hex(mesh_hex_value or mesh_id)
         group_name = str(selected.get("name") or desired_name)
 
         integration_user_id = self.ensure_integration_user()

@@ -1,18 +1,24 @@
-CORETUNER CENTRAL COMPLETO v0.4.9
+CORETUNER CENTRAL v0.4.9 — VALIDAÇÃO DO PACOTE COMPLETO
 
-Base utilizada:
-- CoreTuner Central(3).zip
+Validações executadas depois da integração das correções:
+- Python compileall: aprovado;
+- Pytest: 15 testes aprovados;
+- JavaScript: node --check aprovado nos dois arquivos;
+- Go fmt: sem diferenças nos três módulos;
+- Go test e Go vet: aprovados para Agent, Console e Setup;
+- compilação Windows AMD64: aprovada para CoreTunerSetup.exe, CoreTuner.exe e CoreTunerAgent.exe;
+- executáveis reconhecidos como PE32+ x86-64;
+- domínio de produção confirmado no Setup e no aplicativo;
+- inicialização FastAPI em modo de produção com banco temporário: aprovada;
+- healthcheck, site e central: respostas HTTP 200 nos testes;
+- arquivos JSON, HTML, YAML e scripts shell verificados;
+- repositório Git verificado e incluído no pacote.
 
-Correção integrada:
-- CoreTuner_Correcao_Remoto_Automatico_v0_4_9.zip
+Correção remota confirmada no código:
+- backend aceita ID de grupo com 32 ou 48 bytes;
+- backend aceita 64 ou 96 caracteres hexadecimais;
+- Setup valida MeshID com 64 ou 96 caracteres;
+- teste automatizado cobre o campo _idhex atual de 96 caracteres.
 
-Validações executadas após a integração:
-- Python compileall: OK
-- Pytest: 10 testes aprovados
-- Go test para Windows AMD64: OK (Agent, Setup e Desktop)
-- Go vet para Windows AMD64: OK (Agent, Setup e Desktop)
-- Integridade dos três executáveis conferida por SHA-256
-
-Observação:
-- O teste final de cadastro automático no MeshCentral depende das credenciais e do servidor de produção.
-- Não publique arquivos .env ou segredos no GitHub.
+Limitação inevitável:
+- a interface gráfica Windows e a instalação real do serviço Mesh Agent não podem ser executadas neste ambiente Linux. O pacote foi compilado e validado estruturalmente, mas o teste final deve ser feito no Windows após o deploy.

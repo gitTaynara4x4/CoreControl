@@ -23,6 +23,18 @@ def test_mesh_id_to_hex_accepts_prefixed_hex_identifier():
     assert _mesh_id_to_hex(f"mesh//{raw_hex}") == raw_hex
 
 
+def test_mesh_id_to_hex_accepts_current_48_byte_meshcentral_identifier():
+    raw = bytes(range(48))
+    encoded = base64.b64encode(raw).decode("ascii").rstrip("=")
+    mesh_id = f"mesh//{encoded}"
+    assert _mesh_id_to_hex(mesh_id) == raw.hex()
+
+
+def test_mesh_id_to_hex_accepts_current_96_character_hex_identifier():
+    raw_hex = bytes(range(48)).hex()
+    assert _mesh_id_to_hex(f"0x{raw_hex.upper()}") == raw_hex
+
+
 def test_remote_url_targets_exact_node():
     url = build_remote_desktop_url(
         base_url="https://remote.example.com",
@@ -58,3 +70,29 @@ def test_match_device_uses_saved_node_then_unique_hostname():
     ]
     assert client.match_device(SimpleNamespace(mesh_node_id="node//B", hostname="x", name="x"), devices).node_id == "node//B"
     assert client.match_device(SimpleNamespace(mesh_node_id=None, hostname="desktop-a", name="irrelevante"), devices).node_id == "node//A"
+
+
+def test_ensure_company_group_accepts_96_character_meshctrl_idhex(monkeypatch):
+    client = MeshCentralClient()
+    raw_hex = bytes(range(48)).hex()
+    integration_user_id = "user//coretuner-integracao"
+    group = {
+        "_id": "mesh//IDENTIFICADOR",
+        "_idhex": raw_hex,
+        "name": "CoreTuner - Empresa [empresa-1]",
+        "links": {integration_user_id: {"rights": 8}},
+    }
+    monkeypatch.setattr(client, "_list_groups", lambda: [group])
+    monkeypatch.setattr(client, "ensure_integration_user", lambda: integration_user_id)
+
+    company = SimpleNamespace(
+        id=1,
+        name="Empresa",
+        slug="empresa",
+        mesh_group_id="mesh//IDENTIFICADOR",
+    )
+    mesh_id, mesh_hex, group_name = client.ensure_company_group(company)
+
+    assert mesh_id == "mesh//IDENTIFICADOR"
+    assert mesh_hex == raw_hex
+    assert group_name == group["name"]

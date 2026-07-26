@@ -1,17 +1,24 @@
-CORETUNER CENTRAL 0.4.3 — VALIDAÇÃO REALIZADA
+CORETUNER CENTRAL v0.4.9 — VALIDAÇÃO DO PACOTE COMPLETO
 
-- Projeto reconstruído sem a pasta duplicada central, sem .venv, sem caches e sem bancos usados em testes.
-- Existe apenas uma cópia oficial de cada executável em app/downloads.
-- CoreTuner.exe, CoreTunerAgent.exe e CoreTunerSetup.exe compilados como aplicativos gráficos Windows x64.
-- go test e go vet aprovados nos três módulos Go.
-- 5 testes automatizados do backend aprovados.
-- Backend iniciado na porta 8002; /health respondeu 200 com a versão 0.4.3 e o site respondeu 200.
-- JavaScript do site e do painel passou na verificação sintática.
-- Nenhum dos três executáveis compilados contém referência a powershell.exe.
-- Agent e aplicativo completo coletam informações usando APIs nativas do Windows.
-- Setup encerra versões antigas do CoreTunerAgent antes de instalar a nova.
-- Nenhuma otimização do Windows é aplicada nesta versão; os perfis permanecem apenas para seleção e revisão.
+Validações executadas depois da integração das correções:
+- Python compileall: aprovado;
+- Pytest: 15 testes aprovados;
+- JavaScript: node --check aprovado nos dois arquivos;
+- Go fmt: sem diferenças nos três módulos;
+- Go test e Go vet: aprovados para Agent, Console e Setup;
+- compilação Windows AMD64: aprovada para CoreTunerSetup.exe, CoreTuner.exe e CoreTunerAgent.exe;
+- executáveis reconhecidos como PE32+ x86-64;
+- domínio de produção confirmado no Setup e no aplicativo;
+- inicialização FastAPI em modo de produção com banco temporário: aprovada;
+- healthcheck, site e central: respostas HTTP 200 nos testes;
+- arquivos JSON, HTML, YAML e scripts shell verificados;
+- repositório Git verificado e incluído no pacote.
 
-LIMITAÇÃO DE VALIDAÇÃO
-- Os executáveis foram compilados para Windows, mas este ambiente não executa a interface gráfica do Windows. A abertura visual e o monitoramento contínuo precisam ser confirmados no seu computador antes de uso em cliente.
-- Temperatura pode aparecer como indisponível nesta versão, porque a coleta externa via PowerShell foi removida e sensores variam conforme o hardware.
+Correção remota confirmada no código:
+- backend aceita ID de grupo com 32 ou 48 bytes;
+- backend aceita 64 ou 96 caracteres hexadecimais;
+- Setup valida MeshID com 64 ou 96 caracteres;
+- teste automatizado cobre o campo _idhex atual de 96 caracteres.
+
+Limitação inevitável:
+- a interface gráfica Windows e a instalação real do serviço Mesh Agent não podem ser executadas neste ambiente Linux. O pacote foi compilado e validado estruturalmente, mas o teste final deve ser feito no Windows após o deploy.

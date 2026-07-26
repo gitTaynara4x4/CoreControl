@@ -1,11 +1,21 @@
-CORETUNER 0.4.3 — PROJETO LIMPO
+CORETUNER CENTRAL COMPLETO — v0.4.9 CORRIGIDO
 
-1. Apague a pasta antiga do projeto.
-2. Extraia este pacote em uma pasta nova.
-3. Crie/ative a .venv e instale requirements.txt.
-4. Execute python run.py.
-5. Acesse http://127.0.0.1:8002 e baixe novamente o CoreTunerSetup.exe.
-6. Execute o novo Setup e clique em instalar/cadastrar este computador.
+Este pacote substitui a pasta antiga inteira.
 
-O novo Setup encerra o Agent antigo instalado pelo CoreTuner antes de instalar a versão 0.4.3.
-A versão 0.4.3 não chama PowerShell para realizar as coletas técnicas.
+O que fazer:
+1. Feche o CoreTuner e o instalador no Windows.
+2. Apague ou renomeie a pasta antiga do projeto.
+3. Extraia este ZIP em uma pasta nova.
+4. Não crie um arquivo .env com chaves antigas. No EasyPanel, as variáveis continuam salvas no próprio serviço.
+5. Abra o PowerShell dentro da nova pasta.
+6. Execute: git status
+7. Execute: git push origin main
+8. Aguarde o deploy do serviço coretuner.
+9. Apague o CoreTunerSetup.exe antigo do computador.
+10. Baixe o instalador novamente pelo site e escolha SIM para o acesso remoto.
+
+IMPORTANTE
+- Não altere o serviço coretuner-remote, o usuário user-mesh-adm ou a chave que já foi validada.
+- O acesso remoto agora aceita identificadores MeshCentral antigos de 32 bytes e atuais de 48 bytes.
+- O pacote não contém .env real, banco de dados de produção ou ambiente virtual .venv.
+- Os executáveis oficiais estão em app/downloads.

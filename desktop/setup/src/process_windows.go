@@ -361,7 +361,9 @@ func remoteAgentMatches(expectedGroupHex, serverURL string) bool {
 	}
 	content := strings.ToLower(strings.ReplaceAll(string(raw), "\r", ""))
 	expectedHex := normalizeMeshHex(expectedGroupHex)
-	if len(expectedHex) != 64 || !strings.Contains(content, "meshid=0x"+expectedHex) {
+	// MeshCentral atual usa IDs de grupo SHA-384 com 48 bytes (96 hex).
+	// Mantemos 64 hex para compatibilidade com instalações antigas.
+	if (len(expectedHex) != 64 && len(expectedHex) != 96) || !strings.Contains(content, "meshid=0x"+expectedHex) {
 		return false
 	}
 

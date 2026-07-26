@@ -1,14 +1,26 @@
-# CoreTuner Central 0.4.3
+# CoreTuner Central 0.4.9
 
-Projeto completo e limpo com site público, cadastro/login de empresas, painel multiempresa, aplicativo Windows, instalador e agente de telemetria.
+Projeto completo com site público, cadastro e login de empresas, painel multiempresa, aplicativo Windows, instalador, agente de telemetria e acesso remoto automático por empresa via MeshCentral.
 
-## Correção principal desta versão
+## Correção do acesso remoto
 
-A coleta técnica do `CoreTunerAgent.exe` e do `CoreTuner.exe` foi reescrita para usar APIs nativas do Windows. Eles não iniciam `powershell.exe` para coletar CPU, memória, disco, identificação da máquina, processos ou áudio. Assim, nenhuma janela de PowerShell deve abrir durante o monitoramento.
+O backend e o instalador aceitam os dois formatos de identificador de grupo do MeshCentral:
 
-O Setup também encerra uma instalação antiga do Agent antes de substituí-la, evitando múltiplas versões em execução.
+- 32 bytes, equivalentes a 64 caracteres hexadecimais;
+- 48 bytes, equivalentes a 96 caracteres hexadecimais, usados pelas versões atuais.
 
-## Rodar localmente na porta 8002
+O agente remoto é baixado dinamicamente do MeshCentral para o grupo exato da empresa. Não existe um MeshAgent genérico fixo no pacote.
+
+## Executar localmente
+
+No Windows, execute `Iniciar_CoreTuner_Local.bat`. O script:
+
+1. cria `.env` a partir de `.env.example`, quando necessário;
+2. cria `.venv`;
+3. instala `requirements.txt`;
+4. inicia em `http://127.0.0.1:8002`.
+
+Execução manual:
 
 ```powershell
 py -3 -m venv .venv
@@ -18,36 +30,29 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
-Ou execute `Iniciar_CoreTuner_Local.bat`.
-
 - Site: `http://127.0.0.1:8002`
 - Central: `http://127.0.0.1:8002/central`
-- API: `http://127.0.0.1:8002/api/docs`
+- API local: `http://127.0.0.1:8002/api/docs`
 - Health: `http://127.0.0.1:8002/health`
 
-O `.env` local já está configurado para a porta 8002 e senha de download `0610`.
+## Produção no EasyPanel
 
-## EasyPanel
-
-- Porta interna de produção: `8280`
+- Porta interna: `8280`
 - Healthcheck: `/health`
-- Use `.env.production.example` como referência.
-- A URL real do PostgreSQL deve ficar apenas nas variáveis protegidas do EasyPanel.
+- Dockerfile: raiz do projeto
+- Variáveis: use `.env.production.example` apenas como referência
+- Banco: PostgreSQL pela variável `CORETUNER_DATABASE_URL`
 
-## Estrutura sem duplicações
+Senhas, chave do MeshCentral e credenciais SMTP devem ficar somente nas variáveis protegidas do EasyPanel.
 
-- `app/`: backend, site, painel e executáveis servidos.
-- `app/downloads/CoreTunerSetup.exe`: instalador baixado pelo site.
-- `app/downloads/CoreTuner.exe`: aplicativo completo baixado pelo Setup.
-- `app/downloads/CoreTunerAgent.exe`: agente baixado pelo Setup.
-- `desktop/setup/src/`: código-fonte do Setup.
-- `desktop/app/src/`: código-fonte do aplicativo completo.
-- `agent/src/`: código-fonte do Agent.
+## Executáveis
 
-Não existem mais a pasta duplicada `central`, uma `.venv` empacotada, bancos locais usados em testes ou cópias diferentes do Agent.
+- `app/downloads/CoreTunerSetup.exe`: login, cadastro e instalação.
+- `app/downloads/CoreTuner.exe`: aplicativo completo.
+- `app/downloads/CoreTunerAgent.exe`: telemetria silenciosa.
+
+Os três executáveis foram recompilados para Windows x64 com o domínio de produção `https://apps-coretuner.9ywrah.easypanel.host` embutido no Setup e no aplicativo.
 
 ## Segurança
 
-O Agent é somente leitura e não acessa documentos, conversas ou senhas. Não aplica otimizações, não executa scripts remotos, não desativa o Defender e não apaga arquivos.
-
-Os executáveis ainda não possuem assinatura digital. Por isso, o SmartScreen pode mostrar “Fornecedor desconhecido”; isso é diferente de abrir janelas de PowerShell.
+O Agent coleta dados técnicos usando APIs nativas do Windows. Ele não acessa documentos, conversas ou senhas. Os executáveis ainda não possuem assinatura digital; o SmartScreen pode exibir “Fornecedor desconhecido”.
