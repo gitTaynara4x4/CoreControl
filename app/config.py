@@ -74,7 +74,7 @@ class Settings:
     remote_agent_type: int = _int_env("CORETUNER_REMOTE_AGENT_TYPE", 4)
     remote_agent_install_flags: int = _int_env("CORETUNER_REMOTE_AGENT_INSTALL_FLAGS", 2)
     remote_group_features: int = _int_env("CORETUNER_REMOTE_GROUP_FEATURES", 2)
-    remote_group_consent: int = _int_env("CORETUNER_REMOTE_GROUP_CONSENT", 73)
+    remote_group_consent: int = _int_env("CORETUNER_REMOTE_GROUP_CONSENT", 65)
     remote_command_timeout_seconds: int = _int_env("CORETUNER_REMOTE_COMMAND_TIMEOUT_SECONDS", 45)
     remote_agent_download_timeout_seconds: int = _int_env("CORETUNER_REMOTE_AGENT_DOWNLOAD_TIMEOUT_SECONDS", 90)
     remote_agent_cache_seconds: int = _int_env("CORETUNER_REMOTE_AGENT_CACHE_SECONDS", 86400)

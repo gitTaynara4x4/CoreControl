@@ -37,7 +37,7 @@ CORETUNER_REMOTE_AGENT_FILENAME=CoreTunerRemoteAgent.exe
 CORETUNER_REMOTE_AGENT_TYPE=4
 CORETUNER_REMOTE_AGENT_INSTALL_FLAGS=2
 CORETUNER_REMOTE_GROUP_FEATURES=2
-CORETUNER_REMOTE_GROUP_CONSENT=73
+CORETUNER_REMOTE_GROUP_CONSENT=65
 CORETUNER_REMOTE_COMMAND_TIMEOUT_SECONDS=45
 CORETUNER_REMOTE_AGENT_DOWNLOAD_TIMEOUT_SECONDS=90
 CORETUNER_REMOTE_AGENT_CACHE_SECONDS=86400
@@ -53,3 +53,21 @@ A chave nunca deve ser gravada no GitHub, enviada ao navegador ou incorporada ao
 - O Dockerfile instala Node.js e MeshCtrl no serviço principal `coretuner`.
 - O agente remoto específico da empresa é armazenado somente no cache persistente `/data/remote-agents`.
 - O painel só mostra o remoto como disponível após confirmação real no MeshCentral.
+
+## Conexão automática dentro da Central
+
+O CoreTuner adiciona `coretuner=1` à URL temporária do MeshCentral. Esse marcador é preservado após o login e impede que o script automático seja executado em acessos administrativos comuns.
+
+Depois de implantar o serviço `coretuner`, instale ou atualize o script no terminal do serviço `coretuner-remote`:
+
+```bash
+curl -fsSL \
+  https://apps-coretuner.9ywrah.easypanel.host/remote-assets/meshcentral-custom.js \
+  -o /opt/meshcentral/meshcentral/public/scripts/custom.js
+
+node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
+```
+
+O script usa o mesmo fluxo do botão oficial `Conectar` (`connectDesktop(..., 3)`), espera o painel e o agente ficarem prontos e reinicia tentativas presas no estado `Desconectado`. Não é necessário reinstalar o Mesh Agent nos computadores.
+
+O arquivo gravado diretamente dentro do contêiner pode ser perdido em uma recriação do serviço `coretuner-remote`. Para produção, mantenha `/opt/meshcentral/meshcentral/public/scripts/custom.js` em volume persistente ou em uma imagem personalizada do MeshCentral.

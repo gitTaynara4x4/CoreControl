@@ -1,4 +1,5 @@
 import base64
+from urllib.parse import parse_qs, urlparse
 from types import SimpleNamespace
 
 from app.meshcentral import (
@@ -47,9 +48,12 @@ def test_remote_url_targets_exact_node():
         login_token="TOKEN",
         node_id="node//NODE123",
     )
-    assert "gotonode=NODE123" in url
-    assert "viewmode=11" in url
-    assert "hide=63" in url
+    query = parse_qs(urlparse(url).query)
+    assert query["login"] == ["TOKEN"]
+    assert query["gotonode"] == ["NODE123"]
+    assert query["viewmode"] == ["11"]
+    assert query["hide"] == ["63"]
+    assert query["coretuner"] == ["1"]
 
 
 def test_match_device_uses_saved_node_then_unique_hostname():

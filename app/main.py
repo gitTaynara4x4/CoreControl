@@ -20,6 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DASHBOARD_DIR = BASE_DIR / "static"
 PUBLIC_DIR = BASE_DIR / "public"
 DOWNLOAD_DIR = BASE_DIR / "downloads"
+REMOTE_ASSET_DIR = BASE_DIR / "remote_assets"
 
 
 def validate_runtime_settings() -> None:
@@ -73,6 +74,21 @@ app.include_router(password_reset_router)
 app.include_router(api_router)
 app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
 app.mount("/site", StaticFiles(directory=PUBLIC_DIR), name="site")
+
+
+@app.get("/remote-assets/meshcentral-custom.js")
+def meshcentral_custom_script():
+    file_path = REMOTE_ASSET_DIR / "meshcentral-custom.js"
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Script remoto indisponível")
+    return FileResponse(
+        file_path,
+        media_type="application/javascript; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/health")

@@ -125,6 +125,9 @@ def build_remote_desktop_url(
             "gotonode": _short_node_id(node_id),
             "viewmode": "11",
             "hide": "63",
+            # Marcador preservado pelo MeshCentral após o login e a troca de URL.
+            # O custom.js usa este valor para iniciar somente sessões vindas do CoreTuner.
+            "coretuner": "1",
         }
     )
     return f"{base_url.rstrip('/')}/?{query}"
