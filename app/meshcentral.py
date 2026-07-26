@@ -134,12 +134,18 @@ def _mesh_id_to_hex(mesh_id: str) -> str:
     value = (mesh_id or "").strip()
     if not value:
         raise MeshCentralCommandError("O grupo remoto não possui identificador.")
-    if value.lower().startswith("0x"):
-        raw_hex = value[2:]
-        if len(raw_hex) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in raw_hex):
-            raise MeshCentralCommandError("O identificador hexadecimal do grupo remoto é inválido.")
-        return raw_hex.lower()
-    encoded = value.rsplit("/", 1)[-1].replace("@", "+").replace("$", "/")
+
+    # O MeshCtrl pode devolver o identificador em três formatos:
+    # 1) 0x + 64 caracteres hexadecimais;
+    # 2) 64 caracteres hexadecimais sem prefixo quando usado --hex;
+    # 3) mesh// + identificador Base64 modificado do MeshCentral.
+    candidate = value.rsplit("/", 1)[-1]
+    if candidate.lower().startswith("0x"):
+        candidate = candidate[2:]
+    if len(candidate) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in candidate):
+        return candidate.lower()
+
+    encoded = candidate.replace("@", "+").replace("$", "/")
     encoded += "=" * ((4 - len(encoded) % 4) % 4)
     try:
         decoded = base64.b64decode(encoded, validate=True)
@@ -317,7 +323,7 @@ class MeshCentralClient:
         selected: dict[str, Any] | None = None
         saved_id = (getattr(company, "mesh_group_id", None) or "").strip()
         if saved_id:
-            selected = next((group for group in groups if str(group.get("_id") or "") == saved_id), None)
+            selected = next((group for group in groups if str(group.get("_id") or group.get("id") or "") == saved_id), None)
         if selected is None:
             selected = next((group for group in groups if str(group.get("name") or "") == desired_name), None)
         if selected is None:
@@ -339,8 +345,8 @@ class MeshCentralClient:
         if selected is None:
             raise MeshCentralCommandError("O grupo remoto da empresa não pôde ser criado.")
 
-        mesh_id = str(selected.get("_id") or "").strip()
-        mesh_hex = str(selected.get("_idhex") or "").strip()
+        mesh_id = str(selected.get("_id") or selected.get("id") or "").strip()
+        mesh_hex = str(selected.get("_idhex") or selected.get("idhex") or "").strip()
         if mesh_hex.lower().startswith("0x"):
             mesh_hex = mesh_hex[2:]
         if len(mesh_hex) != 64:

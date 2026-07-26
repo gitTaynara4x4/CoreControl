@@ -11,6 +11,18 @@ def test_mesh_id_to_hex_accepts_meshcentral_base64_identifier():
     assert _mesh_id_to_hex(mesh_id) == raw.hex()
 
 
+
+
+def test_mesh_id_to_hex_accepts_bare_hex_identifier_from_meshctrl_hex_mode():
+    raw_hex = bytes(range(32)).hex()
+    assert _mesh_id_to_hex(raw_hex) == raw_hex
+
+
+def test_mesh_id_to_hex_accepts_prefixed_hex_identifier():
+    raw_hex = bytes(reversed(range(32))).hex()
+    assert _mesh_id_to_hex(f"mesh//{raw_hex}") == raw_hex
+
+
 def test_remote_url_targets_exact_node():
     url = build_remote_desktop_url(
         base_url="https://remote.example.com",
