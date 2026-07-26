@@ -17,5 +17,6 @@ O que fazer:
 IMPORTANTE
 - Não altere o serviço coretuner-remote, o usuário user-mesh-adm ou a chave que já foi validada.
 - O acesso remoto agora aceita identificadores MeshCentral antigos de 32 bytes e atuais de 48 bytes.
+- O download do Mesh Agent usa o identificador Base64 original do grupo; o hexadecimal fica apenas para validação local.
 - O pacote não contém .env real, banco de dados de produção ou ambiente virtual .venv.
 - Os executáveis oficiais estão em app/downloads.

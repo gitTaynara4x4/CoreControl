@@ -19,6 +19,8 @@ O CoreTuner aceita:
 - identificadores Base64 modificados do MeshCentral;
 - valores hexadecimais com ou sem prefixo `0x`.
 
+Ao chamar o endpoint `/meshagents`, o backend converte ou preserva o identificador no Base64 modificado usado internamente pelo MeshCentral. O valor hexadecimal é usado somente para cache e conferência do vínculo instalado.
+
 ## Variáveis exigidas no serviço `coretuner`
 
 ```env

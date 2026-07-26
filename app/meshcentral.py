@@ -161,6 +161,35 @@ def _mesh_id_to_hex(mesh_id: str) -> str:
     return decoded.hex()
 
 
+def _mesh_id_for_download(mesh_id: str) -> str:
+    """Return the MeshCentral URL identifier (modified Base64), never the hex display ID."""
+    value = (mesh_id or "").strip()
+    if not value:
+        raise MeshCentralCommandError("O grupo remoto não possui identificador para baixar o agente.")
+
+    candidate = value.rsplit("/", 1)[-1].strip()
+    if candidate.lower().startswith("0x"):
+        candidate = candidate[2:]
+
+    # ListDeviceGroups --hex exposes _idhex for display, but /meshagents expects
+    # the original group identifier in MeshCentral's modified Base64 format.
+    if len(candidate) in {64, 96} and all(ch in "0123456789abcdefABCDEF" for ch in candidate):
+        raw = bytes.fromhex(candidate)
+    else:
+        encoded = candidate.replace("@", "+").replace("$", "/")
+        encoded += "=" * ((4 - len(encoded) % 4) % 4)
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise MeshCentralCommandError("O identificador do grupo remoto é inválido para baixar o agente.") from exc
+
+    if len(raw) not in {32, 48}:
+        raise MeshCentralCommandError(
+            f"O identificador do grupo remoto possui {len(raw)} bytes; eram esperados 32 ou 48 bytes."
+        )
+    return base64.b64encode(raw).decode("ascii").rstrip("=").replace("+", "@").replace("/", "$")
+
+
 def _safe_group_name(company_name: str, company_slug: str, company_id: int) -> str:
     label = " ".join((company_name or "").strip().split()) or company_slug or f"Empresa {company_id}"
     suffix = f" [{company_slug or company_id}-{company_id}]"
@@ -388,11 +417,11 @@ class MeshCentralClient:
         directory.mkdir(parents=True, exist_ok=True)
         return directory / settings.remote_agent_filename
 
-    def _download_agent(self, mesh_hex: str, target: Path) -> None:
+    def _download_agent(self, mesh_id: str, target: Path) -> None:
         endpoint = f"{settings.remote_url.rstrip('/')}/meshagents"
         params = {
             "id": settings.remote_agent_type,
-            "meshid": mesh_hex,
+            "meshid": _mesh_id_for_download(mesh_id),
             "installflags": settings.remote_agent_install_flags,
         }
         try:
@@ -419,7 +448,7 @@ class MeshCentralClient:
             age = time.time() - target.stat().st_mtime
             refresh = age > settings.remote_agent_cache_seconds
         if refresh:
-            self._download_agent(mesh_hex, target)
+            self._download_agent(mesh_id, target)
         raw_header = target.read_bytes()[:2]
         if raw_header != b"MZ":
             target.unlink(missing_ok=True)
@@ -508,6 +537,7 @@ meshcentral_client = MeshCentralClient()
 __all__ = [
     "MeshCentralCommandError",
     "MeshCentralTokenError",
+    "_mesh_id_for_download",
     "MeshDevice",
     "PreparedRemoteAgent",
     "build_remote_desktop_url",

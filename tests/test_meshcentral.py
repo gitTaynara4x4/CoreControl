@@ -1,7 +1,13 @@
 import base64
 from types import SimpleNamespace
 
-from app.meshcentral import MeshCentralClient, MeshDevice, _mesh_id_to_hex, build_remote_desktop_url
+from app.meshcentral import (
+    MeshCentralClient,
+    MeshDevice,
+    _mesh_id_for_download,
+    _mesh_id_to_hex,
+    build_remote_desktop_url,
+)
 
 
 def test_mesh_id_to_hex_accepts_meshcentral_base64_identifier():
@@ -96,3 +102,38 @@ def test_ensure_company_group_accepts_96_character_meshctrl_idhex(monkeypatch):
     assert mesh_id == "mesh//IDENTIFICADOR"
     assert mesh_hex == raw_hex
     assert group_name == group["name"]
+
+
+def test_mesh_id_for_download_preserves_meshcentral_modified_base64_identifier():
+    raw = bytes(range(48))
+    encoded = base64.b64encode(raw).decode("ascii").rstrip("=").replace("+", "@").replace("/", "$")
+    assert _mesh_id_for_download(f"mesh//{encoded}") == encoded
+
+
+def test_mesh_id_for_download_converts_96_character_hex_to_modified_base64():
+    raw = bytes(range(48))
+    expected = base64.b64encode(raw).decode("ascii").rstrip("=").replace("+", "@").replace("/", "$")
+    assert _mesh_id_for_download(raw.hex()) == expected
+
+
+def test_prepare_company_agent_downloads_with_original_mesh_id_not_hex(monkeypatch, tmp_path):
+    client = MeshCentralClient()
+    raw = bytes(range(48))
+    encoded = base64.b64encode(raw).decode("ascii").rstrip("=").replace("+", "@").replace("/", "$")
+    mesh_id = f"mesh//{encoded}"
+    mesh_hex = raw.hex()
+    company = SimpleNamespace(id=1, name="Empresa", slug="empresa")
+    captured = {}
+
+    monkeypatch.setattr(client, "ensure_company_group", lambda company: (mesh_id, mesh_hex, "Grupo"))
+    monkeypatch.setattr(client, "_agent_path", lambda value: tmp_path / "CoreTunerRemoteAgent.exe")
+
+    def fake_download(value, target):
+        captured["mesh_id"] = value
+        target.write_bytes(b"MZ" + (b"0" * 100_000))
+
+    monkeypatch.setattr(client, "_download_agent", fake_download)
+    prepared = client.prepare_company_agent(company)
+
+    assert captured["mesh_id"] == mesh_id
+    assert prepared.mesh_group_hex == mesh_hex

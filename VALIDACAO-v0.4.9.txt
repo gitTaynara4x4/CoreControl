@@ -2,7 +2,7 @@ CORETUNER CENTRAL v0.4.9 — VALIDAÇÃO DO PACOTE COMPLETO
 
 Validações executadas depois da integração das correções:
 - Python compileall: aprovado;
-- Pytest: 15 testes aprovados;
+- Pytest: 18 testes aprovados;
 - JavaScript: node --check aprovado nos dois arquivos;
 - Go fmt: sem diferenças nos três módulos;
 - Go test e Go vet: aprovados para Agent, Console e Setup;
@@ -19,6 +19,8 @@ Correção remota confirmada no código:
 - backend aceita 64 ou 96 caracteres hexadecimais;
 - Setup valida MeshID com 64 ou 96 caracteres;
 - teste automatizado cobre o campo _idhex atual de 96 caracteres.
+- download do agente envia o identificador original em Base64 modificado, como exigido pelo endpoint /meshagents;
+- teste automatizado garante que o hexadecimal de 96 caracteres nunca seja enviado como parâmetro meshid.
 
 Limitação inevitável:
 - a interface gráfica Windows e a instalação real do serviço Mesh Agent não podem ser executadas neste ambiente Linux. O pacote foi compilado e validado estruturalmente, mas o teste final deve ser feito no Windows após o deploy.
