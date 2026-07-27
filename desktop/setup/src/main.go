@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.11"
+const appVersion = "0.4.12"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -263,7 +263,11 @@ func createControl(class, text string, style uint32, x, y, w, height int32, pare
 }
 
 func setText(h syscall.Handle, text string) {
+	if h == 0 {
+		return
+	}
 	procSetWindowText.Call(uintptr(h), uintptr(unsafe.Pointer(utf16(text))))
+	redrawControl(h)
 }
 func getText(h syscall.Handle) string {
 	ln, _, _ := procGetWindowTextLength.Call(uintptr(h))
@@ -305,7 +309,7 @@ func runGUI() {
 	arrowCursor, _, _ := procLoadCursor.Call(0, IDC_ARROW)
 	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HCursor: syscall.Handle(arrowCursor), HbrBackground: themeWindowBrush, LpszClassName: className, HIconSm: smallIcon}
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
-	windowStyle := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN)
+	windowStyle := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX)
 	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(utf16("CoreTuner — Instalação segura"))), windowStyle, 180, 40, 720, 850, 0, 0, hinst, 0)
 	if h == 0 {
 		return
@@ -339,6 +343,7 @@ func wndProc(hwnd uintptr, msg uint32, wParam uintptr, lParam unsafe.Pointer) ui
 		paintTheme(syscall.Handle(hwnd))
 		return 0
 	case WM_ERASEBKGND:
+		eraseThemeBackground(syscall.Handle(hwnd), wParam)
 		return 1
 	case WM_DRAWITEM:
 		drawOwnerButton((*DRAWITEMSTRUCT)(lParam))
@@ -473,10 +478,10 @@ func buildUI() {
 	statusTitle := createControl("STATIC", "Empresa vinculada", WS_CHILD, 80, 272, 300, 24, a.hwnd, 0)
 	applyFont(statusTitle, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, statusTitle)
-	a.companyLabel = createControl("STATIC", "Aguardando login", WS_CHILD, 80, 304, 540, 30, a.hwnd, 0)
+	a.companyLabel = createControl("STATIC", "", WS_CHILD, 80, 304, 540, 30, a.hwnd, 0)
 	applyFont(a.companyLabel, a.sectionFont)
 	a.dashboardGroup = append(a.dashboardGroup, a.companyLabel)
-	a.status = createControl("STATIC", "Entre com sua conta para continuar.", WS_CHILD, 80, 340, 540, 32, a.hwnd, 0)
+	a.status = createControl("STATIC", "", WS_CHILD, 80, 340, 540, 32, a.hwnd, 0)
 	applyFont(a.status, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, a.status)
 
@@ -519,23 +524,38 @@ func buildUI() {
 
 func (a *App) showMode(mode string) {
 	a.mode = mode
+
+	// Esconde todas as etapas antes de mostrar a próxima. O redesenho entre
+	// as duas operações limpa completamente os pixels dos controles anteriores,
+	// inclusive botões owner-draw e textos STATIC do Win32.
 	for _, h := range a.loginGroup {
-		show(h, mode == "login")
+		show(h, false)
 	}
 	for _, h := range a.registerGroup {
-		show(h, mode == "register")
+		show(h, false)
 	}
 	for _, h := range a.dashboardGroup {
-		show(h, mode == "dashboard")
+		show(h, false)
 	}
+	forceRedraw(a.hwnd)
+
 	if mode == "dashboard" {
 		setText(a.subtitle, "Instalação segura — "+companyName(a.company))
+		for _, h := range a.dashboardGroup {
+			show(h, true)
+		}
 	} else if mode == "register" {
 		setText(a.subtitle, "Crie sua conta e conecte o primeiro computador")
+		for _, h := range a.registerGroup {
+			show(h, true)
+		}
 	} else {
 		setText(a.subtitle, "Instalação segura e monitoramento inteligente")
+		for _, h := range a.loginGroup {
+			show(h, true)
+		}
 	}
-	invalidateTheme(a.hwnd)
+	forceRedraw(a.hwnd)
 }
 
 func companyName(c *Company) string {
@@ -642,9 +662,11 @@ func (a *App) applyAuth(resp AuthResponse) {
 	a.token = resp.AccessToken
 	a.user = resp.User
 	a.company = resp.Company
-	a.showMode("dashboard")
+	// Preenche os textos enquanto a etapa ainda está oculta. Assim, o usuário
+	// nunca vê os placeholders sendo substituídos sobre a tela anterior.
 	setText(a.companyLabel, companyName(a.company))
 	setText(a.status, fmt.Sprintf("Usuário conectado: %s  •  Este computador será adicionado a essa empresa.", a.user.Name))
+	a.showMode("dashboard")
 }
 
 func (a *App) logout() {

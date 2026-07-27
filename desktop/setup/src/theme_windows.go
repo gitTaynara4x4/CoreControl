@@ -20,11 +20,16 @@ const (
 	ODS_SELECTED      = 0x0001
 	ODS_DISABLED      = 0x0004
 	TRANSPARENT       = 1
+	OPAQUE            = 2
 	PS_SOLID          = 0
 	DT_CENTER         = 0x00000001
 	DT_VCENTER        = 0x00000004
 	DT_SINGLELINE     = 0x00000020
 	HOLLOW_BRUSH      = 5
+	RDW_INVALIDATE    = 0x0001
+	RDW_ERASE         = 0x0004
+	RDW_ALLCHILDREN   = 0x0080
+	RDW_UPDATENOW     = 0x0100
 )
 
 type RECT struct {
@@ -58,12 +63,14 @@ var (
 	procFillRect         = user32.NewProc("FillRect")
 	procGetClientRect    = user32.NewProc("GetClientRect")
 	procInvalidateRect   = user32.NewProc("InvalidateRect")
+	procRedrawWindow     = user32.NewProc("RedrawWindow")
 	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
 	procCreatePen        = gdi32.NewProc("CreatePen")
 	procSelectObject     = gdi32.NewProc("SelectObject")
 	procDeleteObject     = gdi32.NewProc("DeleteObject")
 	procRoundRect        = gdi32.NewProc("RoundRect")
 	procSetBkMode        = gdi32.NewProc("SetBkMode")
+	procSetBkColor       = gdi32.NewProc("SetBkColor")
 	procSetTextColor     = gdi32.NewProc("SetTextColor")
 	procDrawTextW        = user32.NewProc("DrawTextW")
 )
@@ -95,6 +102,33 @@ func ensureThemeResources() {
 
 func invalidateTheme(hwnd syscall.Handle) {
 	procInvalidateRect.Call(uintptr(hwnd), 0, 1)
+}
+
+func forceRedraw(hwnd syscall.Handle) {
+	if hwnd == 0 {
+		return
+	}
+	procRedrawWindow.Call(
+		uintptr(hwnd), 0, 0,
+		RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW,
+	)
+}
+
+func redrawControl(hwnd syscall.Handle) {
+	if hwnd == 0 {
+		return
+	}
+	procRedrawWindow.Call(uintptr(hwnd), 0, 0, RDW_INVALIDATE|RDW_ERASE|RDW_UPDATENOW)
+}
+
+func eraseThemeBackground(hwnd syscall.Handle, hdc uintptr) {
+	if hwnd == 0 || hdc == 0 {
+		return
+	}
+	ensureThemeResources()
+	var client RECT
+	procGetClientRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&client)))
+	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&client)), uintptr(themeWindowBrush))
 }
 
 func paintTheme(hwnd syscall.Handle) {
@@ -132,15 +166,19 @@ func paintTheme(hwnd syscall.Handle) {
 }
 
 func staticControlColor(hdc uintptr) uintptr {
-	procSetBkMode.Call(hdc, TRANSPARENT)
+	ensureThemeResources()
+	// Os textos ficam sobre áreas brancas (cabeçalho e cartão). Fundo opaco
+	// impede que o texto anterior permaneça visível após SetWindowText/ShowWindow.
+	procSetBkMode.Call(hdc, OPAQUE)
+	procSetBkColor.Call(hdc, colorRef(255, 255, 255))
 	procSetTextColor.Call(hdc, colorRef(38, 50, 74))
-	hollow, _, _ := procGetStockObject.Call(HOLLOW_BRUSH)
-	return hollow
+	return uintptr(themeWhiteBrush)
 }
 
 func editControlColor(hdc uintptr) uintptr {
 	ensureThemeResources()
-	procSetBkMode.Call(hdc, TRANSPARENT)
+	procSetBkMode.Call(hdc, OPAQUE)
+	procSetBkColor.Call(hdc, colorRef(255, 255, 255))
 	procSetTextColor.Call(hdc, colorRef(24, 39, 67))
 	return uintptr(themeEditBrush)
 }

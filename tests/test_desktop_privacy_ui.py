@@ -31,3 +31,18 @@ def test_setup_buttons_use_click_cursor():
     assert "WM_SETCURSOR" in SETUP_SOURCE
     assert "IDC_HAND" in SETUP_SOURCE
     assert "isClickableControl" in SETUP_SOURCE
+
+
+def test_setup_repaints_between_wizard_steps_without_ghosting():
+    theme_source = (ROOT / "desktop" / "setup" / "src" / "theme_windows.go").read_text(encoding="utf-8")
+
+    # The former combination (transparent STATIC controls + no real background erase)
+    # left login/register pixels visible over the next wizard step on Windows.
+    assert "eraseThemeBackground(syscall.Handle(hwnd), wParam)" in SETUP_SOURCE
+    assert "forceRedraw(a.hwnd)" in SETUP_SOURCE
+    assert "windowStyle := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX)" in SETUP_SOURCE
+    assert "procSetBkMode.Call(hdc, OPAQUE)" in theme_source
+    assert "return uintptr(themeWhiteBrush)" in theme_source
+    assert "RDW_ALLCHILDREN" in theme_source
+    assert 'createControl("STATIC", "Aguardando login"' not in SETUP_SOURCE
+    assert 'createControl("STATIC", "Entre com sua conta para continuar."' not in SETUP_SOURCE

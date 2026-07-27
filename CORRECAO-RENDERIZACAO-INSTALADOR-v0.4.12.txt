@@ -1,0 +1,38 @@
+CORETUNER SETUP v0.4.12 — CORREÇÃO DEFINITIVA DE SOBREPOSIÇÃO
+
+Problema corrigido
+------------------
+Ao trocar da tela de login/cadastro para a etapa de identificação do computador,
+o Win32 mantinha pixels de textos e botões da etapa anterior. Isso ocorria porque:
+
+1. WM_ERASEBKGND informava que o fundo havia sido apagado, mas não o preenchia;
+2. os controles STATIC eram desenhados com fundo transparente;
+3. o modo anterior era ocultado sem um redesenho completo entre as etapas;
+4. WS_CLIPCHILDREN podia impedir o formulário pai de limpar áreas ocupadas pelos filhos.
+
+Correções aplicadas
+-------------------
+- fundo da janela agora é realmente apagado;
+- textos e campos usam fundo branco opaco;
+- todas as etapas são ocultadas, a janela é limpa e somente depois a etapa nova é exibida;
+- textos dinâmicos da empresa são preenchidos antes da etapa ficar visível;
+- redesenho imediato inclui todos os controles filhos;
+- removido WS_CLIPCHILDREN da janela do instalador;
+- mantido cursor de mão nos botões clicáveis;
+- mantida a privacidade: não mostra quantidade de computadores, online ou offline.
+
+Arquivos alterados
+------------------
+- desktop/setup/src/main.go
+- desktop/setup/src/theme_windows.go
+- tests/test_desktop_privacy_ui.py
+- app/downloads/CoreTunerSetup.exe
+
+Versões
+-------
+- Instalador: 0.4.12
+- Aplicativo local, agente e servidor: permanecem 0.4.11, pois não foram alterados.
+
+Servidor incorporado no executável
+----------------------------------
+https://apps-coretuner.9ywrah.easypanel.host
