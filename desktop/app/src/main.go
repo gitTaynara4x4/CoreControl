@@ -324,12 +324,14 @@ func main() { runtime.LockOSThread(); runGUI() }
 func runGUI() {
 	hinst, _, _ := procGetModuleHandle.Call(0)
 	cls := utf16("CoreTunerDesktopWindow")
-	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HbrBackground: syscall.Handle(COLOR_WINDOW + 1), LpszClassName: cls}
+	largeIcon, smallIcon := coreTunerWindowIcons()
+	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HbrBackground: syscall.Handle(COLOR_WINDOW + 1), LpszClassName: cls, HIconSm: smallIcon}
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(utf16("CoreTuner — Diagnóstico e gestão segura"))), WS_OVERLAPPEDWINDOW, 40, 30, 1420, 900, 0, 0, hinst, 0)
 	if h == 0 {
 		return
 	}
+	applyCoreTunerWindowIcons(syscall.Handle(h), largeIcon, smallIcon)
 	app = &App{hwnd: syscall.Handle(h), width: 1420, height: 900, page: 0, loginMode: "login", controls: map[int]syscall.Handle{}, fonts: map[string]uintptr{}, client: &http.Client{Timeout: 20 * time.Second}, serverURL: loadServerURL(), statusText: "Preparando diagnóstico seguro..."}
 	app.createFonts()
 	app.buildLogin()

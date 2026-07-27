@@ -311,12 +311,14 @@ func main() {
 func runGUI() {
 	hinst, _, _ := procGetModuleHandle.Call(0)
 	className := utf16("CoreTunerSetupWindow")
-	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HbrBackground: syscall.Handle(COLOR_WINDOW + 1), LpszClassName: className}
+	largeIcon, smallIcon := coreTunerWindowIcons()
+	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HbrBackground: syscall.Handle(COLOR_WINDOW + 1), LpszClassName: className, HIconSm: smallIcon}
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(utf16("CoreTuner — Instalação segura"))), WS_OVERLAPPEDWINDOW, 180, 55, 620, 780, 0, 0, hinst, 0)
 	if h == 0 {
 		return
 	}
+	applyCoreTunerWindowIcons(syscall.Handle(h), largeIcon, smallIcon)
 	font, _, _ := procGetStockObject.Call(DEFAULT_GUI_FONT)
 	app = &App{hwnd: syscall.Handle(h), font: font, controls: map[int]syscall.Handle{}, client: &http.Client{Timeout: 25 * time.Second}, serverURL: loadServerURL()}
 	app.createFonts()
