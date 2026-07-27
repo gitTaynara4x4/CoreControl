@@ -15,12 +15,14 @@
     clearInterval(CT.state.refreshTimer);
     CT.state.user = null;
     CT.$('#appView').classList.add('hidden');
+    CT.$('#loginMount').classList.remove('hidden');
     CT.$('#loginView').classList.remove('hidden');
     CT.setCentralAuthMode('login');
   };
 
   CT.showApp = function showApp() {
     CT.$('#loginView').classList.add('hidden');
+    CT.$('#loginMount').classList.add('hidden');
     CT.$('#appView').classList.remove('hidden');
   };
 

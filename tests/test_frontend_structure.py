@@ -85,3 +85,16 @@ def test_remote_v7_and_windows_icon_assets_were_preserved():
     assert (ROOT / "desktop" / "setup" / "src" / "coretuner.ico").is_file()
     assert (ROOT / "desktop" / "app" / "src" / "coretuner.ico").is_file()
     assert (ROOT / "app" / "downloads" / "CoreTunerSetup.exe").stat().st_size > 5_000_000
+
+
+def test_login_mount_is_removed_from_layout_after_authentication():
+    auth = (ROOT / "app/static/js/auth.js").read_text(encoding="utf-8")
+    assert "CT.$('#loginMount').classList.add('hidden')" in auth
+    assert "CT.$('#loginMount').classList.remove('hidden')" in auth
+
+
+def test_frontend_cache_version_v2_is_consistent():
+    index = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
+    core = (ROOT / "app/static/js/core.js").read_text(encoding="utf-8")
+    assert "20260727-frontend-pages-v2" in index
+    assert "CT.VERSION = '20260727-frontend-pages-v2'" in core

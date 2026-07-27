@@ -3,7 +3,7 @@
 
   const CT = window.CoreTuner = window.CoreTuner || {};
 
-  CT.VERSION = '20260727-frontend-pages-v1';
+  CT.VERSION = '20260727-frontend-pages-v2';
   CT.state = {
     user: null,
     page: 'overview',
