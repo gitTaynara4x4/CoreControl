@@ -266,6 +266,10 @@ def sync_company_remote_devices(
         local.remote_online = False
         matched = meshcentral_client.match_device(local, remote_devices)
         if matched is None:
+            # Um banco/grupo novo do MeshCentral gera IDs de nó novos. Não
+            # mantenha o ID antigo no CoreTuner, pois ele faria a Central abrir
+            # uma sessão para um nó que já não existe nesse grupo.
+            local.mesh_node_id = None
             continue
         local.mesh_node_id = matched.node_id
         local.remote_online = matched.connected

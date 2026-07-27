@@ -889,14 +889,19 @@ func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int) error {
 	}
 	for i := 0; i < 45; i++ {
 		if installedNow, runningNow := remoteAgentStatus(); installedNow && runningNow {
-			if !remoteAgentMatches(info.MeshGroupHex, info.ServerURL) {
-				return errors.New("o Mesh Agent foi instalado, mas não ficou vinculado ao grupo remoto desta empresa")
-			}
+			// O estado confirmado pelo MeshCentral é a fonte de verdade. A leitura
+			// local do MeshAgent.msh é apenas uma verificação auxiliar: versões
+			// diferentes do agente podem gravar o mesmo vínculo em formatos
+			// distintos, gerando um falso erro mesmo quando o computador já está
+			// online no grupo correto.
 			setText(a.status, "Aguardando o computador aparecer online no servidor remoto...")
 			if connected, warning := a.waitRemoteRegistration(deviceID, 90*time.Second); connected {
 				return nil
 			} else if warning != "" {
 				return fmt.Errorf("o agente iniciou, mas o servidor remoto não confirmou a conexão: %s", warning)
+			}
+			if !remoteAgentMatches(info.MeshGroupHex, info.ServerURL) {
+				return errors.New("o Mesh Agent iniciou, mas o servidor não confirmou o vínculo com o grupo remoto desta empresa")
 			}
 			return errors.New("o agente iniciou, mas o computador não apareceu online no MeshCentral dentro do prazo")
 		}
