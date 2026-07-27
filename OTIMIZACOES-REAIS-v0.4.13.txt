@@ -1,0 +1,59 @@
+CORETUNER DESKTOP v0.4.13 — OTIMIZAÇÕES REAIS COM RESTAURAÇÃO
+
+O QUE FOI IMPLEMENTADO
+
+1. BACKUP ANTES DA PRIMEIRA ALTERAÇÃO
+- O CoreTuner lê as configurações atuais do Windows.
+- Salva o backup em:
+  %LOCALAPPDATA%\CoreTuner\optimization-state.json
+- Se o backup não puder ser gravado, nenhuma otimização é iniciada.
+- Ao trocar de perfil, o backup original não é substituído.
+
+2. PERFIL CONSERVADOR
+- Reduz somente animações transitórias da interface.
+- Não altera o plano de energia.
+- Não altera prioridade de programas.
+
+3. PERFIL EQUILIBRADO
+- Reduz animações transitórias e de minimizar/maximizar.
+- Ativa o plano Equilibrado do Windows quando disponível.
+
+4. MODO ATENDIMENTO
+- Aplica os ajustes do perfil Equilibrado.
+- Prioriza moderadamente, usando Acima do normal, apenas aplicativos compatíveis que já estiverem abertos.
+- São reconhecidos navegadores, WhatsApp, ZapsChat, Teams, Zoiper, MicroSIP, 3CX e discadores conhecidos.
+- O CoreTuner altera somente o processo principal, evitando priorizar dezenas de processos internos do navegador.
+
+5. ALTO DESEMPENHO
+- Reduz animações.
+- Usa o plano Alto desempenho somente quando o Windows confirma que o computador está ligado à tomada.
+- Em bateria, leitura desconhecida ou plano indisponível, mantém o caminho conservador/Equilibrado e informa o motivo.
+- A prioridade aplicada continua sendo apenas Acima do normal. Não usa prioridade Alta ou Tempo real.
+
+6. RESTAURAR ORIGINAL
+- Restaura os valores exatos salvos antes da primeira otimização:
+  • animações;
+  • plano de energia;
+  • prioridade original dos aplicativos que ainda estiverem executando com o mesmo PID e nome.
+- Se um processo já terminou, sua prioridade deixou de existir e não há nada para restaurar.
+- Se qualquer restauração falhar, o backup permanece ativo para uma nova tentativa.
+- Quando tudo é restaurado, o backup é arquivado em:
+  %LOCALAPPDATA%\CoreTuner\Backups
+
+O QUE CONTINUA BLOQUEADO
+
+- Excluir ou mover arquivos.
+- Limpar Registro automaticamente.
+- Esvaziar Lixeira ou Downloads.
+- Desativar Windows Defender ou Firewall.
+- Finalizar programas à força.
+- Usar prioridade Alta ou Tempo real.
+- Alterar o modo Não Perturbe por chave interna não documentada.
+
+OBSERVAÇÕES IMPORTANTES
+
+- A prioridade de aplicativos é aplicada aos programas compatíveis que estiverem abertos naquele momento.
+- Se o usuário abrir o navegador ou o discador depois, pode executar o Modo Atendimento novamente.
+- O instalador continua usando o fluxo atual: baixa os componentes oficiais do servidor e valida o SHA-256.
+- Para distribuir esta versão pelo instalador, o arquivo app/downloads/CoreTuner.exe deste pacote precisa estar publicado no servidor CoreTuner.
+- Nenhuma API, banco de dados, acesso remoto, agente de telemetria, login ou vínculo de empresa foi removido.

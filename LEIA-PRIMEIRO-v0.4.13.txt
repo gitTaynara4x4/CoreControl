@@ -1,0 +1,16 @@
+CORETUNER DESKTOP v0.4.13 — OTIMIZAÇÕES REAIS E REVERSÍVEIS
+
+Esta versão mantém o servidor, banco, login, empresa, agente, telemetria e acesso remoto existentes.
+A alteração principal está no aplicativo local CoreTuner.exe.
+
+PARA ATUALIZAR A PRODUÇÃO
+1. Substitua app/downloads/CoreTuner.exe pelo arquivo deste pacote.
+2. Substitua app/downloads/CoreTunerSetup.exe para disponibilizar o instalador v0.4.13.
+3. Substitua app/api.py para o manifesto informar a versão 0.4.13.
+4. Reinicie somente o serviço CoreTuner Central.
+
+O instalador baixa o CoreTuner.exe do servidor. Portanto, publicar apenas o Setup sem atualizar app/downloads/CoreTuner.exe fará o instalador continuar entregando a versão antiga do aplicativo.
+
+Leia também:
+- OTIMIZACOES-REAIS-v0.4.13.txt
+- VALIDACAO-v0.4.13.txt

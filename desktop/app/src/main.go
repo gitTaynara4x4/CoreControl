@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.11"
+const appVersion = "0.4.13"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -172,10 +172,11 @@ type SystemInfo struct {
 	Updated                                                                          time.Time
 }
 type ProcessInfo struct {
-	Name     string
-	PID      int
-	MemoryMB float64
-	CPU      float64
+	Name      string
+	PID       int
+	ParentPID int
+	MemoryMB  float64
+	CPU       float64
 }
 type HistoryItem struct {
 	At     time.Time `json:"at"`
@@ -214,6 +215,10 @@ type App struct {
 	mouseX, mouseY                  int32
 	hoverRect                       Rect
 	hoverActive                     bool
+	optimizationActive              int
+	optimizationAppliedAt           time.Time
+	optimizationNote                string
+	optimizationBusy                bool
 }
 
 var app *App
@@ -302,6 +307,8 @@ func runGUI() {
 	app.buildLogin()
 	app.loadHistory()
 	app.loadSession()
+	_ = ensureOptimizationDirectories()
+	app.refreshOptimizationSummary()
 	procShowWindow.Call(h, SW_SHOW)
 	procUpdateWindow.Call(h)
 	procSetTimer.Call(h, 1, 2500, 0)
@@ -1410,27 +1417,68 @@ func boolText(v bool, a, b string) string {
 func (a *App) drawOptimizations(dc syscall.Handle) {
 	x, y := contentOrigin()
 	w := a.width - x - 28
+	a.mu.RLock()
+	activeProfile := a.optimizationActive
+	activeAt := a.optimizationAppliedAt
+	optimizationNote := a.optimizationNote
+	optimizationBusy := a.optimizationBusy
+	a.mu.RUnlock()
+
 	text(dc, "Perfis de otimização", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	text(dc, "Nenhum perfil é aplicado automaticamente. Escolha, revise e confirme conforme a necessidade do cliente.", Rect{x, y + 38, w, 30}, a.fonts["body"], rgb(81, 98, 126), DT_LEFT|DT_SINGLELINE)
-	profiles := []struct{ name, desc string }{{"Conservador", "Alterações mínimas e maior estabilidade."}, {"Equilibrado", "Equilíbrio entre desempenho e uso normal."}, {"Modo Atendimento", "Prioriza CRM, navegador, ZapChats e discador."}, {"Alto Desempenho", "Maior resposta para computadores lentos."}, {"Restaurar Original", "Desfaz somente ajustes feitos pelo CoreTuner."}}
+	intro := "Nenhum perfil é aplicado automaticamente. Selecione e confirme; o backup é salvo antes da primeira alteração."
+	if activeProfile > 0 {
+		intro = "Perfil ativo: " + optimizationProfileName(activeProfile)
+		if !activeAt.IsZero() {
+			intro += " • aplicado em " + activeAt.Format("02/01/2006 15:04")
+		}
+	}
+	text(dc, intro, Rect{x, y + 38, w, 30}, a.fonts["body"], rgb(81, 98, 126), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+
+	profiles := []struct{ name, desc string }{
+		{"Conservador", "Reduz somente animações transitórias."},
+		{"Equilibrado", "Reduz animações e usa energia equilibrada."},
+		{"Modo Atendimento", "Prioriza apps de atendimento já abertos."},
+		{"Alto Desempenho", "Maior resposta quando ligado à tomada."},
+		{"Restaurar Original", "Restaura exatamente o backup anterior."},
+	}
 	cw := (w - 40) / 5
 	for i, p := range profiles {
 		r := Rect{x + int32(i)*(cw+10), y + 90, cw, 250}
-		card(dc, r)
 		selected := a.profile == i+1
-		circle(dc, Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, choose(selected, rgb(220, 236, 255), rgb(239, 243, 248)))
-		text(dc, fmt.Sprintf("%d", i+1), Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, a.fonts["h1"], choose(selected, rgb(18, 101, 246), rgb(82, 101, 131)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-		text(dc, p.name, Rect{r.X + 12, r.Y + 100, r.W - 24, 34}, a.fonts["h2"], choose(selected, rgb(18, 101, 246), rgb(20, 42, 74)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		active := activeProfile == i+1
+		if active {
+			roundedBox(dc, r, rgb(248, 253, 254), rgb(0, 151, 170), 14)
+		} else {
+			card(dc, r)
+		}
+		circle(dc, Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, choose(selected || active, rgb(220, 236, 255), rgb(239, 243, 248)))
+		text(dc, fmt.Sprintf("%d", i+1), Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, a.fonts["h1"], choose(selected || active, rgb(18, 101, 246), rgb(82, 101, 131)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, p.name, Rect{r.X + 12, r.Y + 100, r.W - 24, 34}, a.fonts["h2"], choose(selected || active, rgb(18, 101, 246), rgb(20, 42, 74)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 		text(dc, p.desc, Rect{r.X + 18, r.Y + 142, r.W - 36, 58}, a.fonts["small"], rgb(78, 95, 123), DT_CENTER|DT_WORDBREAK)
 		br := Rect{r.X + 18, r.Y + 205, r.W - 36, 34}
-		button(dc, chooseLabel(selected, "Selecionado", "Selecionar"), br, selected)
-		a.hits = append(a.hits, Hit{br, "profile", i + 1})
+		label := "Selecionar"
+		if selected {
+			label = "Selecionado"
+		} else if active {
+			label = "Ativo"
+		}
+		button(dc, label, br, selected)
+		if !optimizationBusy {
+			a.hits = append(a.hits, Hit{br, "profile", i + 1})
+		}
 	}
+
 	sy := y + 370
 	card(dc, Rect{x, sy, w/2 - 10, 250})
 	card(dc, Rect{x + w/2 + 10, sy, w/2 - 10, 250})
-	text(dc, "Ajustes permitidos", Rect{x + 22, sy + 18, w/2 - 50, 28}, a.fonts["h2"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE)
-	allowed := []string{"Reduzir animações e transparências", "Ajustar plano de energia", "Priorizar moderadamente aplicativos", "Ativar Não Perturbe", "Abrir sistemas de trabalho"}
+	text(dc, "Ajustes seguros", Rect{x + 22, sy + 18, w/2 - 50, 28}, a.fonts["h2"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE)
+	allowed := []string{
+		"Backup automático antes de alterar",
+		"Reduzir animações do Windows",
+		"Ajustar o plano de energia",
+		"Priorizar apps de atendimento em execução",
+		"Restaurar as configurações anteriores",
+	}
 	for i, v := range allowed {
 		text(dc, "✓  "+v, Rect{x + 24, sy + 58 + int32(i*34), w/2 - 55, 28}, a.fonts["body"], rgb(43, 91, 67), DT_LEFT|DT_SINGLELINE)
 	}
@@ -1439,14 +1487,40 @@ func (a *App) drawOptimizations(dc syscall.Handle) {
 	for i, v := range blocked {
 		text(dc, "×  "+v, Rect{x + w/2 + 34, sy + 58 + int32(i*34), w/2 - 55, 28}, a.fonts["body"], rgb(113, 64, 64), DT_LEFT|DT_SINGLELINE)
 	}
+
 	apply := Rect{x, sy + 275, 260, 42}
-	button(dc, "Confirmar perfil selecionado", apply, true)
-	a.hits = append(a.hits, Hit{apply, "apply-profile", 0})
+	applyLabel := "Aplicar perfil com backup"
+	if a.profile == 5 {
+		applyLabel = "Restaurar configurações"
+	}
+	if optimizationBusy {
+		applyLabel = "Aplicando com segurança..."
+	}
+	button(dc, applyLabel, apply, true)
+	if !optimizationBusy {
+		a.hits = append(a.hits, Hit{apply, "apply-profile", 0})
+	}
 	reset := Rect{x + 280, sy + 275, 210, 42}
 	button(dc, "Cancelar seleção", reset, false)
-	a.hits = append(a.hits, Hit{reset, "cancel-profile", 0})
-	text(dc, "Nesta versão, os perfis são registrados e revisados, mas mudanças no Windows permanecem bloqueadas até a restauração automática ser validada.", Rect{x + 520, sy + 273, w - 520, 48}, a.fonts["small"], rgb(91, 107, 132), DT_LEFT|DT_WORDBREAK)
+	if !optimizationBusy {
+		a.hits = append(a.hits, Hit{reset, "cancel-profile", 0})
+	}
+	if optimizationNote == "" {
+		optimizationNote = "O backup original nunca é substituído enquanto existir um perfil ativo."
+	}
+	text(dc, optimizationNote, Rect{x + 520, sy + 273, w - 520, 48}, a.fonts["small"], rgb(91, 107, 132), DT_LEFT|DT_WORDBREAK)
 }
+
+func (a *App) refreshOptimizationSummary() {
+	active, appliedAt, note := loadOptimizationSummary()
+	a.mu.Lock()
+	a.optimizationActive = active
+	a.optimizationAppliedAt = appliedAt
+	a.optimizationNote = note
+	a.mu.Unlock()
+	a.invalidate()
+}
+
 func chooseLabel(c bool, a, b string) string {
 	if c {
 		return a
@@ -1491,7 +1565,7 @@ func (a *App) drawReports(dc syscall.Handle) {
 	x, y := contentOrigin()
 	w := a.width - x - 28
 	text(dc, "Relatórios técnicos", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	cards := []struct{ title, desc, action string }{{"Relatório de diagnóstico", "Identificação, CPU, memória, disco, rede e recomendações deste computador.", "report"}, {"Comparação antes e depois", "Será habilitada junto com os perfis reais do Modo Atendimento.", "report"}}
+	cards := []struct{ title, desc, action string }{{"Relatório de diagnóstico", "Identificação, CPU, memória, disco, rede e recomendações deste computador.", "report"}, {"Comparação antes e depois", "As otimizações já são aplicadas com backup; a comparação automática de métricas será adicionada em uma próxima etapa.", "report"}}
 	for i, c := range cards {
 		r := Rect{x, y + 70 + int32(i)*160, w, 135}
 		card(dc, r)
@@ -1643,9 +1717,44 @@ func (a *App) action(action string, value int) {
 			message("CoreTuner", "Selecione um perfil primeiro.", MB_OK|MB_ICONINFORMATION)
 			return
 		}
-		names := []string{"", "Conservador", "Equilibrado", "Modo Atendimento", "Alto Desempenho", "Restaurar Original"}
-		a.addHistory("Perfil revisado", names[a.profile]+" — nenhuma alteração no Windows foi aplicada nesta versão")
-		message("CoreTuner", "Perfil registrado para revisão. Nenhuma alteração foi aplicada ao Windows nesta versão segura.", MB_OK|MB_ICONINFORMATION)
+		plan, err := optimizationPlan(a.profile, runningOnBattery())
+		if err != nil {
+			message("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+			return
+		}
+		if message("Confirmar otimização segura", optimizationConfirmation(plan), MB_YESNO|MB_ICONQUESTION) != IDYES {
+			return
+		}
+		a.mu.Lock()
+		if a.optimizationBusy {
+			a.mu.Unlock()
+			return
+		}
+		a.optimizationBusy = true
+		a.mu.Unlock()
+		a.invalidate()
+		result, applyErr := applyOptimizationProfile(a.profile)
+		a.mu.Lock()
+		a.optimizationBusy = false
+		a.mu.Unlock()
+		a.refreshOptimizationSummary()
+		detail := summarizeOptimizationResult(result)
+		if applyErr != nil {
+			if detail != "" {
+				detail += "\n\n"
+			}
+			detail += applyErr.Error()
+			a.addHistory("Otimização incompleta", detail)
+			message("Otimização não concluída", detail, MB_OK|MB_ICONERROR)
+			return
+		}
+		if result.Restored {
+			a.addHistory("Configurações restauradas", detail)
+			a.profile = 0
+		} else {
+			a.addHistory("Perfil aplicado", detail)
+		}
+		message("CoreTuner", detail, MB_OK|MB_ICONINFORMATION)
 	case "refresh-local":
 		go a.refreshLocal(false)
 	case "refresh-central":

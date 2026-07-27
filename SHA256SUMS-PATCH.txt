@@ -1,0 +1,14 @@
+89e94fdd707c8fd74ced90a9da8745a8e9db00de8eff75da98162a9532d8f32c  ./LEIA-PRIMEIRO-v0.4.13.txt
+51a8dcd0fcf095b8e950262e4c30a9ac97891e82c0129ffe6caa363b4dffeba4  ./OTIMIZACOES-REAIS-v0.4.13.txt
+d90472064f0e252adba58a2b896d92b9476e46eeeca765f1ac59e905da8a51ff  ./SHA256SUMS-PATCH.txt
+ca09975078968edc4d2c6ee0d9824506acb8708c5c21677f9655a04ce6ad9ee9  ./VALIDACAO-v0.4.13.txt
+0337c3dc97c98716677e974f585de14405c9cdcedf9cf91dffb29af5e36be49b  ./app/api.py
+27f4e2bf88c6578b500134e18fe0b8d257a29eddac81bcd45a111aacae7aa2ee  ./app/downloads/CoreTuner.exe
+cc9c843527f824262624e8981a4a872b05a71055f5cbf54af4dce47b56c26c63  ./app/downloads/CoreTunerSetup.exe
+802bc52fa6e5d6fc68ffef5bbf17ba950ea905922ba10c94701ca7082bcdb344  ./desktop/app/src/main.go
+3a7e001593685e5e10912f060ba6a7ec8a43136954d2916980b3734096648ee7  ./desktop/app/src/native_windows.go
+a98d5f84660a8b14d4c73df0c66da95504f89d152362270698c78c48ba081447  ./desktop/app/src/optimization_windows.go
+de32d170e1b749442789404f70e9b73fce8c6f26c342244dd95153c5e16cbf25  ./desktop/app/src/optimizer_core.go
+af375ddf629b0685be43d1974324d9fa0821ba9a10f2aaf004a1026425f8698c  ./desktop/app/src/optimizer_core_test.go
+1d1a4ad14f3e79c2adc9ba8262f0c4524a17d1b816f179c028fc8dfed8170987  ./desktop/setup/src/main.go
+e2268211745629fcc72a188b6140925e8457bb167cbd0942798db76b5dc58946  ./tests/test_optimization_safety.py

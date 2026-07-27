@@ -114,10 +114,11 @@ func nativeProcesses() []ProcessInfo {
 		if name != "" {
 			memoryMB := processMemoryMB(entry.ProcessID)
 			processes = append(processes, ProcessInfo{
-				Name:     strings.TrimSuffix(name, ".exe"),
-				PID:      int(entry.ProcessID),
-				MemoryMB: memoryMB,
-				CPU:      0,
+				Name:      strings.TrimSuffix(name, ".exe"),
+				PID:       int(entry.ProcessID),
+				ParentPID: int(entry.ParentProcessID),
+				MemoryMB:  memoryMB,
+				CPU:       0,
 			})
 		}
 		entry.Size = uint32(unsafe.Sizeof(processEntry32{}))

@@ -1,0 +1,26 @@
+CORETUNER DESKTOP v0.4.13 — VALIDAÇÃO
+
+VALIDAÇÕES EXECUTADAS
+
+- 38 testes Python aprovados.
+- Testes Go do aplicativo aprovados.
+- go vet do aplicativo para Windows aprovado.
+- go vet do instalador para Windows aprovado.
+- Compilação Windows amd64 do CoreTuner.exe aprovada.
+- Compilação Windows amd64 do CoreTunerSetup.exe aprovada.
+- Ícones oficiais incorporados aos dois executáveis.
+- Servidor de produção incorporado:
+  https://apps-coretuner.9ywrah.easypanel.host
+
+GARANTIAS DE ESCOPO
+
+- Não foram alterados banco de dados, autenticação, telemetria, MeshCentral, acesso remoto ou instalação do agente.
+- O backup é gravado antes da primeira chamada que altera o Windows.
+- O backup original não é sobrescrito ao trocar de perfil.
+- Restauração incompleta mantém o backup.
+- Não há comandos de exclusão, limpeza, desativação de segurança ou encerramento forçado no módulo de otimização.
+- A prioridade máxima usada é Acima do normal.
+
+LIMITE DA VALIDAÇÃO
+
+O executável foi compilado para Windows, mas o ambiente de geração não executa a interface Win32 real. O teste final deve ser feito em um computador Windows, primeiro com o perfil Conservador e depois com Restaurar Original.

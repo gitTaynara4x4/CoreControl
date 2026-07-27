@@ -417,7 +417,7 @@ def desktop_manifest(user: CurrentUser):
             "sha256": file_sha256(path),
             "size": path.stat().st_size,
         }
-    return {"version": "0.4.11", "files": files}
+    return {"version": "0.4.13", "files": files}
 
 
 @router.get("/desktop/components/{filename}")
