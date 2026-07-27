@@ -144,6 +144,7 @@ def test_setup_directly_registers_current_device_and_agent_sends_telemetry():
         remote = client.post(f"/api/devices/{devices.json()[0]['id']}/remote-session")
         assert remote.status_code == 200, remote.text
         assert "gotonode=NODETEST123" in remote.json()["url"]
+        assert "ctnode=NODETEST123" in remote.json()["url"]
         assert "viewmode=11" in remote.json()["url"]
         assert "hide=63" in remote.json()["url"]
         assert "login=" in remote.json()["url"]

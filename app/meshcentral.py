@@ -125,6 +125,10 @@ def build_remote_desktop_url(
             "gotonode": _short_node_id(node_id),
             "viewmode": "11",
             "hide": "63",
+            # O MeshCentral consome/remove gotonode durante o login por token.
+            # ctnode é um parâmetro próprio, preservado no redirecionamento,
+            # para o custom.js reconstruir currentNode com o computador exato.
+            "ctnode": _short_node_id(node_id),
             # Marcador preservado pelo MeshCentral após o login e a troca de URL.
             # O custom.js usa este valor para iniciar somente sessões vindas do CoreTuner.
             "coretuner": "1",

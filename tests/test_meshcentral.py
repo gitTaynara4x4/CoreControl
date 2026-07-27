@@ -51,6 +51,7 @@ def test_remote_url_targets_exact_node():
     query = parse_qs(urlparse(url).query)
     assert query["login"] == ["TOKEN"]
     assert query["gotonode"] == ["NODE123"]
+    assert query["ctnode"] == ["NODE123"]
     assert query["viewmode"] == ["11"]
     assert query["hide"] == ["63"]
     assert query["coretuner"] == ["1"]
