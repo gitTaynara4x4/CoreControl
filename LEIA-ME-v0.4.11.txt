@@ -1,0 +1,18 @@
+CORETUNER v0.4.11 — INTERFACE LOCAL E PRIVACIDADE
+
+O que foi corrigido:
+1. O instalador não mostra mais quantidade de computadores, online ou offline.
+2. A etapa de instalação mostra somente a empresa vinculada, o usuário conectado e os dados desta máquina.
+3. O aplicativo local não mostra outros computadores da empresa.
+4. A opção Administração foi removida do aplicativo local; a visão completa continua no painel web.
+5. O relatório local contém somente informações deste computador.
+6. Menus e botões agora mostram cursor de mão e realce ao passar o mouse.
+7. Os executáveis foram recompilados para Windows x64 com o servidor de produção configurado.
+
+Arquivos principais:
+- app/downloads/CoreTunerSetup.exe
+- app/downloads/CoreTuner.exe
+- app/downloads/CoreTunerAgent.exe
+
+Servidor configurado:
+https://apps-coretuner.9ywrah.easypanel.host

@@ -1,4 +1,4 @@
--- CoreTuner Central 0.4.9
+-- CoreTuner Central 0.4.11
 -- Execute uma vez no banco PostgreSQL selecionado no EasyPanel.
 -- A aplicação também usa SQLAlchemy create_all, mas este arquivo permite criar
 -- e revisar explicitamente toda a estrutura antes do primeiro deploy.

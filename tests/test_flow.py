@@ -92,7 +92,7 @@ def test_setup_directly_registers_current_device_and_agent_sends_telemetry():
                 "serial_number": "SERIAL001",
                 "os_name": "Windows 11 Pro",
                 "os_version": "10.0",
-                "agent_version": "0.4.9",
+                "agent_version": "0.4.11",
                 "install_remote": False,
             },
         )
@@ -197,7 +197,7 @@ def test_remote_install_returns_clear_warning_when_provisioning_is_not_configure
                 "device_uid": "machine-guid-remote-warning",
                 "name": "PC REMOTO",
                 "hostname": "DESKTOP-REMOTE",
-                "agent_version": "0.4.9",
+                "agent_version": "0.4.11",
                 "install_remote": True,
             },
         )
@@ -316,4 +316,4 @@ def test_site_central_and_health_are_served():
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.4.9"
+        assert health.json()["version"] == "0.4.11"

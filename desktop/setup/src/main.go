@@ -22,46 +22,45 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.9"
+const appVersion = "0.4.11"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
 const (
-	WS_OVERLAPPEDWINDOW  = 0x00CF0000
-	WS_CAPTION           = 0x00C00000
-	WS_SYSMENU           = 0x00080000
-	WS_MINIMIZEBOX       = 0x00020000
-	WS_CLIPCHILDREN      = 0x02000000
-	WS_VISIBLE           = 0x10000000
-	WS_CHILD             = 0x40000000
-	WS_BORDER            = 0x00800000
-	WS_VSCROLL           = 0x00200000
-	WS_TABSTOP           = 0x00010000
-	ES_AUTOHSCROLL       = 0x0080
-	ES_PASSWORD          = 0x0020
-	BS_PUSHBUTTON        = 0x00000000
-	BS_DEFPUSHBUTTON     = 0x00000001
-	LBS_NOTIFY           = 0x0001
-	LBS_NOINTEGRALHEIGHT = 0x0100
-	SW_SHOW              = 5
-	SW_HIDE              = 0
-	SW_SHOWNORMAL        = 1
-	CW_USEDEFAULT        = ^uintptr(0x7fffffff)
-	WM_DESTROY           = 0x0002
-	WM_COMMAND           = 0x0111
-	WM_SETFONT           = 0x0030
-	WM_CLOSE             = 0x0010
-	WM_APP               = 0x8000
-	LB_ADDSTRING         = 0x0180
-	LB_RESETCONTENT      = 0x0184
-	MB_OK                = 0x00000000
-	MB_ICONINFORMATION   = 0x00000040
-	MB_ICONERROR         = 0x00000010
-	MB_YESNO             = 0x00000004
-	MB_ICONQUESTION      = 0x00000020
-	IDYES                = 6
-	COLOR_WINDOW         = 5
-	DEFAULT_GUI_FONT     = 17
+	WS_OVERLAPPEDWINDOW = 0x00CF0000
+	WS_CAPTION          = 0x00C00000
+	WS_SYSMENU          = 0x00080000
+	WS_MINIMIZEBOX      = 0x00020000
+	WS_CLIPCHILDREN     = 0x02000000
+	WS_VISIBLE          = 0x10000000
+	WS_CHILD            = 0x40000000
+	WS_BORDER           = 0x00800000
+	WS_VSCROLL          = 0x00200000
+	WS_TABSTOP          = 0x00010000
+	ES_AUTOHSCROLL      = 0x0080
+	ES_PASSWORD         = 0x0020
+	BS_PUSHBUTTON       = 0x00000000
+	BS_DEFPUSHBUTTON    = 0x00000001
+	SW_SHOW             = 5
+	SW_HIDE             = 0
+	SW_SHOWNORMAL       = 1
+	CW_USEDEFAULT       = ^uintptr(0x7fffffff)
+	WM_DESTROY          = 0x0002
+	WM_SETCURSOR        = 0x0020
+	WM_COMMAND          = 0x0111
+	WM_SETFONT          = 0x0030
+	WM_CLOSE            = 0x0010
+	WM_APP              = 0x8000
+	MB_OK               = 0x00000000
+	MB_ICONINFORMATION  = 0x00000040
+	MB_ICONERROR        = 0x00000010
+	MB_YESNO            = 0x00000004
+	MB_ICONQUESTION     = 0x00000020
+	IDYES               = 6
+	COLOR_WINDOW        = 5
+	DEFAULT_GUI_FONT    = 17
+	IDC_ARROW           = 32512
+	IDC_HAND            = 32649
 )
 
 const (
@@ -82,10 +81,8 @@ const (
 	idSector           = 202
 	idLocation         = 203
 	idInstall          = 204
-	idRefresh          = 205
 	idOpenCentral      = 206
 	idLogout           = 207
-	idDevicesList      = 208
 )
 
 var (
@@ -108,6 +105,9 @@ var (
 	procGetWindowTextLength = user32.NewProc("GetWindowTextLengthW")
 	procEnableWindow        = user32.NewProc("EnableWindow")
 	procSetFocus            = user32.NewProc("SetFocus")
+	procSetCursor           = user32.NewProc("SetCursor")
+	procLoadCursor          = user32.NewProc("LoadCursorW")
+	procGetDlgCtrlID        = user32.NewProc("GetDlgCtrlID")
 	procMessageBox          = user32.NewProc("MessageBoxW")
 	procDestroyWindow       = user32.NewProc("DestroyWindow")
 	procGetStockObject      = gdi32.NewProc("GetStockObject")
@@ -160,23 +160,6 @@ type AuthResponse struct {
 	AccessToken string   `json:"access_token"`
 	User        AuthUser `json:"user"`
 	Company     *Company `json:"company"`
-}
-
-type Telemetry struct {
-	CPUPercent    *float64 `json:"cpu_percent"`
-	MemoryPercent *float64 `json:"memory_percent"`
-	DiskPercent   *float64 `json:"disk_percent"`
-	TemperatureC  *float64 `json:"temperature_c"`
-}
-
-type Device struct {
-	ID          int        `json:"id"`
-	Name        string     `json:"name"`
-	Hostname    string     `json:"hostname"`
-	Online      bool       `json:"online"`
-	HealthScore int        `json:"health_score"`
-	AlertsOpen  int        `json:"alerts_open"`
-	Telemetry   *Telemetry `json:"telemetry"`
 }
 
 type Machine struct {
@@ -249,8 +232,8 @@ type App struct {
 	token          string
 	user           AuthUser
 	company        *Company
-	devices        []Device
 	status         syscall.Handle
+	companyLabel   syscall.Handle
 	title          syscall.Handle
 	subtitle       syscall.Handle
 	installNotice  string
@@ -319,7 +302,8 @@ func runGUI() {
 	className := utf16("CoreTunerSetupWindow")
 	largeIcon, smallIcon := coreTunerWindowIcons()
 	ensureThemeResources()
-	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HbrBackground: themeWindowBrush, LpszClassName: className, HIconSm: smallIcon}
+	arrowCursor, _, _ := procLoadCursor.Call(0, IDC_ARROW)
+	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HCursor: syscall.Handle(arrowCursor), HbrBackground: themeWindowBrush, LpszClassName: className, HIconSm: smallIcon}
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	windowStyle := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN)
 	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(utf16("CoreTuner — Instalação segura"))), windowStyle, 180, 40, 720, 850, 0, 0, hinst, 0)
@@ -359,6 +343,12 @@ func wndProc(hwnd uintptr, msg uint32, wParam uintptr, lParam unsafe.Pointer) ui
 	case WM_DRAWITEM:
 		drawOwnerButton((*DRAWITEMSTRUCT)(lParam))
 		return 1
+	case WM_SETCURSOR:
+		if app != nil && app.isClickableControl(syscall.Handle(wParam)) {
+			hand, _, _ := procLoadCursor.Call(0, IDC_HAND)
+			procSetCursor.Call(hand)
+			return 1
+		}
 	case WM_CTLCOLORSTATIC:
 		return staticControlColor(wParam)
 	case WM_CTLCOLOREDIT:
@@ -480,20 +470,23 @@ func buildUI() {
 	applyFont(a.controls[idShowLogin], a.buttonFont)
 
 	// Assistente de instalação. Depois da instalação, o Setup abre o painel e fecha.
-	statusTitle := createControl("STATIC", "Conta conectada", WS_CHILD, 80, 270, 200, 24, a.hwnd, 0)
+	statusTitle := createControl("STATIC", "Empresa vinculada", WS_CHILD, 80, 272, 300, 24, a.hwnd, 0)
 	applyFont(statusTitle, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, statusTitle)
-	a.status = createControl("STATIC", "Aguardando login", WS_CHILD, 80, 300, 540, 34, a.hwnd, 0)
+	a.companyLabel = createControl("STATIC", "Aguardando login", WS_CHILD, 80, 304, 540, 30, a.hwnd, 0)
+	applyFont(a.companyLabel, a.sectionFont)
+	a.dashboardGroup = append(a.dashboardGroup, a.companyLabel)
+	a.status = createControl("STATIC", "Entre com sua conta para continuar.", WS_CHILD, 80, 340, 540, 32, a.hwnd, 0)
 	applyFont(a.status, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, a.status)
 
-	steps := createControl("STATIC", "1  Conta     2  Computador     3  Instalação     4  Concluído", WS_CHILD, 80, 350, 540, 26, a.hwnd, 0)
+	steps := createControl("STATIC", "1  Conta     2  Computador     3  Instalação     4  Concluído", WS_CHILD, 80, 382, 540, 26, a.hwnd, 0)
 	applyFont(steps, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, steps)
-	section := createControl("STATIC", "Identifique este computador", WS_CHILD, 80, 400, 540, 32, a.hwnd, 0)
+	section := createControl("STATIC", "Identifique este computador", WS_CHILD, 80, 424, 540, 32, a.hwnd, 0)
 	applyFont(section, a.sectionFont)
 	a.dashboardGroup = append(a.dashboardGroup, section)
-	help := createControl("STATIC", "Essas informações ajudam a localizar o equipamento no painel.", WS_CHILD, 80, 438, 540, 24, a.hwnd, 0)
+	help := createControl("STATIC", "Essas informações ajudam a localizar o equipamento no painel.", WS_CHILD, 80, 462, 540, 24, a.hwnd, 0)
 	applyFont(help, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, help)
 
@@ -501,9 +494,9 @@ func buildUI() {
 		text string
 		x, y int32
 	}{
-		{"Nome deste computador", 80, 482},
-		{"Setor", 80, 560},
-		{"Local / unidade", 360, 560},
+		{"Nome deste computador", 80, 506},
+		{"Setor", 80, 584},
+		{"Local / unidade", 360, 584},
 	}
 	for _, v := range labs {
 		h := createControl("STATIC", v.text, WS_CHILD, v.x, v.y, 260, 20, a.hwnd, 0)
@@ -511,13 +504,13 @@ func buildUI() {
 		a.dashboardGroup = append(a.dashboardGroup, h)
 	}
 	host, _ := os.Hostname()
-	a.add(idDeviceName, createControl("EDIT", host, WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 80, 508, 540, 40, a.hwnd, idDeviceName), &a.dashboardGroup)
-	a.add(idSector, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 80, 586, 260, 40, a.hwnd, idSector), &a.dashboardGroup)
-	a.add(idLocation, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 360, 586, 260, 40, a.hwnd, idLocation), &a.dashboardGroup)
-	a.add(idInstall, createControl("BUTTON", "Instalar e continuar", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 654, 540, 50, a.hwnd, idInstall), &a.dashboardGroup)
+	a.add(idDeviceName, createControl("EDIT", host, WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 80, 532, 540, 40, a.hwnd, idDeviceName), &a.dashboardGroup)
+	a.add(idSector, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 80, 610, 260, 40, a.hwnd, idSector), &a.dashboardGroup)
+	a.add(idLocation, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 360, 610, 260, 40, a.hwnd, idLocation), &a.dashboardGroup)
+	a.add(idInstall, createControl("BUTTON", "Instalar e continuar", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 678, 540, 50, a.hwnd, idInstall), &a.dashboardGroup)
 	applyFont(a.controls[idInstall], a.buttonFont)
-	a.add(idOpenCentral, createControl("BUTTON", "Abrir painel web", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 80, 724, 260, 44, a.hwnd, idOpenCentral), &a.dashboardGroup)
-	a.add(idLogout, createControl("BUTTON", "Trocar conta", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 360, 724, 260, 44, a.hwnd, idLogout), &a.dashboardGroup)
+	a.add(idOpenCentral, createControl("BUTTON", "Abrir painel web", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 80, 748, 260, 44, a.hwnd, idOpenCentral), &a.dashboardGroup)
+	a.add(idLogout, createControl("BUTTON", "Trocar conta", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 360, 748, 260, 44, a.hwnd, idLogout), &a.dashboardGroup)
 	applyFont(a.controls[idOpenCentral], a.buttonFont)
 	applyFont(a.controls[idLogout], a.buttonFont)
 
@@ -564,8 +557,6 @@ func (a *App) handleCommand(id int) {
 		a.openPasswordRecovery()
 	case idRegisterButton:
 		a.register()
-	case idRefresh:
-		a.refreshDevices()
 	case idInstall:
 		a.installCurrent()
 	case idOpenCentral:
@@ -652,60 +643,30 @@ func (a *App) applyAuth(resp AuthResponse) {
 	a.user = resp.User
 	a.company = resp.Company
 	a.showMode("dashboard")
-	setText(a.status, fmt.Sprintf("Conectado como %s — %s", a.user.Name, companyName(a.company)))
-	a.refreshDevices()
+	setText(a.companyLabel, companyName(a.company))
+	setText(a.status, fmt.Sprintf("Usuário conectado: %s  •  Este computador será adicionado a essa empresa.", a.user.Name))
 }
 
 func (a *App) logout() {
 	a.token = ""
 	a.user = AuthUser{}
 	a.company = nil
-	a.devices = nil
+	setText(a.companyLabel, "")
 	a.showMode("login")
 	setText(a.controls[idLoginPassword], "")
 }
 
-func (a *App) refreshDevices() {
-	if a.token == "" {
-		return
+func (a *App) isClickableControl(hwnd syscall.Handle) bool {
+	if hwnd == 0 || hwnd == a.hwnd {
+		return false
 	}
-	setText(a.status, "Atualizando computadores...")
-	var devices []Device
-	err := a.request("GET", a.serverURL+"/api/devices", nil, a.token, &devices)
-	if err != nil {
-		setText(a.status, "Falha ao atualizar: "+err.Error())
-		return
+	id, _, _ := procGetDlgCtrlID.Call(uintptr(hwnd))
+	switch int(id) {
+	case idLoginButton, idShowRegister, idForgotPassword, idRegisterButton, idShowLogin, idInstall, idOpenCentral, idLogout:
+		return true
+	default:
+		return false
 	}
-	a.devices = devices
-	list := a.controls[idDevicesList]
-	procSendMessage.Call(uintptr(list), LB_RESETCONTENT, 0, 0)
-	online := 0
-	for _, d := range devices {
-		if d.Online {
-			online++
-		}
-		status := "OFFLINE"
-		if d.Online {
-			status = "ONLINE"
-		}
-		ram := "—"
-		disk := "—"
-		temp := ""
-		if d.Telemetry != nil {
-			if d.Telemetry.MemoryPercent != nil {
-				ram = fmt.Sprintf("%.0f%%", *d.Telemetry.MemoryPercent)
-			}
-			if d.Telemetry.DiskPercent != nil {
-				disk = fmt.Sprintf("%.0f%%", *d.Telemetry.DiskPercent)
-			}
-			if d.Telemetry.TemperatureC != nil {
-				temp = fmt.Sprintf(" | Temp %.0f°C", *d.Telemetry.TemperatureC)
-			}
-		}
-		line := fmt.Sprintf("[%s] %-28s | Saúde %3d | RAM %s | Disco %s%s | Alertas %d", status, d.Name, d.HealthScore, ram, disk, temp, d.AlertsOpen)
-		procSendMessage.Call(uintptr(list), LB_ADDSTRING, 0, uintptr(unsafe.Pointer(utf16(line))))
-	}
-	setText(a.status, fmt.Sprintf("%s — %d computadores, %d online, %d offline", companyName(a.company), len(devices), online, len(devices)-online))
 }
 
 func (a *App) installCurrent() {

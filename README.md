@@ -1,4 +1,4 @@
-# CoreTuner Central 0.4.9
+# CoreTuner Central 0.4.11
 
 Projeto completo com site público, cadastro e login de empresas, painel multiempresa, aplicativo Windows, instalador, agente de telemetria e acesso remoto automático por empresa via MeshCentral.
 
@@ -48,10 +48,12 @@ Senhas, chave do MeshCentral e credenciais SMTP devem ficar somente nas variáve
 ## Executáveis
 
 - `app/downloads/CoreTunerSetup.exe`: login, cadastro e instalação.
-- `app/downloads/CoreTuner.exe`: aplicativo completo.
+- `app/downloads/CoreTuner.exe`: aplicativo local focado somente no computador em uso.
 - `app/downloads/CoreTunerAgent.exe`: telemetria silenciosa.
 
 Os três executáveis foram recompilados para Windows x64 com o domínio de produção `https://apps-coretuner.9ywrah.easypanel.host` embutido no Setup e no aplicativo.
+
+Nesta versão, o Setup não exibe quantidade de computadores, e o aplicativo local não mostra outros equipamentos da empresa. A administração completa continua no painel web. Menus e botões clicáveis agora exibem cursor de mão e realce ao passar o mouse.
 
 ## Segurança
 

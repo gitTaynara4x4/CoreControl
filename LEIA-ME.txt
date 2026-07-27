@@ -1,4 +1,4 @@
-CORETUNER CENTRAL COMPLETO — v0.4.9 CORRIGIDO
+CORETUNER CENTRAL COMPLETO — v0.4.11
 
 Projeto completo com:
 - backend FastAPI;
@@ -11,9 +11,16 @@ Projeto completo com:
 - recuperação de senha por e-mail;
 - testes automatizados.
 
-CORREÇÃO PRINCIPAL DESTE PACOTE
-O MeshCentral atual usa identificadores de grupo com 48 bytes, equivalentes a 96 caracteres hexadecimais. O CoreTuner aceitava somente o formato antigo de 32 bytes/64 caracteres. O backend, o instalador e os testes foram atualizados para aceitar os dois formatos.
+ALTERAÇÕES DE INTERFACE E PRIVACIDADE
+- o instalador identifica apenas a empresa vinculada, o usuário e esta máquina;
+- quantidade de computadores, online e offline não aparecem no instalador;
+- o aplicativo local não mostra outros computadores da empresa;
+- a página Administração foi removida do aplicativo local;
+- a visão completa da empresa continua no painel web, conforme as permissões;
+- relatórios locais contêm somente dados deste computador;
+- menus e botões clicáveis exibem cursor de mão e realce de hover.
 
-O agente remoto não fica fixo no repositório. O backend baixa do MeshCentral o executável específico do grupo de cada empresa durante a instalação.
+ACESSO REMOTO
+O backend e o instalador continuam aceitando identificadores MeshCentral antigos de 32 bytes e atuais de 48 bytes. O agente remoto é baixado para o grupo correto da empresa durante a instalação.
 
 Para produção, mantenha senhas e chaves apenas nas variáveis protegidas do EasyPanel. Não publique .env preenchido.

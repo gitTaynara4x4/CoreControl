@@ -1,0 +1,4 @@
+Apague estes arquivos antigos na raiz do projeto, caso ainda existam:
+
+LEIA-ME-v0.4.9.txt
+VALIDACAO-v0.4.9.txt

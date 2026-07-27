@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.9"
+const appVersion = "0.4.11"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -44,8 +44,10 @@ const (
 	WM_PAINT            = 0x000F
 	WM_CLOSE            = 0x0010
 	WM_ERASEBKGND       = 0x0014
+	WM_SETCURSOR        = 0x0020
 	WM_COMMAND          = 0x0111
 	WM_TIMER            = 0x0113
+	WM_MOUSEMOVE        = 0x0200
 	WM_LBUTTONUP        = 0x0202
 	WM_SETFONT          = 0x0030
 	WM_APP              = 0x8000
@@ -70,6 +72,8 @@ const (
 	IDYES               = 6
 	SRCCOPY             = 0x00CC0020
 	LOGPIXELSY          = 90
+	IDC_ARROW           = 32512
+	IDC_HAND            = 32649
 )
 
 const (
@@ -145,60 +149,14 @@ type AuthResponse struct {
 	User        AuthUser `json:"user"`
 	Company     *Company `json:"company"`
 }
-type Telemetry struct {
-	CPUPercent, MemoryPercent, DiskPercent, TemperatureC *float64 `json:"-"`
+type MeResponse struct {
+	ID        int      `json:"id"`
+	Name      string   `json:"name"`
+	Email     string   `json:"email"`
+	Role      string   `json:"role"`
+	CompanyID *int     `json:"company_id"`
+	Company   *Company `json:"company"`
 }
-
-func (t *Telemetry) UnmarshalJSON(b []byte) error {
-	var v struct {
-		CPU  *float64 `json:"cpu_percent"`
-		Mem  *float64 `json:"memory_percent"`
-		Disk *float64 `json:"disk_percent"`
-		Temp *float64 `json:"temperature_c"`
-	}
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
-	}
-	t.CPUPercent = v.CPU
-	t.MemoryPercent = v.Mem
-	t.DiskPercent = v.Disk
-	t.TemperatureC = v.Temp
-	return nil
-}
-
-type Device struct {
-	ID          int        `json:"id"`
-	Name        string     `json:"name"`
-	Hostname    string     `json:"hostname"`
-	Online      bool       `json:"online"`
-	HealthScore int        `json:"health_score"`
-	AlertsOpen  int        `json:"alerts_open"`
-	Telemetry   *Telemetry `json:"telemetry"`
-}
-
-func (d *Device) UnmarshalJSON(b []byte) error {
-	var v struct {
-		ID        int        `json:"id"`
-		Name      string     `json:"name"`
-		Hostname  string     `json:"hostname"`
-		Online    bool       `json:"online"`
-		Health    int        `json:"health_score"`
-		Alerts    int        `json:"alerts_open"`
-		Telemetry *Telemetry `json:"telemetry"`
-	}
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
-	}
-	d.ID = v.ID
-	d.Name = v.Name
-	d.Hostname = v.Hostname
-	d.Online = v.Online
-	d.HealthScore = v.Health
-	d.AlertsOpen = v.Alerts
-	d.Telemetry = v.Telemetry
-	return nil
-}
-
 type APIError struct {
 	Detail any `json:"detail"`
 }
@@ -246,13 +204,16 @@ type App struct {
 	serverURL, token                string
 	user                            AuthUser
 	company                         *Company
-	devices                         []Device
 	sys                             SystemInfo
 	processes                       []ProcessInfo
 	history                         []HistoryItem
 	profile                         int
 	statusText                      string
 	busy                            bool
+	centralOK                       bool
+	mouseX, mouseY                  int32
+	hoverRect                       Rect
+	hoverActive                     bool
 }
 
 var app *App
@@ -284,6 +245,9 @@ var (
 	procSetTimer               = user32.NewProc("SetTimer")
 	procKillTimer              = user32.NewProc("KillTimer")
 	procDestroyWindow          = user32.NewProc("DestroyWindow")
+	procLoadCursor             = user32.NewProc("LoadCursorW")
+	procSetCursor              = user32.NewProc("SetCursor")
+	procGetDlgCtrlID           = user32.NewProc("GetDlgCtrlID")
 	procGetDC                  = user32.NewProc("GetDC")
 	procReleaseDC              = user32.NewProc("ReleaseDC")
 	procFillRect               = user32.NewProc("FillRect")
@@ -325,7 +289,8 @@ func runGUI() {
 	hinst, _, _ := procGetModuleHandle.Call(0)
 	cls := utf16("CoreTunerDesktopWindow")
 	largeIcon, smallIcon := coreTunerWindowIcons()
-	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HbrBackground: syscall.Handle(COLOR_WINDOW + 1), LpszClassName: cls, HIconSm: smallIcon}
+	arrowCursor, _, _ := procLoadCursor.Call(0, IDC_ARROW)
+	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HCursor: syscall.Handle(arrowCursor), HbrBackground: syscall.Handle(COLOR_WINDOW + 1), LpszClassName: cls, HIconSm: smallIcon}
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(utf16("CoreTuner — Diagnóstico e gestão segura"))), WS_OVERLAPPEDWINDOW, 40, 30, 1420, 900, 0, 0, hinst, 0)
 	if h == 0 {
@@ -370,6 +335,24 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			app.paint()
 		}
 		return 0
+	case WM_MOUSEMOVE:
+		if app != nil && app.token != "" {
+			app.mouseMove(signedLow(lParam), signedHigh(lParam))
+		}
+		return 0
+	case WM_SETCURSOR:
+		if app != nil {
+			target := syscall.Handle(wParam)
+			if target != app.hwnd {
+				if app.isClickableControl(target) {
+					app.setPointerCursor(true)
+					return 1
+				}
+			} else if app.token != "" {
+				app.setPointerCursor(app.hitAt(app.mouseX, app.mouseY) != nil)
+				return 1
+			}
+		}
 	case WM_LBUTTONUP:
 		if app != nil && app.token != "" {
 			app.click(signedLow(lParam), signedHigh(lParam))
@@ -387,7 +370,7 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			} else if wParam == 2 {
 				go app.refreshLocal(true)
 				if app.token != "" {
-					go app.refreshDevices()
+					go app.refreshCentralStatus()
 				}
 			}
 		}
@@ -631,18 +614,19 @@ func (a *App) applyAuth(resp AuthResponse) {
 	a.token = resp.AccessToken
 	a.user = resp.User
 	a.company = resp.Company
-	a.statusText = "Conectado à empresa " + companyName(resp.Company)
+	a.centralOK = true
+	a.statusText = "Conectado ao CoreTuner Central"
 	a.mu.Unlock()
 	a.hideAuth()
 	a.saveSession()
-	go a.refreshDevices()
+	go a.refreshCentralStatus()
 	a.invalidate()
 }
 func (a *App) logout() {
 	a.mu.Lock()
 	a.token = ""
+	a.centralOK = false
 	a.company = nil
-	a.devices = nil
 	a.page = 0
 	a.statusText = "Sessão encerrada"
 	a.mu.Unlock()
@@ -696,25 +680,29 @@ func (a *App) request(method, endpoint string, payload any, token string, out an
 	}
 	return nil
 }
-func (a *App) refreshDevices() {
+func (a *App) refreshCentralStatus() {
 	a.mu.RLock()
 	token, server := a.token, a.serverURL
 	a.mu.RUnlock()
 	if token == "" {
 		return
 	}
-	var d []Device
-	if err := a.request("GET", server+"/api/devices", nil, token, &d); err != nil {
+	var me MeResponse
+	if err := a.request("GET", server+"/api/auth/me", nil, token, &me); err != nil {
 		a.mu.Lock()
-		a.statusText = "Falha ao atualizar Central: " + err.Error()
+		a.centralOK = false
+		a.statusText = "Falha ao verificar a sessão da Central: " + err.Error()
 		a.mu.Unlock()
 		a.invalidate()
 		return
 	}
 	a.mu.Lock()
-	a.devices = d
-	a.statusText = fmt.Sprintf("%d computadores sincronizados", len(d))
+	a.centralOK = true
+	a.user = AuthUser{ID: me.ID, Name: me.Name, Email: me.Email, Role: me.Role, CompanyID: me.CompanyID}
+	a.company = me.Company
+	a.statusText = "Conectado ao CoreTuner Central"
 	a.mu.Unlock()
+	a.saveSession()
 	a.invalidate()
 }
 
@@ -892,8 +880,6 @@ func (a *App) draw(dc syscall.Handle, rc RECT) {
 	case 7:
 		a.drawSettings(dc)
 	case 8:
-		a.drawAdministration(dc)
-	case 9:
 		a.drawSupport(dc)
 	}
 }
@@ -957,9 +943,17 @@ func button(dc syscall.Handle, label string, r Rect, primary bool) {
 	c := rgb(255, 255, 255)
 	tc := rgb(0, 139, 158)
 	border := rgb(180, 210, 216)
+	hovered := app != nil && app.isHovered(r)
 	if primary {
 		c = rgb(0, 151, 170)
 		tc = rgb(255, 255, 255)
+		border = rgb(0, 151, 170)
+		if hovered {
+			c = rgb(0, 132, 149)
+			border = c
+		}
+	} else if hovered {
+		c = rgb(239, 249, 251)
 		border = rgb(0, 151, 170)
 	}
 	b, _, _ := procCreateSolidBrush.Call(c)
@@ -1032,8 +1026,8 @@ func (a *App) drawAuth(dc syscall.Handle, rc RECT) {
 	text(dc, "Segurança: o CoreTuner não acessa documentos, conversas ou senhas.", Rect{cx + 45, 695, 470, 34}, a.fonts["small"], rgb(37, 153, 87), DT_CENTER|DT_WORDBREAK)
 }
 
-var menuLabels = []string{"Painel inicial", "Diagnóstico", "Testes", "Otimizações", "Programas", "Relatórios", "Histórico", "Configurações", "Administração", "Suporte"}
-var menuIcons = []string{"⌂", "◈", "✓", "⌁", "▦", "▤", "↻", "⚙", "♙", "?"}
+var menuLabels = []string{"Painel inicial", "Diagnóstico", "Testes", "Otimizações", "Programas", "Relatórios", "Histórico", "Configurações", "Suporte"}
+var menuIcons = []string{"⌂", "◈", "✓", "⌁", "▦", "▤", "↻", "⚙", "?"}
 
 func (a *App) drawShell(dc syscall.Handle, rc RECT) {
 	side := int32(212)
@@ -1050,6 +1044,8 @@ func (a *App) drawShell(dc syscall.Handle, rc RECT) {
 		if selected {
 			roundedBox(dc, r, rgb(232, 247, 249), rgb(232, 247, 249), 10)
 			fill(dc, Rect{r.X, r.Y + 8, 3, r.H - 16}, rgb(0, 151, 170))
+		} else if a.isHovered(r) {
+			roundedBox(dc, r, rgb(244, 249, 251), rgb(244, 249, 251), 10)
 		}
 		iconColor := choose(selected, rgb(0, 139, 158), rgb(91, 107, 130))
 		text(dc, menuIcons[i], Rect{r.X + 14, r.Y, 28, r.H}, a.fonts["body"], iconColor, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
@@ -1083,6 +1079,9 @@ func (a *App) drawShell(dc syscall.Handle, rc RECT) {
 	text(dc, user, Rect{profileCard.X + 62, profileCard.Y + 37, profileCard.W - 72, 20}, a.fonts["small"], rgb(98, 113, 137), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
 
 	logoutRect := Rect{24, rc.Bottom - 42, 100, 26}
+	if a.isHovered(logoutRect) {
+		roundedBox(dc, Rect{logoutRect.X - 8, logoutRect.Y - 4, logoutRect.W + 16, logoutRect.H + 8}, rgb(255, 245, 245), rgb(255, 245, 245), 8)
+	}
 	text(dc, "↪  Sair", logoutRect, a.fonts["small"], rgb(176, 55, 55), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 	a.hits = append(a.hits, Hit{logoutRect, "logout", 0})
 
@@ -1157,7 +1156,6 @@ func (a *App) drawDashboard(dc syscall.Handle) {
 	x, y := contentOrigin()
 	a.mu.RLock()
 	s := a.sys
-	devices := append([]Device(nil), a.devices...)
 	statusText := a.statusText
 	a.mu.RUnlock()
 	w := a.width - x - 28
@@ -1171,7 +1169,7 @@ func (a *App) drawDashboard(dc syscall.Handle) {
 		roundedBox(dc, banner, rgb(255, 249, 240), rgb(245, 215, 174), 12)
 		text(dc, "⚠", Rect{banner.X + 18, banner.Y + 12, 42, 46}, a.fonts["h1"], rgb(238, 139, 26), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 		text(dc, "Sessão da Central expirada", Rect{banner.X + 68, banner.Y + 12, 430, 25}, a.fonts["h2"], rgb(83, 57, 28), DT_LEFT|DT_SINGLELINE)
-		text(dc, "Entre novamente para sincronizar computadores e recursos da empresa.", Rect{banner.X + 68, banner.Y + 38, 600, 22}, a.fonts["small"], rgb(111, 88, 58), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, "Entre novamente para manter este computador conectado ao CoreTuner Central.", Rect{banner.X + 68, banner.Y + 38, 600, 22}, a.fonts["small"], rgb(111, 88, 58), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
 		br := Rect{banner.X + banner.W - 180, banner.Y + 17, 150, 38}
 		button(dc, "Entrar novamente", br, true)
 		a.hits = append(a.hits, Hit{br, "reauth", 0})
@@ -1247,12 +1245,8 @@ func (a *App) drawDashboard(dc syscall.Handle) {
 	}
 
 	bottomY := metricsY + 176
-	attentionW := int32(float64(w) * 0.57)
-	companyW := w - attentionW - gap
-	attentionCard := Rect{x, bottomY, attentionW, 205}
-	companyCard := Rect{x + attentionW + gap, bottomY, companyW, 205}
+	attentionCard := Rect{x, bottomY, w, 205}
 	card(dc, attentionCard)
-	card(dc, companyCard)
 
 	text(dc, "⚠", Rect{attentionCard.X + 18, attentionCard.Y + 17, 28, 28}, a.fonts["h2"], rgb(229, 76, 68), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 	text(dc, "Atenção necessária", Rect{attentionCard.X + 52, attentionCard.Y + 18, attentionCard.W - 72, 28}, a.fonts["h2"], rgb(20, 41, 72), DT_LEFT|DT_SINGLELINE)
@@ -1267,41 +1261,6 @@ func (a *App) drawDashboard(dc syscall.Handle) {
 		text(dc, recommendation, Rect{attentionCard.X + 42, attentionCard.Y + 66 + int32(i*42), attentionCard.W - 62, 34}, a.fonts["small"], rgb(62, 79, 106), DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS)
 	}
 
-	online := 0
-	alerts := 0
-	for _, d := range devices {
-		if d.Online {
-			online++
-		}
-		alerts += d.AlertsOpen
-	}
-	text(dc, "Computadores da empresa", Rect{companyCard.X + 18, companyCard.Y + 18, companyCard.W - 90, 28}, a.fonts["h2"], rgb(20, 41, 72), DT_LEFT|DT_SINGLELINE)
-	seeAll := Rect{companyCard.X + companyCard.W - 82, companyCard.Y + 15, 64, 28}
-	text(dc, "Ver todos", seeAll, a.fonts["small"], rgb(0, 139, 158), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
-	a.hits = append(a.hits, Hit{seeAll, "page", 8})
-	text(dc, fmt.Sprintf("%d online", online), Rect{companyCard.X + 18, companyCard.Y + 53, 90, 24}, a.fonts["body"], rgb(30, 158, 91), DT_LEFT|DT_SINGLELINE)
-	text(dc, fmt.Sprintf("%d offline   •   %d alertas", len(devices)-online, alerts), Rect{companyCard.X + 112, companyCard.Y + 53, companyCard.W - 130, 24}, a.fonts["small"], rgb(97, 112, 137), DT_LEFT|DT_SINGLELINE)
-
-	rows := min(2, len(devices))
-	for i := 0; i < rows; i++ {
-		d := devices[i]
-		ry := companyCard.Y + 86 + int32(i*51)
-		roundedBox(dc, Rect{companyCard.X + 16, ry, companyCard.W - 32, 42}, rgb(250, 252, 254), rgb(229, 235, 241), 9)
-		monitorIcon(dc, Rect{companyCard.X + 28, ry + 11, 20, 18}, choose(d.Online, rgb(0, 151, 170), rgb(143, 154, 171)))
-		text(dc, d.Name, Rect{companyCard.X + 60, ry + 4, companyCard.W - 160, 34}, a.fonts["small"], rgb(34, 52, 80), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
-		label := "Offline"
-		bg := rgb(240, 242, 245)
-		fg := rgb(112, 125, 143)
-		if d.Online {
-			label = "Saudável"
-			bg = rgb(224, 247, 233)
-			fg = rgb(26, 143, 79)
-		}
-		statusPill(dc, label, Rect{companyCard.X + companyCard.W - 92, ry + 9, 62, 24}, bg, fg)
-	}
-	if len(devices) == 0 {
-		text(dc, "Nenhum computador sincronizado.", Rect{companyCard.X + 18, companyCard.Y + 100, companyCard.W - 36, 30}, a.fonts["small"], rgb(99, 114, 138), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	}
 }
 
 func chooseText(cond bool, yes, no string) string {
@@ -1410,12 +1369,14 @@ func (a *App) drawTests(dc syscall.Handle) {
 	w := a.width - x - 28
 	a.mu.RLock()
 	s := a.sys
+	centralOK := a.centralOK
+	serverURL := a.serverURL
 	a.mu.RUnlock()
 	tests := []struct {
 		title, detail string
 		ok            bool
 		action        string
-	}{{"Internet", fmt.Sprintf("Conexão %s • latência %d ms", statusWord(s.InternetOK), s.LatencyMS), s.InternetOK, "test-internet"}, {"Áudio", boolText(s.AudioOK, "Saída de áudio detectada", "Saída de áudio não detectada"), s.AudioOK, "test-audio"}, {"Microfone", boolText(s.MicOK, "Microfone detectado", "Microfone não detectado"), s.MicOK, "test-audio"}, {"Acesso ao CoreTuner Central", a.serverURL, a.token != "", "refresh-devices"}}
+	}{{"Internet", fmt.Sprintf("Conexão %s • latência %d ms", statusWord(s.InternetOK), s.LatencyMS), s.InternetOK, "test-internet"}, {"Áudio", boolText(s.AudioOK, "Saída de áudio detectada", "Saída de áudio não detectada"), s.AudioOK, "test-audio"}, {"Microfone", boolText(s.MicOK, "Microfone detectado", "Microfone não detectado"), s.MicOK, "test-audio"}, {"Acesso ao CoreTuner Central", serverURL, centralOK, "refresh-central"}}
 	text(dc, "Testes rápidos", Rect{x, y, w, 35}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
 	for i, t := range tests {
 		r := Rect{x, y + 55 + int32(i)*120, w, 100}
@@ -1530,7 +1491,7 @@ func (a *App) drawReports(dc syscall.Handle) {
 	x, y := contentOrigin()
 	w := a.width - x - 28
 	text(dc, "Relatórios técnicos", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	cards := []struct{ title, desc, action string }{{"Relatório de diagnóstico", "Identificação, CPU, memória, disco, rede e recomendações.", "report"}, {"Comparação antes e depois", "Será habilitada junto com os perfis reais do Modo Atendimento.", "report"}, {"Relatório dos computadores", "Resumo dos equipamentos online, saúde e alertas da empresa.", "report-central"}}
+	cards := []struct{ title, desc, action string }{{"Relatório de diagnóstico", "Identificação, CPU, memória, disco, rede e recomendações deste computador.", "report"}, {"Comparação antes e depois", "Será habilitada junto com os perfis reais do Modo Atendimento.", "report"}}
 	for i, c := range cards {
 		r := Rect{x, y + 70 + int32(i)*160, w, 135}
 		card(dc, r)
@@ -1540,7 +1501,7 @@ func (a *App) drawReports(dc syscall.Handle) {
 		button(dc, "Gerar e abrir", br, true)
 		a.hits = append(a.hits, Hit{br, c.action, 0})
 	}
-	text(dc, "Os relatórios são gerados localmente em HTML e podem ser impressos em PDF pelo navegador.", Rect{x, y + 570, w, 40}, a.fonts["body"], rgb(84, 101, 128), DT_LEFT|DT_WORDBREAK)
+	text(dc, "Os relatórios são gerados localmente em HTML e podem ser impressos em PDF pelo navegador.", Rect{x, y + 410, w, 40}, a.fonts["body"], rgb(84, 101, 128), DT_LEFT|DT_WORDBREAK)
 }
 
 func (a *App) drawHistory(dc syscall.Handle) {
@@ -1572,7 +1533,7 @@ func (a *App) drawSettings(dc syscall.Handle) {
 	comp := companyName(a.company)
 	a.mu.RUnlock()
 	text(dc, "Configurações", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	items := []struct{ t, d string }{{"Servidor CoreTuner", server}, {"Empresa conectada", comp}, {"Pasta de dados", dataDir()}, {"Atualização dos indicadores", "A cada 2 segundos localmente; Central a cada 30 segundos"}, {"Segurança", "Nenhuma limpeza, exclusão ou alteração crítica automática"}}
+	items := []struct{ t, d string }{{"Servidor CoreTuner", server}, {"Empresa vinculada", comp}, {"Pasta de dados", dataDir()}, {"Atualização dos indicadores", "Dados locais a cada 2 segundos; conexão com a Central verificada a cada 30 segundos"}, {"Segurança", "Nenhuma limpeza, exclusão ou alteração crítica automática"}}
 	for i, v := range items {
 		r := Rect{x, y + 60 + int32(i)*100, w, 82}
 		card(dc, r)
@@ -1587,82 +1548,13 @@ func (a *App) drawSettings(dc syscall.Handle) {
 	a.hits = append(a.hits, Hit{br2, "refresh-all", 0})
 }
 
-func (a *App) drawAdministration(dc syscall.Handle) {
-	x, y := contentOrigin()
-	w := a.width - x - 28
-	a.mu.RLock()
-	d := append([]Device(nil), a.devices...)
-	comp := companyName(a.company)
-	a.mu.RUnlock()
-	text(dc, "Administração — "+comp, Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	online, alerts := 0, 0
-	for _, v := range d {
-		if v.Online {
-			online++
-		}
-		alerts += v.AlertsOpen
-	}
-	sum := []struct {
-		n string
-		v int
-		c uintptr
-	}{{"Computadores", len(d), rgb(18, 101, 246)}, {"Online", online, rgb(38, 163, 87)}, {"Offline", len(d) - online, rgb(235, 91, 73)}, {"Alertas", alerts, rgb(238, 145, 39)}}
-	cw := (w - 30) / 4
-	for i, s := range sum {
-		r := Rect{x + int32(i)*(cw+10), y + 55, cw, 110}
-		card(dc, r)
-		text(dc, s.n, Rect{r.X + 18, r.Y + 16, r.W - 36, 24}, a.fonts["small"], rgb(92, 108, 134), DT_LEFT|DT_SINGLELINE)
-		text(dc, fmt.Sprint(s.v), Rect{r.X + 18, r.Y + 46, r.W - 36, 45}, a.fonts["metric"], s.c, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	}
-	card(dc, Rect{x, y + 185, w, 510})
-	headers := []struct {
-		s  string
-		x  int32
-		ww int32
-	}{{"Computador", x + 22, w - 600}, {"Status", x + w - 550, 100}, {"Saúde", x + w - 430, 90}, {"RAM", x + w - 320, 80}, {"Disco", x + w - 220, 80}, {"Alertas", x + w - 115, 90}}
-	for _, h := range headers {
-		text(dc, h.s, Rect{h.x, y + 202, h.ww, 28}, a.fonts["h2"], rgb(31, 52, 83), DT_LEFT|DT_SINGLELINE)
-	}
-	line(dc, x+18, y+238, x+w-18, y+238, rgb(225, 231, 239))
-	for i, v := range d[:min(12, len(d))] {
-		ry := y + 248 + int32(i*35)
-		status := "Offline"
-		sc := rgb(225, 76, 69)
-		if v.Online {
-			status = "Online"
-			sc = rgb(37, 163, 87)
-		}
-		ram, disk := "—", "—"
-		if v.Telemetry != nil {
-			if v.Telemetry.MemoryPercent != nil {
-				ram = fmt.Sprintf("%.0f%%", *v.Telemetry.MemoryPercent)
-			}
-			if v.Telemetry.DiskPercent != nil {
-				disk = fmt.Sprintf("%.0f%%", *v.Telemetry.DiskPercent)
-			}
-		}
-		text(dc, nz(v.Name, v.Hostname), Rect{x + 22, ry, w - 610, 28}, a.fonts["body"], rgb(29, 48, 77), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-		text(dc, status, Rect{x + w - 550, ry, 100, 28}, a.fonts["body"], sc, DT_LEFT|DT_SINGLELINE)
-		text(dc, fmt.Sprint(v.HealthScore), Rect{x + w - 430, ry, 90, 28}, a.fonts["body"], metricColor(float64(100-v.HealthScore)), DT_LEFT|DT_SINGLELINE)
-		text(dc, ram, Rect{x + w - 320, ry, 80, 28}, a.fonts["body"], rgb(73, 90, 117), DT_LEFT|DT_SINGLELINE)
-		text(dc, disk, Rect{x + w - 220, ry, 80, 28}, a.fonts["body"], rgb(73, 90, 117), DT_LEFT|DT_SINGLELINE)
-		text(dc, fmt.Sprint(v.AlertsOpen), Rect{x + w - 115, ry, 90, 28}, a.fonts["body"], rgb(73, 90, 117), DT_LEFT|DT_SINGLELINE)
-	}
-	br := Rect{x, y + 715, 210, 42}
-	button(dc, "Atualizar Central", br, true)
-	a.hits = append(a.hits, Hit{br, "refresh-devices", 0})
-	br2 := Rect{x + 230, y + 715, 210, 42}
-	button(dc, "Abrir painel web", br2, false)
-	a.hits = append(a.hits, Hit{br2, "open-web", 0})
-}
-
 func (a *App) drawSupport(dc syscall.Handle) {
 	x, y := contentOrigin()
 	w := a.width - x - 28
 	text(dc, "Suporte e segurança", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
 	card(dc, Rect{x, y + 60, w, 210})
 	text(dc, "Antes de solicitar suporte", Rect{x + 24, y + 80, w - 48, 30}, a.fonts["h2"], rgb(17, 39, 71), DT_LEFT|DT_SINGLELINE)
-	steps := []string{"Execute o Diagnóstico Profissional", "Teste internet, áudio e microfone", "Atualize a lista de computadores", "Gere o relatório técnico"}
+	steps := []string{"Execute o Diagnóstico Profissional", "Teste internet, áudio e microfone", "Confirme a conexão com o CoreTuner Central", "Gere o relatório técnico"}
 	for i, v := range steps {
 		text(dc, fmt.Sprintf("%d. %s", i+1, v), Rect{x + 28, y + 122 + int32(i*34), w - 56, 28}, a.fonts["body"], rgb(67, 85, 113), DT_LEFT|DT_SINGLELINE)
 	}
@@ -1674,13 +1566,63 @@ func (a *App) drawSupport(dc syscall.Handle) {
 }
 
 func (a *App) click(x, y int32) {
-	for _, h := range a.hits {
-		if h.Rect.contains(x, y) {
-			a.action(h.Action, h.Value)
-			return
-		}
+	if h := a.hitAt(x, y); h != nil {
+		a.action(h.Action, h.Value)
 	}
 }
+
+func (a *App) hitAt(x, y int32) *Hit {
+	for i := range a.hits {
+		if a.hits[i].Rect.contains(x, y) {
+			return &a.hits[i]
+		}
+	}
+	return nil
+}
+
+func (a *App) mouseMove(x, y int32) {
+	a.mouseX, a.mouseY = x, y
+	h := a.hitAt(x, y)
+	active := h != nil
+	var hoverRect Rect
+	if active {
+		hoverRect = h.Rect
+	}
+	changed := active != a.hoverActive || (active && hoverRect != a.hoverRect)
+	a.hoverActive = active
+	a.hoverRect = hoverRect
+	a.setPointerCursor(active)
+	if changed {
+		a.invalidate()
+	}
+}
+
+func (a *App) isHovered(r Rect) bool {
+	return a.hoverActive && a.hoverRect == r
+}
+
+func (a *App) setPointerCursor(pointer bool) {
+	id := uintptr(IDC_ARROW)
+	if pointer {
+		id = IDC_HAND
+	}
+	cursor, _, _ := procLoadCursor.Call(0, id)
+	procSetCursor.Call(cursor)
+}
+
+func (a *App) isClickableControl(hwnd syscall.Handle) bool {
+	if hwnd == 0 || hwnd == a.hwnd {
+		return false
+	}
+	id, _, _ := procGetDlgCtrlID.Call(uintptr(hwnd))
+	switch int(id) {
+	case idLogin, idShowRegister, idForgotPassword, idRegister, idShowLogin:
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *App) action(action string, value int) {
 	switch action {
 	case "page":
@@ -1706,11 +1648,11 @@ func (a *App) action(action string, value int) {
 		message("CoreTuner", "Perfil registrado para revisão. Nenhuma alteração foi aplicada ao Windows nesta versão segura.", MB_OK|MB_ICONINFORMATION)
 	case "refresh-local":
 		go a.refreshLocal(false)
-	case "refresh-devices":
-		go a.refreshDevices()
+	case "refresh-central":
+		go a.refreshCentralStatus()
 	case "refresh-all":
 		go a.refreshLocal(false)
-		go a.refreshDevices()
+		go a.refreshCentralStatus()
 	case "test-internet":
 		go func() { a.refreshLocal(false); a.addHistory("Teste de internet", "Teste concluído") }()
 	case "test-audio":
@@ -1719,9 +1661,7 @@ func (a *App) action(action string, value int) {
 			a.addHistory("Teste de áudio", "Detecção de áudio e microfone atualizada")
 		}()
 	case "report":
-		a.generateReport(false)
-	case "report-central":
-		a.generateReport(true)
+		a.generateReport()
 	case "open-web":
 		a.openWeb()
 	}
@@ -1758,26 +1698,19 @@ func recommendations(s SystemInfo) []string {
 	}
 	return r
 }
-func (a *App) generateReport(central bool) {
+func (a *App) generateReport() {
 	a.mu.RLock()
 	s := a.sys
-	d := append([]Device(nil), a.devices...)
 	comp := companyName(a.company)
 	a.mu.RUnlock()
 	dir := filepath.Join(dataDir(), "Relatorios")
 	os.MkdirAll(dir, 0755)
 	path := filepath.Join(dir, "CoreTuner_Relatorio_"+time.Now().Format("20060102_150405")+".html")
 	var rows strings.Builder
-	if central {
-		for _, v := range d {
-			fmt.Fprintf(&rows, "<tr><td>%s</td><td>%s</td><td>%d</td><td>%d</td></tr>", html(v.Name), boolText(v.Online, "Online", "Offline"), v.HealthScore, v.AlertsOpen)
-		}
-	} else {
-		for _, v := range recommendations(s) {
-			fmt.Fprintf(&rows, "<li>%s</li>", html(v))
-		}
+	for _, v := range recommendations(s) {
+		fmt.Fprintf(&rows, "<li>%s</li>", html(v))
 	}
-	content := fmt.Sprintf(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório CoreTuner</title><style>body{font-family:Segoe UI,Arial;color:#10213d;background:#f5f7fb;margin:30px}.wrap{max-width:980px;margin:auto;background:#fff;padding:34px;border:1px solid #dfe6f0;border-radius:14px}h1{color:#1265f6}h2{margin-top:28px;border-bottom:1px solid #e3e8f0;padding-bottom:8px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.item{background:#f7f9fc;padding:14px;border-radius:8px}table{width:100%%;border-collapse:collapse}td,th{padding:10px;border-bottom:1px solid #e5e9ef;text-align:left}.score{font-size:42px;font-weight:700}.muted{color:#687892}@media print{body{background:#fff;margin:0}.wrap{border:0}}</style></head><body><div class="wrap"><h1>CoreTuner</h1><p class="muted">Relatório gerado em %s • Empresa %s</p><h2>Computador</h2><div class="grid"><div class="item"><b>Nome</b><br>%s</div><div class="item"><b>Sistema</b><br>%s</div><div class="item"><b>Processador</b><br>%s</div><div class="item"><b>Memória</b><br>%.1f GB • %.0f%% em uso</div><div class="item"><b>Armazenamento</b><br>%s • %.0f%% em uso</div><div class="item"><b>Saúde</b><br><span class="score">%d/100</span></div></div>%s<p class="muted">O CoreTuner coleta somente informações técnicas e não acessa documentos, conversas ou senhas.</p></div></body></html>`, time.Now().Format("02/01/2006 15:04"), html(comp), html(s.Hostname), html(s.OS), html(s.CPUName), s.TotalRAMGB, s.Memory, html(nz(s.DiskType, s.DiskName)), s.Disk, health(s), reportExtra(central, rows.String()))
+	content := fmt.Sprintf(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório CoreTuner</title><style>body{font-family:Segoe UI,Arial;color:#10213d;background:#f5f7fb;margin:30px}.wrap{max-width:980px;margin:auto;background:#fff;padding:34px;border:1px solid #dfe6f0;border-radius:14px}h1{color:#1265f6}h2{margin-top:28px;border-bottom:1px solid #e3e8f0;padding-bottom:8px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.item{background:#f7f9fc;padding:14px;border-radius:8px}.score{font-size:42px;font-weight:700}.muted{color:#687892}@media print{body{background:#fff;margin:0}.wrap{border:0}}</style></head><body><div class="wrap"><h1>CoreTuner</h1><p class="muted">Relatório gerado em %s • Empresa %s</p><h2>Este computador</h2><div class="grid"><div class="item"><b>Nome</b><br>%s</div><div class="item"><b>Sistema</b><br>%s</div><div class="item"><b>Processador</b><br>%s</div><div class="item"><b>Memória</b><br>%.1f GB • %.0f%% em uso</div><div class="item"><b>Armazenamento</b><br>%s • %.0f%% em uso</div><div class="item"><b>Saúde</b><br><span class="score">%d/100</span></div></div><h2>Recomendações</h2><ul>%s</ul><p class="muted">O CoreTuner coleta somente informações técnicas e não acessa documentos, conversas ou senhas.</p></div></body></html>`, time.Now().Format("02/01/2006 15:04"), html(comp), html(s.Hostname), html(s.OS), html(s.CPUName), s.TotalRAMGB, s.Memory, html(nz(s.DiskType, s.DiskName)), s.Disk, health(s), rows.String())
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		message("Relatório", err.Error(), MB_OK|MB_ICONERROR)
 		return
@@ -1785,12 +1718,7 @@ func (a *App) generateReport(central bool) {
 	a.addHistory("Relatório gerado", path)
 	procShellExecute.Call(0, uintptr(unsafe.Pointer(utf16("open"))), uintptr(unsafe.Pointer(utf16(path))), 0, 0, SW_SHOWNORMAL)
 }
-func reportExtra(central bool, body string) string {
-	if central {
-		return "<h2>Computadores da empresa</h2><table><thead><tr><th>Computador</th><th>Status</th><th>Saúde</th><th>Alertas</th></tr></thead><tbody>" + body + "</tbody></table>"
-	}
-	return "<h2>Recomendações</h2><ul>" + body + "</ul>"
-}
+
 func html(s string) string {
 	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;")
 	return r.Replace(s)
@@ -1848,16 +1776,10 @@ func (a *App) loadSession() {
 	a.token = s.AccessToken
 	a.user = s.User
 	a.company = s.Company
+	a.centralOK = false
 	setText(a.controls[idServer], a.serverURL)
 	a.hideAuth()
-	go func() {
-		var me any
-		if err := a.request("GET", a.serverURL+"/api/auth/me", nil, a.token, &me); err != nil {
-			a.logout()
-			return
-		}
-		a.refreshDevices()
-	}()
+	go a.refreshCentralStatus()
 }
 func loadServerURL() string {
 	b, err := os.ReadFile(filepath.Join(dataDir(), "server-url.txt"))

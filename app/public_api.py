@@ -93,7 +93,7 @@ def download_status(request: Request, db: Db):
     return {
         "enabled": bool(settings.download_password),
         "filename": DOWNLOAD_FILENAME,
-        "version": "0.4.9",
+        "version": "0.4.11",
         "protected": True,
         "requires_login": True,
         "authenticated": authenticated,

@@ -1,4 +1,4 @@
-CORETUNER AGENT 0.4.9
+CORETUNER AGENT 0.4.11
 
 Agente Windows somente leitura. Coleta informações técnicas usando APIs nativas do Windows, sem abrir PowerShell ou janela de console.
 

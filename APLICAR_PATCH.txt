@@ -1,0 +1,22 @@
+CORETUNER v0.4.11 — PATCH DE PRIVACIDADE E INTERAÇÃO
+
+1. Feche o CoreTuner e o instalador, caso estejam abertos.
+2. Copie a pasta "CoreTuner Central" deste patch sobre a pasta do seu projeto.
+3. Confirme a substituição dos arquivos existentes.
+4. Apague os arquivos antigos listados em REMOVER-ARQUIVOS.txt.
+5. Faça o deploy da Central normalmente.
+6. Use app/downloads/CoreTunerSetup.exe para uma nova instalação.
+
+ALTERAÇÕES PRINCIPAIS
+- O instalador não exibe quantidade de computadores, online ou offline.
+- O instalador mostra somente empresa vinculada, usuário e o computador atual.
+- O aplicativo local não exibe outros computadores da empresa.
+- A área Administração foi removida do aplicativo local.
+- A administração geral continua disponível no painel web.
+- Menus e botões clicáveis agora recebem cursor de mão e feedback de hover.
+
+VALIDAÇÃO
+- 32 testes Python aprovados.
+- Código Python compilado.
+- JavaScript validado.
+- Aplicativos Go compilados para Windows x64 e verificados com go test/go vet.

@@ -1,22 +1,23 @@
-CORETUNER CENTRAL COMPLETO — v0.4.9 CORRIGIDO
+CORETUNER CENTRAL COMPLETO — v0.4.11
 
-Este pacote substitui a pasta antiga inteira.
+Este pacote contém o projeto completo e os executáveis Windows recompilados.
 
-O que fazer:
+O que mudou nesta versão:
+1. O Setup mostra somente a empresa vinculada e o usuário conectado.
+2. O Setup não mostra quantidade de computadores, online ou offline.
+3. O aplicativo local mostra somente informações do computador em uso.
+4. A lista de computadores e a Administração permanecem no painel web.
+5. Menus e botões agora exibem cursor de mão e realce ao passar o mouse.
+
+Para atualizar:
 1. Feche o CoreTuner e o instalador no Windows.
-2. Apague ou renomeie a pasta antiga do projeto.
-3. Extraia este ZIP em uma pasta nova.
-4. Não crie um arquivo .env com chaves antigas. No EasyPanel, as variáveis continuam salvas no próprio serviço.
-5. Abra o PowerShell dentro da nova pasta.
-6. Execute: git status
-7. Execute: git push origin main
-8. Aguarde o deploy do serviço coretuner.
-9. Apague o CoreTunerSetup.exe antigo do computador.
-10. Baixe o instalador novamente pelo site e escolha SIM para o acesso remoto.
+2. Faça uma cópia da pasta atual.
+3. Substitua os arquivos pelos deste pacote ou aplique o ZIP de patch.
+4. Envie as alterações para o repositório e aguarde o deploy do serviço coretuner.
+5. Baixe e execute o novo CoreTunerSetup.exe.
 
 IMPORTANTE
-- Não altere o serviço coretuner-remote, o usuário user-mesh-adm ou a chave que já foi validada.
-- O acesso remoto agora aceita identificadores MeshCentral antigos de 32 bytes e atuais de 48 bytes.
-- O download do Mesh Agent usa o identificador Base64 original do grupo; o hexadecimal fica apenas para validação local.
-- O pacote não contém .env real, banco de dados de produção ou ambiente virtual .venv.
-- Os executáveis oficiais estão em app/downloads.
+- Não altere o serviço coretuner-remote nem as credenciais já configuradas no EasyPanel.
+- O pacote não contém .env real, banco de produção ou ambiente virtual .venv.
+- Os executáveis oficiais ficam em app/downloads.
+- O domínio embutido é https://apps-coretuner.9ywrah.easypanel.host.

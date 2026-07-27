@@ -64,7 +64,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.9",
+    version="0.4.11",
     docs_url="/api/docs" if not settings.is_production else None,
     redoc_url=None,
     lifespan=lifespan,
@@ -93,7 +93,7 @@ def meshcentral_custom_script():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name, "version": "0.4.9"}
+    return {"status": "ok", "app": settings.app_name, "version": "0.4.11"}
 
 
 @app.get("/downloads/{filename}")
