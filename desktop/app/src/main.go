@@ -902,11 +902,14 @@ func fill(dc syscall.Handle, r Rect, c uintptr) {
 	procDeleteObject.Call(b)
 }
 func card(dc syscall.Handle, r Rect) {
-	brush, _, _ := procCreateSolidBrush.Call(rgb(255, 255, 255))
-	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, rgb(222, 229, 238))
+	roundedBox(dc, r, rgb(255, 255, 255), rgb(224, 231, 239), 14)
+}
+func roundedBox(dc syscall.Handle, r Rect, background, border uintptr, radius int32) {
+	brush, _, _ := procCreateSolidBrush.Call(background)
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
 	ob, _, _ := procSelectObject.Call(uintptr(dc), brush)
 	op, _, _ := procSelectObject.Call(uintptr(dc), pen)
-	procRoundRect.Call(uintptr(dc), uintptr(r.X), uintptr(r.Y), uintptr(r.X+r.W), uintptr(r.Y+r.H), 14, 14)
+	procRoundRect.Call(uintptr(dc), uintptr(r.X), uintptr(r.Y), uintptr(r.X+r.W), uintptr(r.Y+r.H), uintptr(radius), uintptr(radius))
 	procSelectObject.Call(uintptr(dc), ob)
 	procSelectObject.Call(uintptr(dc), op)
 	procDeleteObject.Call(brush)
@@ -950,12 +953,12 @@ func progress(dc syscall.Handle, r Rect, pct float64, color uintptr) {
 }
 func button(dc syscall.Handle, label string, r Rect, primary bool) {
 	c := rgb(255, 255, 255)
-	tc := rgb(18, 101, 246)
-	border := rgb(150, 184, 240)
+	tc := rgb(0, 139, 158)
+	border := rgb(180, 210, 216)
 	if primary {
-		c = rgb(18, 101, 246)
+		c = rgb(0, 151, 170)
 		tc = rgb(255, 255, 255)
-		border = rgb(18, 101, 246)
+		border = rgb(0, 151, 170)
 	}
 	b, _, _ := procCreateSolidBrush.Call(c)
 	p, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
@@ -967,6 +970,32 @@ func button(dc syscall.Handle, label string, r Rect, primary bool) {
 	procDeleteObject.Call(b)
 	procDeleteObject.Call(p)
 	text(dc, label, r, app.fonts["body"], tc, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+}
+
+func logoMark(dc syscall.Handle, r Rect) {
+	// Marca vetorial simples: um C azul com detalhe verde-água.
+	circle(dc, r, rgb(20, 113, 219))
+	inner := Rect{r.X + r.W/4, r.Y + r.H/4, r.W / 2, r.H / 2}
+	circle(dc, inner, rgb(255, 255, 255))
+	fill(dc, Rect{r.X + r.W/2, r.Y + r.H/5, r.W/2 + 2, r.H * 3 / 5}, rgb(255, 255, 255))
+	circle(dc, Rect{r.X + r.W*3/5, r.Y + r.H*3/5, r.W / 4, r.H / 4}, rgb(0, 165, 170))
+}
+
+func monitorIcon(dc syscall.Handle, r Rect, color uintptr) {
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 2, color)
+	op, _, _ := procSelectObject.Call(uintptr(dc), pen)
+	procRoundRect.Call(uintptr(dc), uintptr(r.X), uintptr(r.Y), uintptr(r.X+r.W), uintptr(r.Y+r.H-5), 5, 5)
+	procMoveToEx.Call(uintptr(dc), uintptr(r.X+r.W/2), uintptr(r.Y+r.H-5), 0)
+	procLineTo.Call(uintptr(dc), uintptr(r.X+r.W/2), uintptr(r.Y+r.H))
+	procMoveToEx.Call(uintptr(dc), uintptr(r.X+r.W/3), uintptr(r.Y+r.H), 0)
+	procLineTo.Call(uintptr(dc), uintptr(r.X+r.W*2/3), uintptr(r.Y+r.H))
+	procSelectObject.Call(uintptr(dc), op)
+	procDeleteObject.Call(pen)
+}
+
+func statusPill(dc syscall.Handle, label string, r Rect, background, foreground uintptr) {
+	roundedBox(dc, r, background, background, 10)
+	text(dc, label, r, app.fonts["small"], foreground, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 }
 
 func (a *App) drawAuth(dc syscall.Handle, rc RECT) {
@@ -1001,44 +1030,72 @@ func (a *App) drawAuth(dc syscall.Handle, rc RECT) {
 	text(dc, "Segurança: o CoreTuner não acessa documentos, conversas ou senhas.", Rect{cx + 45, 695, 470, 34}, a.fonts["small"], rgb(37, 153, 87), DT_CENTER|DT_WORDBREAK)
 }
 
-var menuLabels = []string{"Painel Inicial", "Diagnóstico", "Testes", "Otimizações", "Programas", "Relatórios", "Histórico", "Configurações", "Administração", "Suporte"}
+var menuLabels = []string{"Painel inicial", "Diagnóstico", "Testes", "Otimizações", "Programas", "Relatórios", "Histórico", "Configurações", "Administração", "Suporte"}
+var menuIcons = []string{"⌂", "◈", "✓", "⌁", "▦", "▤", "↻", "⚙", "♙", "?"}
 
 func (a *App) drawShell(dc syscall.Handle, rc RECT) {
-	side := int32(270)
+	side := int32(212)
 	fill(dc, Rect{0, 0, side, rc.Bottom}, rgb(255, 255, 255))
-	line(dc, side, 0, side, rc.Bottom, rgb(224, 230, 239))
-	text(dc, "C", Rect{28, 26, 54, 54}, a.fonts["title"], rgb(18, 101, 246), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "Core", Rect{88, 24, 70, 38}, a.fonts["brand"], rgb(10, 31, 62), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "Tuner", Rect{145, 24, 90, 38}, a.fonts["brand"], rgb(18, 101, 246), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "Diagnóstico e gestão segura", Rect{88, 61, 155, 40}, a.fonts["small"], rgb(104, 119, 143), DT_LEFT|DT_WORDBREAK)
-	y := 120
-	for i, l := range menuLabels {
-		r := Rect{18, int32(y + i*52), 234, 42}
-		if a.page == i {
-			fill(dc, r, rgb(233, 242, 255))
-			text(dc, "●", Rect{32, r.Y, 28, r.H}, a.fonts["body"], rgb(18, 101, 246), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	line(dc, side, 0, side, rc.Bottom, rgb(227, 233, 240))
+
+	logoMark(dc, Rect{24, 22, 38, 38})
+	text(dc, "CoreTuner", Rect{72, 20, 125, 42}, a.fonts["brand"], rgb(10, 31, 62), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+
+	y := int32(92)
+	for i, label := range menuLabels {
+		r := Rect{14, y + int32(i*48), 184, 40}
+		selected := a.page == i
+		if selected {
+			roundedBox(dc, r, rgb(232, 247, 249), rgb(232, 247, 249), 10)
+			fill(dc, Rect{r.X, r.Y + 8, 3, r.H - 16}, rgb(0, 151, 170))
 		}
-		text(dc, l, Rect{62, r.Y, r.W - 62, r.H}, a.fonts["body"], choose(a.page == i, rgb(18, 101, 246), rgb(25, 43, 70)), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		iconColor := choose(selected, rgb(0, 139, 158), rgb(91, 107, 130))
+		text(dc, menuIcons[i], Rect{r.X + 14, r.Y, 28, r.H}, a.fonts["body"], iconColor, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, label, Rect{r.X + 50, r.Y, r.W - 58, r.H}, a.fonts["body"], choose(selected, rgb(0, 116, 133), rgb(29, 47, 72)), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 		a.hits = append(a.hits, Hit{r, "page", i})
 	}
+
 	a.mu.RLock()
-	comp := companyName(a.company)
+	company := companyName(a.company)
 	user := a.user.Name
 	a.mu.RUnlock()
-	text(dc, comp, Rect{24, rc.Bottom - 104, 220, 25}, a.fonts["h2"], rgb(17, 38, 70), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-	text(dc, user, Rect{24, rc.Bottom - 76, 220, 22}, a.fonts["small"], rgb(98, 113, 137), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-	r := Rect{24, rc.Bottom - 46, 95, 28}
-	text(dc, "Sair", r, a.fonts["small"], rgb(196, 56, 56), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	a.hits = append(a.hits, Hit{r, "logout", 0})
-	fill(dc, Rect{side, 0, rc.Right - side, 88}, rgb(255, 255, 255))
-	line(dc, side, 88, rc.Right, 88, rgb(224, 230, 239))
+	profileCard := Rect{18, rc.Bottom - 126, side - 36, 72}
+	roundedBox(dc, profileCard, rgb(250, 252, 254), rgb(226, 233, 240), 12)
+	initials := "CT"
+	if strings.TrimSpace(company) != "" {
+		parts := strings.Fields(company)
+		if len(parts) == 1 {
+			r := []rune(parts[0])
+			if len(r) >= 2 {
+				initials = strings.ToUpper(string(r[:2]))
+			} else if len(r) == 1 {
+				initials = strings.ToUpper(string(r))
+			}
+		} else {
+			initials = strings.ToUpper(string([]rune(parts[0])[0]) + string([]rune(parts[len(parts)-1])[0]))
+		}
+	}
+	circle(dc, Rect{profileCard.X + 12, profileCard.Y + 15, 40, 40}, rgb(0, 151, 170))
+	text(dc, initials, Rect{profileCard.X + 12, profileCard.Y + 15, 40, 40}, a.fonts["small"], rgb(255, 255, 255), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	text(dc, company, Rect{profileCard.X + 62, profileCard.Y + 12, profileCard.W - 72, 24}, a.fonts["body"], rgb(17, 38, 70), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
+	text(dc, user, Rect{profileCard.X + 62, profileCard.Y + 37, profileCard.W - 72, 20}, a.fonts["small"], rgb(98, 113, 137), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
+
+	logoutRect := Rect{24, rc.Bottom - 42, 100, 26}
+	text(dc, "↪  Sair", logoutRect, a.fonts["small"], rgb(176, 55, 55), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	a.hits = append(a.hits, Hit{logoutRect, "logout", 0})
+
+	fill(dc, Rect{side, 0, rc.Right - side, 78}, rgb(255, 255, 255))
+	line(dc, side, 78, rc.Right, 78, rgb(227, 233, 240))
+	text(dc, menuLabels[a.page], Rect{side + 30, 16, 400, 42}, a.fonts["title"], rgb(9, 28, 56), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+
 	a.mu.RLock()
-	st := a.statusText
 	sys := a.sys
 	a.mu.RUnlock()
-	text(dc, menuLabels[a.page], Rect{side + 34, 18, 450, 46}, a.fonts["title"], rgb(9, 28, 56), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	text(dc, st, Rect{side + 36, 58, 650, 22}, a.fonts["small"], rgb(37, 153, 87), DT_LEFT|DT_SINGLELINE)
-	text(dc, "Atualizado "+sys.Updated.Format("15:04:05"), Rect{rc.Right - 250, 25, 220, 30}, a.fonts["small"], rgb(100, 116, 141), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
+	circle(dc, Rect{side + 405, 34, 8, 8}, rgb(31, 171, 102))
+	text(dc, "Atualizado agora", Rect{side + 420, 22, 150, 32}, a.fonts["small"], rgb(91, 106, 130), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	if !sys.Updated.IsZero() {
+		text(dc, sys.Updated.Format("15:04:05"), Rect{rc.Right - 110, 23, 82, 30}, a.fonts["small"], rgb(101, 116, 140), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
+	}
 }
 func choose(cond bool, a, b uintptr) uintptr {
 	if cond {
@@ -1046,7 +1103,7 @@ func choose(cond bool, a, b uintptr) uintptr {
 	}
 	return b
 }
-func contentOrigin() (int32, int32) { return 300, 116 }
+func contentOrigin() (int32, int32) { return 238, 102 }
 
 func health(sys SystemInfo) int {
 	score := 100
@@ -1098,22 +1155,55 @@ func (a *App) drawDashboard(dc syscall.Handle) {
 	x, y := contentOrigin()
 	a.mu.RLock()
 	s := a.sys
-	dev := append([]Device(nil), a.devices...)
+	devices := append([]Device(nil), a.devices...)
+	statusText := a.statusText
 	a.mu.RUnlock()
 	w := a.width - x - 28
-	card(dc, Rect{x, y, w/2 - 10, 250})
-	card(dc, Rect{x + w/2 + 10, y, w/2 - 10, 250})
-	text(dc, s.Hostname, Rect{x + 28, y + 22, w/2 - 60, 36}, a.fonts["h1"], rgb(11, 31, 60), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "Este computador", Rect{x + 28, y + 61, 220, 22}, a.fonts["small"], rgb(94, 111, 138), DT_LEFT|DT_SINGLELINE)
-	pairs := []string{"Fabricante: " + nz(s.Manufacturer, "Não identificado"), "Modelo: " + nz(s.Model, "Não identificado"), "Usuário: " + s.Username, "Sistema: " + nz(s.OS, "Windows")}
-	for i, p := range pairs {
-		text(dc, p, Rect{x + 28, y + 96 + int32(i*32), w/2 - 60, 25}, a.fonts["body"], rgb(38, 55, 82), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	if w < 760 {
+		w = 760
 	}
+
+	expired := strings.Contains(strings.ToLower(statusText), "sessão inválida") || strings.Contains(strings.ToLower(statusText), "expirada")
+	if expired {
+		banner := Rect{x, y, w, 72}
+		roundedBox(dc, banner, rgb(255, 249, 240), rgb(245, 215, 174), 12)
+		text(dc, "⚠", Rect{banner.X + 18, banner.Y + 12, 42, 46}, a.fonts["h1"], rgb(238, 139, 26), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, "Sessão da Central expirada", Rect{banner.X + 68, banner.Y + 12, 430, 25}, a.fonts["h2"], rgb(83, 57, 28), DT_LEFT|DT_SINGLELINE)
+		text(dc, "Entre novamente para sincronizar computadores e recursos da empresa.", Rect{banner.X + 68, banner.Y + 38, 600, 22}, a.fonts["small"], rgb(111, 88, 58), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		br := Rect{banner.X + banner.W - 180, banner.Y + 17, 150, 38}
+		button(dc, "Entrar novamente", br, true)
+		a.hits = append(a.hits, Hit{br, "reauth", 0})
+		y += 90
+	}
+
+	gap := int32(16)
+	leftW := int32(float64(w) * 0.43)
+	rightW := w - leftW - gap
+	deviceCard := Rect{x, y, leftW, 218}
+	healthCard := Rect{x + leftW + gap, y, rightW, 218}
+	card(dc, deviceCard)
+	card(dc, healthCard)
+
+	roundedBox(dc, Rect{deviceCard.X + 22, deviceCard.Y + 22, 52, 52}, rgb(233, 248, 250), rgb(233, 248, 250), 12)
+	monitorIcon(dc, Rect{deviceCard.X + 35, deviceCard.Y + 35, 26, 25}, rgb(0, 139, 158))
+	text(dc, nz(s.Hostname, "Este computador"), Rect{deviceCard.X + 92, deviceCard.Y + 22, deviceCard.W - 116, 34}, a.fonts["h1"], rgb(12, 33, 62), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	pairs := []struct{ label, value string }{
+		{"Fabricante", nz(s.Manufacturer, "Não identificado")},
+		{"Modelo", nz(s.Model, "Não identificado")},
+		{"Usuário", nz(s.Username, "Não identificado")},
+		{"Sistema", nz(s.OS, "Windows")},
+	}
+	for i, pair := range pairs {
+		py := deviceCard.Y + 83 + int32(i*28)
+		text(dc, pair.label, Rect{deviceCard.X + 30, py, 92, 22}, a.fonts["small"], rgb(95, 111, 136), DT_LEFT|DT_SINGLELINE)
+		text(dc, pair.value, Rect{deviceCard.X + 126, py, deviceCard.W - 154, 22}, a.fonts["small"], rgb(35, 53, 80), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+
 	score := health(s)
-	text(dc, "Saúde do computador", Rect{x + w/2 + 38, y + 22, 300, 30}, a.fonts["h2"], rgb(11, 31, 60), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	circle(dc, Rect{x + w/2 + 55, y + 73, 125, 125}, rgb(239, 243, 248))
-	text(dc, fmt.Sprintf("%d", score), Rect{x + w/2 + 55, y + 91, 125, 66}, a.fonts["metric"], healthColor(score), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "/100", Rect{x + w/2 + 55, y + 149, 125, 30}, a.fonts["body"], rgb(97, 112, 137), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "Saúde do computador", Rect{healthCard.X + 24, healthCard.Y + 20, healthCard.W - 48, 30}, a.fonts["h2"], rgb(15, 37, 68), DT_LEFT|DT_SINGLELINE)
+	circle(dc, Rect{healthCard.X + 28, healthCard.Y + 66, 122, 122}, rgb(241, 245, 249))
+	text(dc, fmt.Sprintf("%d", score), Rect{healthCard.X + 28, healthCard.Y + 83, 122, 62}, a.fonts["metric"], healthColor(score), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "/100", Rect{healthCard.X + 28, healthCard.Y + 142, 122, 25}, a.fonts["small"], rgb(97, 112, 137), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 	status := "Excelente"
 	if score < 80 {
 		status = "Atenção"
@@ -1121,45 +1211,102 @@ func (a *App) drawDashboard(dc syscall.Handle) {
 	if score < 55 {
 		status = "Crítico"
 	}
-	text(dc, status, Rect{x + w/2 + 210, y + 90, 250, 38}, a.fonts["h1"], healthColor(score), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "O CoreTuner mostra as causas reais e recomendações seguras.", Rect{x + w/2 + 210, y + 132, w/2 - 250, 70}, a.fonts["body"], rgb(82, 99, 125), DT_LEFT|DT_WORDBREAK)
-	my := y + 270
-	cw := (w - 30) / 4
-	metrics := []struct {
-		name   string
-		v      float64
-		detail string
-	}{{"Processador", s.CPU, nz(s.CPUName, "Uso atual")}, {"Memória RAM", s.Memory, fmt.Sprintf("%.1f de %.1f GB", s.UsedRAMGB, s.TotalRAMGB)}, {"Disco", s.Disk, fmt.Sprintf("%.0f de %.0f GB", s.DiskUsedGB, s.DiskTotalGB)}, {"Internet", boolPct(s.InternetOK), fmt.Sprintf("Latência %d ms", s.LatencyMS)}}
-	for i, m := range metrics {
-		r := Rect{x + int32(i)*(cw+10), my, cw, 170}
-		card(dc, r)
-		text(dc, m.name, Rect{r.X + 18, r.Y + 16, r.W - 36, 28}, a.fonts["h2"], rgb(18, 40, 73), DT_LEFT|DT_SINGLELINE)
-		text(dc, fmt.Sprintf("%.0f%%", m.v), Rect{r.X + 18, r.Y + 52, r.W - 36, 45}, a.fonts["metric"], metricColor(m.v), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-		progress(dc, Rect{r.X + 18, r.Y + 108, r.W - 36, 8}, m.v, metricColor(m.v))
-		text(dc, m.detail, Rect{r.X + 18, r.Y + 130, r.W - 36, 28}, a.fonts["small"], rgb(89, 105, 131), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
+	text(dc, status, Rect{healthCard.X + 180, healthCard.Y + 74, healthCard.W - 205, 38}, a.fonts["h1"], healthColor(score), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "O CoreTuner encontrou os pontos que precisam da sua atenção.", Rect{healthCard.X + 180, healthCard.Y + 116, healthCard.W - 210, 56}, a.fonts["body"], rgb(77, 95, 121), DT_LEFT|DT_WORDBREAK)
+
+	metricsY := y + 236
+	metricW := (w - gap*3) / 4
+	type metricInfo struct {
+		name, value, detail string
+		pct                 float64
+		color               uintptr
+		internet            bool
 	}
-	by := my + 190
-	card(dc, Rect{x, by, w/2 - 10, 180})
-	card(dc, Rect{x + w/2 + 10, by, w/2 - 10, 180})
-	text(dc, "Computadores da empresa", Rect{x + 20, by + 14, w/2 - 50, 30}, a.fonts["h2"], rgb(16, 38, 70), DT_LEFT|DT_SINGLELINE)
+	metrics := []metricInfo{
+		{"Processador", fmt.Sprintf("%.0f%%", s.CPU), nz(s.CPUName, "Uso atual"), s.CPU, metricColor(s.CPU), false},
+		{"Memória RAM", fmt.Sprintf("%.0f%%", s.Memory), fmt.Sprintf("%.1f de %.1f GB usados", s.UsedRAMGB, s.TotalRAMGB), s.Memory, metricColor(s.Memory), false},
+		{"Disco", fmt.Sprintf("%.0f%%", s.Disk), fmt.Sprintf("%.0f de %.0f GB usados", s.DiskUsedGB, s.DiskTotalGB), s.Disk, metricColor(s.Disk), false},
+		{"Internet", chooseText(s.InternetOK, "Conectado", "Sem conexão"), fmt.Sprintf("Latência %d ms", s.LatencyMS), 0, choose(s.InternetOK, rgb(29, 161, 91), rgb(226, 71, 67)), true},
+	}
+	for i, m := range metrics {
+		r := Rect{x + int32(i)*(metricW+gap), metricsY, metricW, 158}
+		card(dc, r)
+		text(dc, m.name, Rect{r.X + 18, r.Y + 16, r.W - 36, 25}, a.fonts["h2"], rgb(18, 40, 73), DT_LEFT|DT_SINGLELINE)
+		if m.internet {
+			text(dc, m.value, Rect{r.X + 18, r.Y + 54, r.W - 36, 38}, a.fonts["h1"], m.color, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+			circle(dc, Rect{r.X + r.W - 35, r.Y + 24, 10, 10}, m.color)
+			text(dc, m.detail, Rect{r.X + 18, r.Y + 104, r.W - 36, 22}, a.fonts["small"], rgb(89, 105, 131), DT_LEFT|DT_SINGLELINE)
+			text(dc, chooseText(s.InternetOK, "Sem perda de pacotes", "Verifique a rede"), Rect{r.X + 18, r.Y + 128, r.W - 36, 20}, a.fonts["small"], rgb(89, 105, 131), DT_LEFT|DT_SINGLELINE)
+		} else {
+			text(dc, m.value, Rect{r.X + 18, r.Y + 46, r.W - 36, 42}, a.fonts["metric"], m.color, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+			progress(dc, Rect{r.X + 18, r.Y + 100, r.W - 36, 7}, m.pct, m.color)
+			text(dc, m.detail, Rect{r.X + 18, r.Y + 122, r.W - 36, 24}, a.fonts["small"], rgb(89, 105, 131), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
+		}
+	}
+
+	bottomY := metricsY + 176
+	attentionW := int32(float64(w) * 0.57)
+	companyW := w - attentionW - gap
+	attentionCard := Rect{x, bottomY, attentionW, 205}
+	companyCard := Rect{x + attentionW + gap, bottomY, companyW, 205}
+	card(dc, attentionCard)
+	card(dc, companyCard)
+
+	text(dc, "⚠", Rect{attentionCard.X + 18, attentionCard.Y + 17, 28, 28}, a.fonts["h2"], rgb(229, 76, 68), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "Atenção necessária", Rect{attentionCard.X + 52, attentionCard.Y + 18, attentionCard.W - 72, 28}, a.fonts["h2"], rgb(20, 41, 72), DT_LEFT|DT_SINGLELINE)
+	line(dc, attentionCard.X, attentionCard.Y+55, attentionCard.X+attentionCard.W, attentionCard.Y+55, rgb(232, 237, 243))
+	recs := recommendations(s)
+	for i, recommendation := range recs[:min(3, len(recs))] {
+		bulletColor := rgb(231, 76, 68)
+		if i > 0 {
+			bulletColor = rgb(238, 148, 30)
+		}
+		circle(dc, Rect{attentionCard.X + 22, attentionCard.Y + 74 + int32(i*42), 8, 8}, bulletColor)
+		text(dc, recommendation, Rect{attentionCard.X + 42, attentionCard.Y + 66 + int32(i*42), attentionCard.W - 62, 34}, a.fonts["small"], rgb(62, 79, 106), DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS)
+	}
+
 	online := 0
 	alerts := 0
-	for _, d := range dev {
+	for _, d := range devices {
 		if d.Online {
 			online++
 		}
 		alerts += d.AlertsOpen
 	}
-	text(dc, fmt.Sprintf("%d cadastrados", len(dev)), Rect{x + 22, by + 55, 220, 35}, a.fonts["h1"], rgb(18, 101, 246), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	text(dc, fmt.Sprintf("%d online   •   %d offline   •   %d alertas", online, len(dev)-online, alerts), Rect{x + 22, by + 96, w/2 - 50, 28}, a.fonts["body"], rgb(70, 88, 116), DT_LEFT|DT_SINGLELINE)
-	br := Rect{x + 22, by + 132, 220, 34}
-	button(dc, "Abrir Administração", br, false)
-	a.hits = append(a.hits, Hit{br, "page", 8})
-	text(dc, "Resumo rápido", Rect{x + w/2 + 32, by + 14, w/2 - 50, 30}, a.fonts["h2"], rgb(16, 38, 70), DT_LEFT|DT_SINGLELINE)
-	recs := recommendations(s)
-	for i, r := range recs[:min(3, len(recs))] {
-		text(dc, "• "+r, Rect{x + w/2 + 34, by + 52 + int32(i*35), w/2 - 70, 30}, a.fonts["body"], rgb(65, 83, 111), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
+	text(dc, "Computadores da empresa", Rect{companyCard.X + 18, companyCard.Y + 18, companyCard.W - 90, 28}, a.fonts["h2"], rgb(20, 41, 72), DT_LEFT|DT_SINGLELINE)
+	seeAll := Rect{companyCard.X + companyCard.W - 82, companyCard.Y + 15, 64, 28}
+	text(dc, "Ver todos", seeAll, a.fonts["small"], rgb(0, 139, 158), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
+	a.hits = append(a.hits, Hit{seeAll, "page", 8})
+	text(dc, fmt.Sprintf("%d online", online), Rect{companyCard.X + 18, companyCard.Y + 53, 90, 24}, a.fonts["body"], rgb(30, 158, 91), DT_LEFT|DT_SINGLELINE)
+	text(dc, fmt.Sprintf("%d offline   •   %d alertas", len(devices)-online, alerts), Rect{companyCard.X + 112, companyCard.Y + 53, companyCard.W - 130, 24}, a.fonts["small"], rgb(97, 112, 137), DT_LEFT|DT_SINGLELINE)
+
+	rows := min(2, len(devices))
+	for i := 0; i < rows; i++ {
+		d := devices[i]
+		ry := companyCard.Y + 86 + int32(i*51)
+		roundedBox(dc, Rect{companyCard.X + 16, ry, companyCard.W - 32, 42}, rgb(250, 252, 254), rgb(229, 235, 241), 9)
+		monitorIcon(dc, Rect{companyCard.X + 28, ry + 11, 20, 18}, choose(d.Online, rgb(0, 151, 170), rgb(143, 154, 171)))
+		text(dc, d.Name, Rect{companyCard.X + 60, ry + 4, companyCard.W - 160, 34}, a.fonts["small"], rgb(34, 52, 80), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		label := "Offline"
+		bg := rgb(240, 242, 245)
+		fg := rgb(112, 125, 143)
+		if d.Online {
+			label = "Saudável"
+			bg = rgb(224, 247, 233)
+			fg = rgb(26, 143, 79)
+		}
+		statusPill(dc, label, Rect{companyCard.X + companyCard.W - 92, ry + 9, 62, 24}, bg, fg)
 	}
+	if len(devices) == 0 {
+		text(dc, "Nenhum computador sincronizado.", Rect{companyCard.X + 18, companyCard.Y + 100, companyCard.W - 36, 30}, a.fonts["small"], rgb(99, 114, 138), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	}
+}
+
+func chooseText(cond bool, yes, no string) string {
+	if cond {
+		return yes
+	}
+	return no
 }
 func boolPct(v bool) float64 {
 	if v {
@@ -1538,6 +1685,8 @@ func (a *App) action(action string, value int) {
 		a.page = value
 		a.invalidate()
 	case "logout":
+		a.logout()
+	case "reauth":
 		a.logout()
 	case "profile":
 		a.profile = value
