@@ -3,206 +3,387 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="CoreTuner Central: diagnóstico e monitoramento seguro de computadores Windows para empresas e equipes de atendimento.">
-  <meta name="theme-color" content="#ffffff">
-  <title>CoreTuner — Diagnóstico e gestão segura de computadores</title>
+  <meta name="description" content="CoreTuner: monitore, diagnostique, otimize e preste suporte aos computadores dos seus clientes em uma central segura.">
+  <meta name="theme-color" content="#071a3d">
+  <meta name="color-scheme" content="light">
+  <meta property="og:title" content="CoreTuner — Gestão profissional de computadores">
+  <meta property="og:description" content="Diagnóstico, alertas, otimização segura e acesso remoto para empresas e equipes técnicas.">
+  <meta property="og:type" content="website">
+  <title>CoreTuner — Gestão profissional de computadores</title>
   <link rel="icon" href="/site/logo-mark.png">
-  <link rel="stylesheet" href="/site/site.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/site/site.css?v=20260727-premium-v2">
 </head>
 <body>
+  <a class="skip-link" href="#conteudo">Ir para o conteúdo</a>
+
   <header class="site-header" id="inicio">
     <div class="container header-inner">
       <a class="brand-link" href="#inicio" aria-label="CoreTuner — início">
         <img src="/site/logo-full.png" alt="CoreTuner" class="brand-logo">
       </a>
+
       <nav class="desktop-nav" aria-label="Navegação principal">
         <a href="#recursos">Recursos</a>
         <a href="#seguranca">Segurança</a>
+        <a href="#como-funciona">Como funciona</a>
         <a href="#planos">Planos</a>
         <a href="#duvidas">Dúvidas</a>
       </nav>
+
       <div class="header-actions">
         <button class="btn btn-ghost" id="accountButton" type="button">Entrar ou criar empresa</button>
-        <button class="btn btn-primary js-download">Baixar versão beta</button>
+        <button class="btn btn-primary js-download" type="button">Baixar CoreTuner</button>
       </div>
-      <button class="menu-button" id="menuButton" aria-expanded="false" aria-controls="mobileNav" aria-label="Abrir menu">☰</button>
+
+      <button class="menu-button" id="menuButton" type="button" aria-expanded="false" aria-controls="mobileNav" aria-label="Abrir menu">
+        <span></span><span></span><span></span>
+      </button>
     </div>
+
     <nav class="mobile-nav" id="mobileNav" aria-label="Navegação móvel">
       <a href="#recursos">Recursos</a>
       <a href="#seguranca">Segurança</a>
+      <a href="#como-funciona">Como funciona</a>
       <a href="#planos">Planos</a>
       <a href="#duvidas">Dúvidas</a>
       <button class="mobile-account" id="mobileAccountButton" type="button">Entrar ou criar empresa</button>
-      <button class="btn btn-primary js-download">Baixar versão beta</button>
+      <button class="btn btn-primary js-download" type="button">Baixar CoreTuner</button>
     </nav>
   </header>
 
-  <main>
+  <main id="conteudo">
     <section class="hero">
+      <div class="hero-glow hero-glow-one" aria-hidden="true"></div>
+      <div class="hero-glow hero-glow-two" aria-hidden="true"></div>
+
       <div class="container hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="status-dot"></span> CoreTuner Central — versão beta controlada</div>
-          <h1>Gerencie a saúde dos computadores dos seus clientes em um só lugar.</h1>
-          <p class="hero-lead">Cadastre empresas, acompanhe computadores online e offline, veja CPU, memória, disco, proteção do Windows e receba alertas técnicos sem acessar documentos ou dados pessoais.</p>
+          <div class="eyebrow"><span class="status-dot"></span> Gestão técnica para empresas e prestadores de TI</div>
+          <h1>Cuide de todos os computadores dos seus clientes em um só lugar.</h1>
+          <p class="hero-lead">Monitore a saúde das máquinas, receba alertas, execute diagnósticos, aplique otimizações com backup e preste suporte remoto com mais segurança e organização.</p>
+
           <div class="hero-actions">
-            <button class="btn btn-primary btn-large js-download">Criar empresa e baixar</button>
+            <button class="btn btn-primary btn-large js-download" type="button">
+              Criar empresa e baixar
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 6l4 4-4 4"/></svg>
+            </button>
             <a class="btn btn-secondary btn-large" href="/central">Abrir painel Central</a>
           </div>
-          <div class="trust-row" aria-label="Garantias da fase beta">
-            <span>✓ Agente somente leitura</span>
-            <span>✓ Conta e empresa vinculadas</span>
-            <span>✓ Sem apagar arquivos</span>
+
+          <div class="hero-assurances" aria-label="Principais proteções">
+            <span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7"/></svg> Backup antes de otimizar</span>
+            <span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7"/></svg> Restauração segura</span>
+            <span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7"/></svg> Sem acessar arquivos pessoais</span>
           </div>
         </div>
 
-        <div class="hero-preview" aria-label="Prévia do painel CoreTuner Central">
-          <div class="preview-topbar">
-            <div class="preview-brand"><img src="/site/logo-mark.png" alt=""><strong>CoreTuner Central</strong></div>
-            <span class="preview-live"><i></i> Atualizando</span>
+        <div class="hero-product" aria-label="Prévia da plataforma CoreTuner">
+          <div class="product-window">
+            <div class="product-window-bar">
+              <div class="window-brand"><img src="/site/logo-mark.png" alt=""><strong>CoreTuner Central</strong></div>
+              <span class="window-status"><i></i> Atualizando agora</span>
+            </div>
+
+            <div class="product-layout">
+              <aside class="product-sidebar" aria-hidden="true">
+                <span class="active"><i></i></span>
+                <span><i></i></span>
+                <span><i></i></span>
+                <span><i></i></span>
+                <span><i></i></span>
+              </aside>
+
+              <div class="product-content">
+                <div class="product-heading">
+                  <div><small>VISÃO GERAL</small><strong>Saúde dos computadores</strong></div>
+                  <button type="button" tabindex="-1">Últimas 24 horas</button>
+                </div>
+
+                <div class="product-stats">
+                  <article><span>Computadores</span><strong>18</strong><small><i class="green"></i> 16 online</small></article>
+                  <article><span>Saúde média</span><strong>86<em>/100</em></strong><small>Operação estável</small></article>
+                  <article><span>Alertas ativos</span><strong class="amber">4</strong><small>2 exigem atenção</small></article>
+                </div>
+
+                <div class="product-main-grid">
+                  <article class="health-panel">
+                    <div class="panel-title"><strong>Computadores monitorados</strong><span>Ver todos</span></div>
+                    <div class="device-line"><span class="device-icon"></span><div><b>ATENDIMENTO 01</b><small>Telemarketing</small></div><span class="online-pill">Online</span><strong class="health-good">94</strong></div>
+                    <div class="device-line"><span class="device-icon"></span><div><b>FINANCEIRO 02</b><small>Administrativo</small></div><span class="online-pill">Online</span><strong class="health-warning">71</strong></div>
+                    <div class="device-line"><span class="device-icon muted"></span><div><b>RECEPÇÃO 01</b><small>Recepção</small></div><span class="offline-pill">Offline</span><strong class="health-bad">0</strong></div>
+                  </article>
+
+                  <article class="score-panel">
+                    <div class="panel-title"><strong>Saúde geral</strong><span>Hoje</span></div>
+                    <div class="score-ring"><strong>86</strong><small>/100</small></div>
+                    <div class="score-caption"><i></i> Ambiente saudável</div>
+                    <div class="mini-bars"><span><i style="width:72%"></i></span><span><i style="width:88%"></i></span><span><i style="width:63%"></i></span></div>
+                  </article>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="preview-stats">
-            <article><span>Computadores</span><strong>18</strong><small>16 online</small></article>
-            <article><span>Saúde média</span><strong>86</strong><small>de 100</small></article>
-            <article><span>Alertas</span><strong class="warning-text">4</strong><small>2 críticos</small></article>
+
+          <div class="floating-card floating-alert">
+            <span class="float-icon warning-icon">!</span>
+            <div><small>ALERTA DETECTADO</small><strong>Disco quase cheio</strong><p>FINANCEIRO 02 · 93% utilizado</p></div>
           </div>
-          <div class="preview-table">
-            <div class="preview-row preview-head"><span>Computador</span><span>Status</span><span>Saúde</span></div>
-            <div class="preview-row"><span><b>ATENDIMENTO 01</b><small>Telemarketing</small></span><span class="online-label">● Online</span><span class="score good">94</span></div>
-            <div class="preview-row"><span><b>FINANCEIRO 02</b><small>Administrativo</small></span><span class="online-label">● Online</span><span class="score warning">71</span></div>
-            <div class="preview-row"><span><b>RECEPÇÃO 01</b><small>Recepção</small></span><span class="offline-label">● Offline</span><span class="score bad">0</span></div>
+
+          <div class="floating-card floating-success">
+            <span class="float-icon success-icon"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7"/></svg></span>
+            <div><small>OTIMIZAÇÃO SEGURA</small><strong>Backup concluído</strong><p>Pronto para aplicar o perfil</p></div>
           </div>
-          <div class="preview-alert"><span>!</span><div><strong>Disco quase cheio</strong><small>PC FINANCEIRO 02 — 93% utilizado</small></div></div>
         </div>
       </div>
     </section>
 
-    <section class="section section-soft" id="recursos">
+    <section class="confidence-strip" aria-label="Diferenciais do CoreTuner">
+      <div class="container confidence-grid">
+        <div><span class="confidence-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17V9m5 8V5m5 12v-4m5 4V7"/></svg></span><p><strong>Monitoramento contínuo</strong><small>Indicadores técnicos atualizados</small></p></div>
+        <div><span class="confidence-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.8 8.1 7 10 4.2-1.9 7-5.3 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></span><p><strong>Otimização protegida</strong><small>Backup e opção de restauração</small></p></div>
+        <div><span class="confidence-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8M12 18v3"/></svg></span><p><strong>Suporte centralizado</strong><small>Diagnóstico e acesso remoto</small></p></div>
+        <div><span class="confidence-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V8l8-5 8 5v11"/><path d="M8 19v-6h8v6M2 21h20"/></svg></span><p><strong>Empresas separadas</strong><small>Dados técnicos isolados por conta</small></p></div>
+      </div>
+    </section>
+
+    <section class="section section-intro" id="recursos">
       <div class="container">
-        <div class="section-heading">
-          <span class="section-kicker">O que já existe na fase beta</span>
-          <h2>Visão profissional sem complicar a rotina do cliente.</h2>
-          <p>O CoreTuner Agent trabalha em segundo plano e envia somente informações técnicas autorizadas para o painel central.</p>
+        <div class="section-heading centered">
+          <span class="section-kicker">Uma plataforma, toda a operação</span>
+          <h2>Veja o problema antes que ele pare o atendimento.</h2>
+          <p>O CoreTuner reúne monitoramento, diagnóstico, otimização e suporte em uma experiência simples para a equipe técnica e transparente para o cliente.</p>
         </div>
-        <div class="feature-grid">
-          <article class="feature-card"><div class="feature-icon">▦</div><h3>Empresas e computadores</h3><p>Crie a empresa, faça login no aplicativo e cadastre cada computador diretamente na conta autorizada.</p></article>
-          <article class="feature-card"><div class="feature-icon">◔</div><h3>Saúde em tempo real</h3><p>Acompanhe CPU, memória, disco, espaço livre, tempo ligado, Defender, Firewall e temperatura quando disponível.</p></article>
-          <article class="feature-card"><div class="feature-icon">!</div><h3>Alertas técnicos</h3><p>Identifique computador offline, memória alta, disco cheio, temperatura elevada e proteções desativadas.</p></article>
-          <article class="feature-card"><div class="feature-icon">⌁</div><h3>Histórico por máquina</h3><p>Consulte medições recentes, nota de saúde, último contato e evolução dos principais indicadores.</p></article>
-          <article class="feature-card"><div class="feature-icon">♙</div><h3>Usuários e permissões</h3><p>Separe administrador da plataforma, administrador da empresa, técnico e usuário de consulta.</p></article>
-          <article class="feature-card"><div class="feature-icon">✓</div><h3>Telemetria somente leitura</h3><p>Nesta fase, o agente não controla a tela, não executa scripts, não instala atualizações e não modifica o Windows.</p></article>
+
+        <div class="bento-grid">
+          <article class="bento-card bento-large bento-monitor">
+            <div class="bento-copy">
+              <span class="card-icon blue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17V9m5 8V5m5 12v-4m5 4V7"/></svg></span>
+              <span class="mini-kicker">MONITORAMENTO</span>
+              <h3>Saúde de cada computador em tempo real.</h3>
+              <p>Acompanhe CPU, memória, disco, espaço livre, temperatura, tempo ligado, conexão e proteções do Windows.</p>
+            </div>
+            <div class="metric-showcase" aria-hidden="true">
+              <div class="metric-top"><span>DESKTOP-ATENDIMENTO</span><b>Saudável</b></div>
+              <div class="metric-cards"><span><small>CPU</small><strong>18%</strong><i><em style="width:18%"></em></i></span><span><small>Memória</small><strong>62%</strong><i><em style="width:62%"></em></i></span><span><small>Disco</small><strong>71%</strong><i><em style="width:71%"></em></i></span></div>
+              <div class="metric-footer"><span><i></i> Online agora</span><span>Saúde 92/100</span></div>
+            </div>
+          </article>
+
+          <article class="bento-card bento-alerts">
+            <span class="card-icon amber"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg></span>
+            <span class="mini-kicker">ALERTAS</span>
+            <h3>Atenção no que realmente importa.</h3>
+            <p>Identifique máquinas offline, memória alta, disco cheio, temperatura elevada e proteção desativada.</p>
+            <div class="alert-list" aria-hidden="true"><span><i class="alert-red"></i><b>PC offline</b><small>há 12 min</small></span><span><i class="alert-amber"></i><b>Memória em 91%</b><small>agora</small></span></div>
+          </article>
+
+          <article class="bento-card bento-history">
+            <span class="card-icon cyan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8"/><path d="M4 3v5h5M12 7v5l3 2"/></svg></span>
+            <span class="mini-kicker">HISTÓRICO</span>
+            <h3>Evolução técnica por máquina.</h3>
+            <p>Consulte medições, diagnósticos, alertas, perfis aplicados e o último contato de cada computador.</p>
+            <div class="history-chart" aria-hidden="true"><span style="height:46%"></span><span style="height:60%"></span><span style="height:52%"></span><span style="height:72%"></span><span style="height:67%"></span><span style="height:82%"></span><span style="height:76%"></span></div>
+          </article>
+
+          <article class="bento-card bento-large bento-remote">
+            <div class="bento-copy">
+              <span class="card-icon navy"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M8 10h8"/></svg></span>
+              <span class="mini-kicker">SUPORTE REMOTO</span>
+              <h3>Atenda sem depender de deslocamento.</h3>
+              <p>Abra o computador autorizado, investigue o problema e acompanhe a sessão pela central técnica.</p>
+            </div>
+            <div class="remote-showcase" aria-hidden="true">
+              <div class="remote-toolbar"><span><i></i><i></i><i></i></span><b>Sessão segura · ATENDIMENTO 01</b><em>Conectado</em></div>
+              <div class="remote-screen"><div class="remote-wallpaper"><img src="/site/logo-mark.png" alt=""></div><div class="remote-side"><span></span><span></span><span></span><span></span></div></div>
+            </div>
+          </article>
         </div>
       </div>
     </section>
 
-    <section class="section" id="seguranca">
-      <div class="container security-grid">
-        <div>
-          <span class="section-kicker">Segurança como regra do produto</span>
-          <h2>Monitorar o computador não significa acessar a vida do cliente.</h2>
-          <p class="section-copy">O CoreTuner foi estruturado para separar informações técnicas de dados pessoais. O monitoramento da fase beta não lê documentos, senhas, conversas, histórico do navegador, imagens da tela ou arquivos do usuário.</p>
-          <ul class="check-list">
-            <li><span>✓</span> Comunicação do agente autenticada por credencial exclusiva.</li>
-            <li><span>✓</span> Empresas isoladas no painel central.</li>
-            <li><span>✓</span> Cada computador recebe uma credencial exclusiva que não é compartilhada com outras máquinas.</li>
-            <li><span>✓</span> Ações administrativas registradas para auditoria.</li>
-            <li><span>✓</span> HTTPS obrigatório antes de instalar em clientes reais.</li>
+    <section class="section solution-section">
+      <div class="container solution-grid">
+        <div class="solution-visual optimization-visual" aria-label="Prévia dos perfis de otimização">
+          <div class="visual-top"><span>Perfis de otimização</span><small>Backup disponível</small></div>
+          <div class="profile-list">
+            <article><span>01</span><div><strong>Conservador</strong><small>Reduz animações transitórias</small></div><i class="profile-check active"></i></article>
+            <article class="selected"><span>02</span><div><strong>Modo Atendimento</strong><small>Prioriza aplicativos de trabalho</small></div><i class="profile-check"></i></article>
+            <article><span>03</span><div><strong>Alto Desempenho</strong><small>Mais resposta quando ligado à tomada</small></div><i class="profile-check"></i></article>
+          </div>
+          <div class="backup-banner"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.8 8.1 7 10 4.2-1.9 7-5.3 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg><div><strong>Configuração original protegida</strong><small>O CoreTuner cria o backup antes de aplicar qualquer perfil.</small></div></div>
+        </div>
+
+        <div class="solution-copy">
+          <span class="section-kicker">Otimização com responsabilidade</span>
+          <h2>Melhore o desempenho sem transformar manutenção em risco.</h2>
+          <p>Os perfis do CoreTuner aplicam somente ajustes permitidos e preservam a configuração anterior para restauração.</p>
+          <ul class="benefit-list">
+            <li><span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7"/></svg></span><div><strong>Backup automático antes da alteração</strong><small>Se o backup não puder ser criado, o perfil não é aplicado.</small></div></li>
+            <li><span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7"/></svg></span><div><strong>Perfis claros e explicados</strong><small>O usuário vê exatamente o que será ajustado no computador.</small></div></li>
+            <li><span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7"/></svg></span><div><strong>Restauração da configuração original</strong><small>Plano de energia, animações e prioridades podem voltar ao estado salvo.</small></div></li>
           </ul>
-        </div>
-        <div class="security-panel">
-          <div class="shield-orbit"><img src="/site/logo-mark.png" alt="Símbolo CoreTuner"></div>
-          <h3>O agente beta não pode:</h3>
-          <div class="blocked-grid">
-            <span>Excluir arquivos</span><span>Controlar a tela</span><span>Executar scripts</span><span>Desativar proteções</span><span>Instalar programas</span><span>Ler documentos</span>
-          </div>
-          <div class="security-note">Recursos remotos só serão adicionados depois de autenticação forte, permissões, confirmação e auditoria completas.</div>
+          <button class="text-link js-download" type="button">Conhecer o CoreTuner <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 6l4 4-4 4"/></svg></button>
         </div>
       </div>
     </section>
 
-    <section class="section section-soft" id="planos">
-      <div class="container">
-        <div class="section-heading">
-          <span class="section-kicker">Estrutura comercial proposta</span>
-          <h2>Planos preparados para o lançamento.</h2>
-          <p>Os preços ainda não estão ativos. Esta divisão organiza o produto enquanto a versão beta é validada.</p>
+    <section class="section section-soft management-section">
+      <div class="container solution-grid reverse">
+        <div class="solution-copy">
+          <span class="section-kicker">Central multiempresa</span>
+          <h2>Organize clientes, computadores e equipe técnica sem misturar informações.</h2>
+          <p>Cada empresa permanece vinculada à própria conta, enquanto a central administrativa oferece a visão necessária para acompanhar a operação.</p>
+          <div class="mini-feature-grid">
+            <article><span class="mini-feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V8l8-5 8 5v11M8 19v-6h8v6M2 21h20"/></svg></span><div><strong>Empresas isoladas</strong><small>Máquinas e usuários separados por organização.</small></div></article>
+            <article><span class="mini-feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 2.5-6 6-6s6 2 6 6M16 7h5m-2.5-2.5v5"/></svg></span><div><strong>Usuários e permissões</strong><small>Defina quem administra, atende ou apenas consulta.</small></div></article>
+            <article><span class="mini-feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 16v-5m4 5V8m4 8v-3"/></svg></span><div><strong>Relatórios técnicos</strong><small>Consolide saúde, diagnóstico e recomendações.</small></div></article>
+            <article><span class="mini-feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="4"/></svg></span><div><strong>Atualização contínua</strong><small>Veja o último contato e o estado atual das máquinas.</small></div></article>
+          </div>
         </div>
+
+        <div class="solution-visual companies-visual" aria-label="Prévia da gestão de empresas">
+          <div class="companies-top"><div><small>EMPRESAS</small><strong>Clientes monitorados</strong></div><button type="button" tabindex="-1">+ Nova empresa</button></div>
+          <div class="companies-summary"><span><small>Empresas</small><strong>06</strong></span><span><small>Computadores</small><strong>42</strong></span><span><small>Online</small><strong class="green-text">38</strong></span></div>
+          <div class="company-row"><span class="company-avatar">TS</span><div><strong>TaynaraSolution</strong><small>12 computadores · 11 online</small></div><i class="status-green"></i><b>Saúde 91</b></div>
+          <div class="company-row"><span class="company-avatar alt">AL</span><div><strong>Alfa Atendimento</strong><small>18 computadores · 16 online</small></div><i class="status-amber"></i><b>Saúde 78</b></div>
+          <div class="company-row"><span class="company-avatar dark">SG</span><div><strong>SEG Sistemas</strong><small>12 computadores · 11 online</small></div><i class="status-green"></i><b>Saúde 88</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section security-section" id="seguranca">
+      <div class="security-glow" aria-hidden="true"></div>
+      <div class="container security-layout">
+        <div class="security-copy">
+          <span class="section-kicker light">Segurança faz parte da arquitetura</span>
+          <h2>Informação técnica sem invadir a rotina do cliente.</h2>
+          <p>O CoreTuner foi projetado para separar a gestão do computador dos dados pessoais armazenados nele.</p>
+          <div class="security-points">
+            <article><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.8 8.1 7 10 4.2-1.9 7-5.3 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></span><div><strong>Credenciais individuais</strong><small>Cada computador utiliza um vínculo próprio com a empresa autorizada.</small></div></article>
+            <article><span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><div><strong>Comunicação protegida</strong><small>O ambiente de produção deve operar com HTTPS e autenticação.</small></div></article>
+            <article><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg></span><div><strong>Histórico e auditoria</strong><small>Ações administrativas e alterações relevantes ficam registradas.</small></div></article>
+          </div>
+        </div>
+
+        <div class="privacy-card">
+          <div class="privacy-head"><span class="privacy-shield"><img src="/site/logo-mark.png" alt=""></span><div><small>PRIVACIDADE DO CLIENTE</small><strong>O CoreTuner não precisa ler:</strong></div></div>
+          <div class="privacy-grid"><span><i>×</i> Documentos pessoais</span><span><i>×</i> Conversas e mensagens</span><span><i>×</i> Histórico do navegador</span><span><i>×</i> Senhas armazenadas</span><span><i>×</i> Conteúdo de arquivos</span><span><i>×</i> Imagens da tela sem sessão</span></div>
+          <div class="privacy-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.7 2.8 8.1 7 10 4.2-1.9 7-5.3 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg><p><strong>Ajustes destrutivos permanecem bloqueados.</strong><small>O CoreTuner não apaga arquivos, não esvazia Downloads ou Lixeira e não desativa Defender ou Firewall como parte dos perfis.</small></p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section process-section" id="como-funciona">
+      <div class="container">
+        <div class="section-heading centered compact">
+          <span class="section-kicker">Comece sem complicação</span>
+          <h2>Da instalação ao primeiro diagnóstico em três etapas.</h2>
+        </div>
+
+        <div class="process-grid">
+          <article><span class="step-number">01</span><span class="step-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V8l8-5 8 5v11M8 19v-6h8v6M2 21h20"/></svg></span><h3>Crie a empresa</h3><p>Cadastre a organização e o primeiro administrador pelo site ou pelo painel Central.</p></article>
+          <article><span class="step-number">02</span><span class="step-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></span><h3>Instale e identifique</h3><p>Entre com a conta, informe setor e unidade e vincule o computador à empresa correta.</p></article>
+          <article><span class="step-number">03</span><span class="step-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17V9m5 8V5m5 12v-4m5 4V7"/></svg></span><h3>Acompanhe e cuide</h3><p>Veja a saúde da máquina, investigue alertas e aplique ações seguras quando necessário.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section plans-section" id="planos">
+      <div class="container">
+        <div class="section-heading centered">
+          <span class="section-kicker">Planos para cada etapa</span>
+          <h2>Comece pequeno e amplie conforme a operação crescer.</h2>
+          <p>Durante o acesso antecipado, condições, limites e implantação são definidos conforme o cenário de cada empresa.</p>
+        </div>
+
         <div class="plans-grid">
           <article class="plan-card">
-            <div class="plan-label">Essencial</div>
-            <h3>Para uma pequena operação</h3>
-            <p class="plan-description">Diagnóstico e acompanhamento básico de poucos computadores.</p>
-            <div class="price-placeholder">Preço em definição</div>
-            <ul><li>1 empresa cadastrada</li><li>Até 5 computadores</li><li>Online e offline</li><li>CPU, memória e disco</li><li>Alertas essenciais</li><li>Histórico de saúde</li></ul>
-            <button class="btn btn-secondary js-download">Testar versão beta</button>
+            <div class="plan-top"><span class="plan-label">Essencial</span><span class="plan-status">Acesso antecipado</span></div>
+            <h3>Para pequenas operações</h3>
+            <p class="plan-description">Visibilidade e diagnóstico dos computadores mais importantes da empresa.</p>
+            <div class="price-placeholder"><small>Condições</small><strong>Sob consulta</strong></div>
+            <ul><li><span>✓</span> 1 empresa cadastrada</li><li><span>✓</span> Até 5 computadores</li><li><span>✓</span> Saúde, telemetria e alertas</li><li><span>✓</span> Histórico por computador</li><li><span>✓</span> Perfis seguros de otimização</li></ul>
+            <button class="btn btn-secondary btn-full js-download" type="button">Começar teste controlado</button>
           </article>
+
           <article class="plan-card featured">
-            <div class="plan-badge">Recomendado</div>
-            <div class="plan-label">Profissional</div>
+            <div class="plan-badge">Mais indicado</div>
+            <div class="plan-top"><span class="plan-label">Profissional</span><span class="plan-status">Acesso antecipado</span></div>
             <h3>Para empresas em crescimento</h3>
-            <p class="plan-description">Mais máquinas, relatórios e alertas personalizados para o técnico.</p>
-            <div class="price-placeholder">Preço em definição</div>
-            <ul><li>Até 25 computadores</li><li>Usuários e permissões</li><li>Alertas personalizados</li><li>Relatórios técnicos</li><li>Notificações no celular <em>previsto</em></li><li>Acesso remoto <em>previsto</em></li></ul>
-            <button class="btn btn-primary js-download">Testar versão beta</button>
+            <p class="plan-description">Monitoramento e suporte centralizado para uma operação com mais máquinas.</p>
+            <div class="price-placeholder"><small>Condições</small><strong>Sob consulta</strong></div>
+            <ul><li><span>✓</span> Até 25 computadores</li><li><span>✓</span> Usuários e permissões</li><li><span>✓</span> Diagnósticos e relatórios</li><li><span>✓</span> Acesso remoto autorizado</li><li><span>✓</span> Alertas técnicos centralizados</li></ul>
+            <button class="btn btn-primary btn-full js-download" type="button">Criar empresa e testar</button>
           </article>
+
           <article class="plan-card">
-            <div class="plan-label">Gestão TI</div>
+            <div class="plan-top"><span class="plan-label">Gestão TI</span><span class="plan-status">Personalizado</span></div>
             <h3>Para técnicos e multiempresas</h3>
-            <p class="plan-description">Central completa para administrar vários clientes e equipes técnicas.</p>
-            <div class="price-placeholder">Plano personalizado</div>
-            <ul><li>Múltiplas empresas</li><li>Limites personalizados</li><li>Equipe técnica e auditoria</li><li>Atualizações remotas <em>roadmap</em></li><li>Scripts aprovados <em>roadmap</em></li><li>Descoberta de rede <em>roadmap</em></li></ul>
-            <button class="btn btn-secondary js-download">Acessar beta controlada</button>
+            <p class="plan-description">Estrutura para administrar diversos clientes, equipes e limites personalizados.</p>
+            <div class="price-placeholder"><small>Plano</small><strong>Personalizado</strong></div>
+            <ul><li><span>✓</span> Múltiplas empresas</li><li><span>✓</span> Equipe técnica e auditoria</li><li><span>✓</span> Limites personalizados</li><li><span>✓</span> Central administrativa</li><li><span>✓</span> Implantação acompanhada</li></ul>
+            <button class="btn btn-secondary btn-full js-download" type="button">Solicitar acesso</button>
           </article>
         </div>
-        <p class="plans-disclaimer">Os limites e recursos acima são uma proposta inicial e poderão ser ajustados antes da comercialização.</p>
+        <p class="plans-disclaimer">Os planos ainda estão em validação comercial e poderão receber ajustes antes do lançamento definitivo.</p>
       </div>
     </section>
 
-    <section class="section roadmap-section">
-      <div class="container">
-        <div class="section-heading left">
-          <span class="section-kicker">Próximas fases</span>
-          <h2>O caminho até uma plataforma completa de gestão remota.</h2>
+    <section class="section faq-section" id="duvidas">
+      <div class="container faq-layout">
+        <div class="faq-intro">
+          <span class="section-kicker">Dúvidas frequentes</span>
+          <h2>O que você precisa saber antes de instalar.</h2>
+          <p>O acesso atual é controlado para permitir implantação acompanhada, validação de segurança e evolução do produto.</p>
+          <button class="text-link js-download" type="button">Criar empresa e baixar <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 6l4 4-4 4"/></svg></button>
         </div>
-        <div class="roadmap-grid">
-          <article><span>01</span><strong>Central e telemetria</strong><p>Empresas, computadores, saúde, histórico e alertas.</p><b class="done">Fase beta atual</b></article>
-          <article><span>02</span><strong>Alertas móveis e acesso remoto</strong><p>Notificações, sessões auditadas e autorização do cliente.</p><b>Em desenvolvimento</b></article>
-          <article><span>03</span><strong>Atualizações e ações seguras</strong><p>Janelas de manutenção, scripts aprovados e registros completos.</p><b>Planejado</b></article>
-          <article><span>04</span><strong>Descoberta e automação</strong><p>Equipamentos de rede, políticas e correções previamente autorizadas.</p><b>Planejado</b></article>
-        </div>
-      </div>
-    </section>
 
-    <section class="section" id="duvidas">
-      <div class="container faq-grid">
-        <div><span class="section-kicker">Dúvidas frequentes</span><h2>Antes de instalar.</h2><p class="section-copy">A versão disponível agora é uma beta técnica para testes controlados em computadores próprios.</p></div>
         <div class="faq-list">
-          <details><summary>O CoreTuner altera o Windows nesta versão?</summary><p>Não. O agente desta fase coleta apenas telemetria técnica e não executa otimizações, scripts, atualizações ou controle remoto.</p></details>
-          <details><summary>Por que o download pede senha?</summary><p>Os planos e o processo comercial ainda estão sendo preparados. A senha limita o acesso ao instalador durante os testes internos.</p></details>
-          <details><summary>Posso instalar diretamente em um cliente?</summary><p>Somente depois de publicar o Central com HTTPS, criar a empresa, entrar no aplicativo e obter autorização do cliente.</p></details>
-          <details><summary>O painel funciona no celular?</summary><p>O site é responsivo. Notificações push e experiência de aplicativo serão adicionadas em uma fase posterior.</p></details>
+          <details open><summary>O CoreTuner altera o Windows?</summary><p>Somente quando o usuário escolhe e confirma um perfil de otimização. Antes da primeira alteração, o aplicativo cria um backup das configurações compatíveis para permitir restauração.</p></details>
+          <details><summary>O CoreTuner apaga arquivos para liberar espaço?</summary><p>Não. Os perfis não excluem documentos, não esvaziam Lixeira ou Downloads e não limpam o Registro automaticamente.</p></details>
+          <details><summary>O monitoramento acessa documentos ou conversas?</summary><p>Não. A telemetria utiliza informações técnicas do computador, como CPU, memória, disco, conexão, uptime e estado das proteções.</p></details>
+          <details><summary>Por que o download pede login e senha de liberação?</summary><p>O acesso é controlado durante a validação do produto. A conta vincula o computador à empresa correta, e a senha temporária limita instalações não autorizadas.</p></details>
+          <details><summary>Posso instalar diretamente em um cliente?</summary><p>Sim, desde que o ambiente esteja publicado com HTTPS, a empresa esteja cadastrada e o cliente autorize o monitoramento, as otimizações e eventuais sessões remotas.</p></details>
+          <details><summary>O painel funciona no celular?</summary><p>O site e o painel web são responsivos. A experiência móvel dedicada e notificações push continuam previstas para uma etapa posterior.</p></details>
         </div>
       </div>
     </section>
 
     <section class="cta-section">
+      <div class="cta-glow" aria-hidden="true"></div>
       <div class="container cta-inner">
-        <div><span class="section-kicker light">Beta controlada</span><h2>Instale primeiro em uma máquina de teste.</h2><p>O download fica liberado por poucos minutos depois do login e da validação da senha.</p></div>
-        <button class="btn btn-white btn-large js-download">Baixar CoreTuner</button>
+        <div>
+          <span class="section-kicker light">Acesso antecipado</span>
+          <h2>Comece com uma máquina de teste e acompanhe tudo pela central.</h2>
+          <p>Crie sua empresa, instale o CoreTuner e valide a experiência antes de expandir para os demais computadores.</p>
+        </div>
+        <div class="cta-actions">
+          <button class="btn btn-white btn-large js-download" type="button">Criar empresa e baixar</button>
+          <a class="btn btn-dark-outline btn-large" href="/central">Abrir painel Central</a>
+        </div>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <div class="container footer-inner">
-      <img src="/site/logo-full.png" alt="CoreTuner" class="footer-logo">
-      <p>Diagnóstico e gestão segura de computadores Windows.</p>
-      <a href="/central">CoreTuner Central</a>
+    <div class="container footer-main">
+      <div class="footer-company">
+        <a class="footer-brand" href="#inicio" aria-label="CoreTuner — voltar ao início"><img src="/site/logo-full.png" alt="CoreTuner" class="footer-logo"></a>
+        <p>Diagnóstico, monitoramento, otimização segura e suporte remoto para computadores Windows.</p>
+      </div>
+      <div class="footer-column"><strong>Produto</strong><a href="#recursos">Recursos</a><a href="#seguranca">Segurança</a><a href="#planos">Planos</a></div>
+      <div class="footer-column"><strong>Acesso</strong><a href="/central">Painel Central</a><button class="footer-link js-download" type="button">Baixar CoreTuner</button><button class="footer-link" id="footerAccountButton" type="button" onclick="document.getElementById('accountButton').click()">Entrar na empresa</button></div>
+      <div class="footer-column"><strong>Informações</strong><a href="#como-funciona">Como funciona</a><a href="#duvidas">Dúvidas frequentes</a><a href="#inicio">Voltar ao início</a></div>
     </div>
+    <div class="container footer-bottom"><span>© 2026 CoreTuner. Todos os direitos reservados.</span><span>Gestão técnica com segurança e transparência.</span></div>
   </footer>
 
   <div class="modal-backdrop" id="authModal" aria-hidden="true">
     <section class="download-modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
-      <button class="modal-close" id="closeAuthModal" aria-label="Fechar">×</button>
+      <button class="modal-close" id="closeAuthModal" type="button" aria-label="Fechar">×</button>
       <div class="auth-brand"><img src="/site/logo-mark.png" alt=""><div><strong>CoreTuner</strong><span>Conta da empresa</span></div></div>
       <div class="auth-tabs" role="tablist">
         <button type="button" id="loginTab" class="active">Entrar</button>
@@ -260,8 +441,8 @@
 
   <div class="modal-backdrop" id="downloadModal" aria-hidden="true">
     <section class="download-modal" role="dialog" aria-modal="true" aria-labelledby="downloadTitle">
-      <button class="modal-close" id="closeModal" aria-label="Fechar">×</button>
-      <div class="modal-icon">↓</div>
+      <button class="modal-close" id="closeModal" type="button" aria-label="Fechar">×</button>
+      <div class="modal-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></div>
       <span class="section-kicker">Acesso controlado</span>
       <h2 id="downloadTitle">Baixar CoreTuner Setup</h2>
       <p>Faça login na sua empresa e digite a senha autorizada para liberar o instalador.</p>
@@ -279,6 +460,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/site/site.js?v=20260723-password-reset-v1"></script>
+  <script src="/site/site.js?v=20260727-premium-v2"></script>
 </body>
 </html>

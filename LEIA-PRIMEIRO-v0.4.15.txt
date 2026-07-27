@@ -1,0 +1,27 @@
+CoreTuner v0.4.15 — site público profissional
+
+Somente estes arquivos foram alterados:
+- app/public/index.html
+- app/public/site.css
+
+Preservado sem alteração:
+- app/public/site.js e todas as ações de login, cadastro, recuperação de senha e download;
+- backend, API, banco, autenticação, painel Central, agente, instalador, telemetria e acesso remoto;
+- todos os IDs usados pelo JavaScript;
+- todas as seções, textos, planos, dúvidas e modais existentes.
+
+Melhorias visuais:
+- cabeçalho e marca com proporção correta;
+- hero mais profissional e prévia do painel refinada;
+- cartões, segurança, planos, roadmap, FAQ, CTA e rodapé redesenhados;
+- ícones vetoriais internos, sem bibliotecas externas;
+- foco, hover e cursor adequados;
+- responsividade validada em desktop e celular;
+- cache-bust do CSS e JS no HTML.
+
+Publicação:
+Substitua somente:
+  app/public/index.html
+  app/public/site.css
+
+Não é necessário alterar site.js nem o banco de dados.
