@@ -7,11 +7,16 @@ $iconPatchSource = Join-Path $PSScriptRoot 'tools\iconpatch'
 $downloadDir = Join-Path $root 'app\downloads'
 $publicUrl = if ($env:CORETUNER_PUBLIC_URL) { $env:CORETUNER_PUBLIC_URL } else { 'http://127.0.0.1:8002' }
 $iconSource = Join-Path $PSScriptRoot 'assets\coretuner.ico'
+$setupLogoSource = Join-Path $PSScriptRoot 'assets\coretuner-logo.bmp'
 if (-not (Test-Path $iconSource)) {
     throw "Ícone oficial não encontrado em $iconSource"
 }
+if (-not (Test-Path $setupLogoSource)) {
+    throw "Logo do instalador não encontrada em $setupLogoSource"
+}
 Copy-Item -Force $iconSource (Join-Path $appSource 'coretuner.ico')
 Copy-Item -Force $iconSource (Join-Path $setupSource 'coretuner.ico')
+Copy-Item -Force $setupLogoSource (Join-Path $setupSource 'coretuner-logo.bmp')
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 

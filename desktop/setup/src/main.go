@@ -28,6 +28,10 @@ var defaultServerURL = "http://127.0.0.1:8002"
 
 const (
 	WS_OVERLAPPEDWINDOW  = 0x00CF0000
+	WS_CAPTION           = 0x00C00000
+	WS_SYSMENU           = 0x00080000
+	WS_MINIMIZEBOX       = 0x00020000
+	WS_CLIPCHILDREN      = 0x02000000
 	WS_VISIBLE           = 0x10000000
 	WS_CHILD             = 0x40000000
 	WS_BORDER            = 0x00800000
@@ -250,6 +254,8 @@ type App struct {
 	title          syscall.Handle
 	subtitle       syscall.Handle
 	installNotice  string
+	mode           string
+	logoBitmap     syscall.Handle
 }
 
 var app *App
@@ -312,9 +318,11 @@ func runGUI() {
 	hinst, _, _ := procGetModuleHandle.Call(0)
 	className := utf16("CoreTunerSetupWindow")
 	largeIcon, smallIcon := coreTunerWindowIcons()
-	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HbrBackground: syscall.Handle(COLOR_WINDOW + 1), LpszClassName: className, HIconSm: smallIcon}
+	ensureThemeResources()
+	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HbrBackground: themeWindowBrush, LpszClassName: className, HIconSm: smallIcon}
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
-	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(utf16("CoreTuner — Instalação segura"))), WS_OVERLAPPEDWINDOW, 180, 55, 620, 780, 0, 0, hinst, 0)
+	windowStyle := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN)
+	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(utf16("CoreTuner — Instalação segura"))), windowStyle, 180, 40, 720, 850, 0, 0, hinst, 0)
 	if h == 0 {
 		return
 	}
@@ -336,13 +344,25 @@ func runGUI() {
 	}
 }
 
-func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
+func wndProc(hwnd uintptr, msg uint32, wParam uintptr, lParam unsafe.Pointer) uintptr {
 	switch msg {
 	case WM_COMMAND:
 		if app != nil {
 			app.handleCommand(loword(wParam))
 		}
 		return 0
+	case WM_PAINT:
+		paintTheme(syscall.Handle(hwnd))
+		return 0
+	case WM_ERASEBKGND:
+		return 1
+	case WM_DRAWITEM:
+		drawOwnerButton((*DRAWITEMSTRUCT)(lParam))
+		return 1
+	case WM_CTLCOLORSTATIC:
+		return staticControlColor(wParam)
+	case WM_CTLCOLOREDIT:
+		return editControlColor(wParam)
 	case WM_CLOSE:
 		procDestroyWindow.Call(hwnd)
 		return 0
@@ -350,7 +370,7 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		procPostQuitMessage.Call(0)
 		return 0
 	}
-	r, _, _ := procDefWindowProc.Call(hwnd, uintptr(msg), wParam, lParam)
+	r, _, _ := procDefWindowProc.Call(hwnd, uintptr(msg), wParam, uintptr(lParam))
 	return r
 }
 
@@ -363,11 +383,11 @@ func (a *App) createFonts() {
 		)
 		return font
 	}
-	a.font = create(16, 400)
-	a.titleFont = create(31, 600)
-	a.sectionFont = create(20, 600)
-	a.smallFont = create(14, 400)
-	a.buttonFont = create(16, 600)
+	a.font = create(17, 400)
+	a.titleFont = create(28, 650)
+	a.sectionFont = create(22, 650)
+	a.smallFont = create(15, 400)
+	a.buttonFont = create(16, 650)
 }
 
 func applyFont(h syscall.Handle, font uintptr) {
@@ -386,104 +406,126 @@ func (a *App) add(id int, h syscall.Handle, group *[]syscall.Handle) syscall.Han
 
 func buildUI() {
 	a := app
-	a.title = createControl("STATIC", "CoreTuner", WS_CHILD|WS_VISIBLE, 60, 24, 500, 42, a.hwnd, 0)
-	applyFont(a.title, a.titleFont)
-	a.subtitle = createControl("STATIC", "Instalação segura do computador", WS_CHILD|WS_VISIBLE, 60, 70, 500, 25, a.hwnd, 0)
+
+	_, a.logoBitmap = createCoreTunerLogo(a.hwnd, 155, 18, 390, 94)
+	a.title = createControl("STATIC", "", WS_CHILD, 0, 0, 1, 1, a.hwnd, 0)
+	a.subtitle = createControl("STATIC", "Instalação segura e monitoramento inteligente", WS_CHILD|WS_VISIBLE, 70, 116, 560, 26, a.hwnd, 0)
 	applyFont(a.subtitle, a.smallFont)
-	serverLabel := createControl("STATIC", "Servidor CoreTuner", WS_CHILD|WS_VISIBLE, 60, 112, 180, 20, a.hwnd, 0)
+
+	serverLabel := createControl("STATIC", "Servidor do CoreTuner", WS_CHILD|WS_VISIBLE, 70, 154, 220, 22, a.hwnd, 0)
 	applyFont(serverLabel, a.smallFont)
-	a.add(idServer, createControl("EDIT", a.serverURL, WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 60, 138, 500, 34, a.hwnd, idServer), nil)
+	a.add(idServer, createControl("EDIT", a.serverURL, WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 70, 180, 560, 38, a.hwnd, idServer), nil)
 
 	// Login
-	l1 := createControl("STATIC", "Entrar na empresa", WS_CHILD|WS_VISIBLE, 60, 210, 500, 32, a.hwnd, 0)
+	l1 := createControl("STATIC", "Acesse sua empresa", WS_CHILD|WS_VISIBLE, 80, 270, 540, 34, a.hwnd, 0)
 	applyFont(l1, a.sectionFont)
 	a.loginGroup = append(a.loginGroup, l1)
-	l2 := createControl("STATIC", "E-mail", WS_CHILD|WS_VISIBLE, 60, 264, 120, 20, a.hwnd, 0)
+	loginIntro := createControl("STATIC", "Entre com sua conta para instalar e vincular este computador.", WS_CHILD|WS_VISIBLE, 80, 308, 540, 26, a.hwnd, 0)
+	applyFont(loginIntro, a.smallFont)
+	a.loginGroup = append(a.loginGroup, loginIntro)
+
+	l2 := createControl("STATIC", "E-mail", WS_CHILD|WS_VISIBLE, 80, 352, 180, 22, a.hwnd, 0)
 	applyFont(l2, a.smallFont)
 	a.loginGroup = append(a.loginGroup, l2)
-	a.add(idLoginEmail, createControl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 60, 290, 500, 36, a.hwnd, idLoginEmail), &a.loginGroup)
-	l3 := createControl("STATIC", "Senha", WS_CHILD|WS_VISIBLE, 60, 344, 120, 20, a.hwnd, 0)
+	a.add(idLoginEmail, createControl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 80, 378, 540, 42, a.hwnd, idLoginEmail), &a.loginGroup)
+
+	l3 := createControl("STATIC", "Senha", WS_CHILD|WS_VISIBLE, 80, 438, 180, 22, a.hwnd, 0)
 	applyFont(l3, a.smallFont)
 	a.loginGroup = append(a.loginGroup, l3)
-	a.add(idLoginPassword, createControl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, 60, 370, 500, 36, a.hwnd, idLoginPassword), &a.loginGroup)
-	a.add(idLoginButton, createControl("BUTTON", "Entrar", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON, 60, 432, 240, 44, a.hwnd, idLoginButton), &a.loginGroup)
-	a.add(idShowRegister, createControl("BUTTON", "Criar uma empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, 320, 432, 240, 44, a.hwnd, idShowRegister), &a.loginGroup)
+	a.add(idLoginPassword, createControl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, 80, 464, 540, 42, a.hwnd, idLoginPassword), &a.loginGroup)
+
+	a.add(idLoginButton, createControl("BUTTON", "Entrar no CoreTuner", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 536, 540, 50, a.hwnd, idLoginButton), &a.loginGroup)
+	a.add(idShowRegister, createControl("BUTTON", "Criar uma empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 80, 606, 260, 46, a.hwnd, idShowRegister), &a.loginGroup)
+	a.add(idForgotPassword, createControl("BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 360, 606, 260, 46, a.hwnd, idForgotPassword), &a.loginGroup)
 	applyFont(a.controls[idLoginButton], a.buttonFont)
 	applyFont(a.controls[idShowRegister], a.buttonFont)
-	a.add(idForgotPassword, createControl("BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, 60, 492, 500, 38, a.hwnd, idForgotPassword), &a.loginGroup)
-	loginNote := createControl("STATIC", "Sua conta e os dados técnicos são enviados por conexão segura.", WS_CHILD|WS_VISIBLE, 60, 552, 500, 30, a.hwnd, 0)
+	applyFont(a.controls[idForgotPassword], a.buttonFont)
+
+	loginNote := createControl("STATIC", "✓  Conexão segura. Seus dados técnicos são protegidos e usados somente para o monitoramento.", WS_CHILD|WS_VISIBLE, 80, 684, 540, 46, a.hwnd, 0)
 	applyFont(loginNote, a.smallFont)
 	a.loginGroup = append(a.loginGroup, loginNote)
 
-	// Register
-	r1 := createControl("STATIC", "Criar nova empresa", WS_CHILD, 60, 188, 500, 32, a.hwnd, 0)
+	// Cadastro
+	r1 := createControl("STATIC", "Crie sua empresa", WS_CHILD, 80, 264, 540, 34, a.hwnd, 0)
 	applyFont(r1, a.sectionFont)
 	a.registerGroup = append(a.registerGroup, r1)
+	rIntro := createControl("STATIC", "Configure a conta principal e comece a cadastrar os computadores.", WS_CHILD, 80, 302, 540, 24, a.hwnd, 0)
+	applyFont(rIntro, a.smallFont)
+	a.registerGroup = append(a.registerGroup, rIntro)
 	fields := []struct {
 		id    int
 		label string
 		y     int32
 		pass  bool
 	}{
-		{idRegisterCompany, "Nome da empresa", 236, false}, {idRegisterName, "Nome do responsável", 306, false}, {idRegisterEmail, "E-mail", 376, false}, {idRegisterPassword, "Senha (mínimo 10 caracteres)", 446, true}, {idRegisterConfirm, "Confirmar senha", 516, true},
+		{idRegisterCompany, "Nome da empresa", 342, false},
+		{idRegisterName, "Nome do responsável", 412, false},
+		{idRegisterEmail, "E-mail", 482, false},
+		{idRegisterPassword, "Senha (mínimo 10 caracteres)", 552, true},
+		{idRegisterConfirm, "Confirmar senha", 622, true},
 	}
 	for _, f := range fields {
-		lab := createControl("STATIC", f.label, WS_CHILD, 60, f.y, 300, 20, a.hwnd, 0)
+		lab := createControl("STATIC", f.label, WS_CHILD, 80, f.y, 360, 20, a.hwnd, 0)
 		applyFont(lab, a.smallFont)
 		a.registerGroup = append(a.registerGroup, lab)
 		style := uint32(WS_CHILD | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL)
 		if f.pass {
 			style |= ES_PASSWORD
 		}
-		a.add(f.id, createControl("EDIT", "", style, 60, f.y+24, 500, 34, a.hwnd, f.id), &a.registerGroup)
+		a.add(f.id, createControl("EDIT", "", style, 80, f.y+24, 540, 38, a.hwnd, f.id), &a.registerGroup)
 	}
-	a.add(idRegisterButton, createControl("BUTTON", "Criar empresa e entrar", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON, 60, 598, 280, 44, a.hwnd, idRegisterButton), &a.registerGroup)
-	a.add(idShowLogin, createControl("BUTTON", "Já tenho uma conta", WS_CHILD|WS_TABSTOP|BS_PUSHBUTTON, 360, 598, 200, 44, a.hwnd, idShowLogin), &a.registerGroup)
+	a.add(idRegisterButton, createControl("BUTTON", "Criar empresa e continuar", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 710, 340, 48, a.hwnd, idRegisterButton), &a.registerGroup)
+	a.add(idShowLogin, createControl("BUTTON", "Voltar para o login", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 440, 710, 180, 48, a.hwnd, idShowLogin), &a.registerGroup)
 	applyFont(a.controls[idRegisterButton], a.buttonFont)
 	applyFont(a.controls[idShowLogin], a.buttonFont)
 
 	// Assistente de instalação. Depois da instalação, o Setup abre o painel e fecha.
-	statusCard := createControl("STATIC", "", WS_CHILD|WS_BORDER, 60, 188, 500, 58, a.hwnd, 0)
-	a.dashboardGroup = append(a.dashboardGroup, statusCard)
-	a.status = createControl("STATIC", "Aguardando login", WS_CHILD, 78, 207, 464, 24, a.hwnd, 0)
+	statusTitle := createControl("STATIC", "Conta conectada", WS_CHILD, 80, 270, 200, 24, a.hwnd, 0)
+	applyFont(statusTitle, a.smallFont)
+	a.dashboardGroup = append(a.dashboardGroup, statusTitle)
+	a.status = createControl("STATIC", "Aguardando login", WS_CHILD, 80, 300, 540, 34, a.hwnd, 0)
 	applyFont(a.status, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, a.status)
-	steps := createControl("STATIC", "1  Conta     2  Computador     3  Instalação     4  Concluído", WS_CHILD, 60, 266, 500, 26, a.hwnd, 0)
+
+	steps := createControl("STATIC", "1  Conta     2  Computador     3  Instalação     4  Concluído", WS_CHILD, 80, 350, 540, 26, a.hwnd, 0)
 	applyFont(steps, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, steps)
-	section := createControl("STATIC", "Identifique este computador", WS_CHILD, 60, 310, 500, 30, a.hwnd, 0)
+	section := createControl("STATIC", "Identifique este computador", WS_CHILD, 80, 400, 540, 32, a.hwnd, 0)
 	applyFont(section, a.sectionFont)
 	a.dashboardGroup = append(a.dashboardGroup, section)
-	help := createControl("STATIC", "Preencha as informações para instalar o monitoramento seguro.", WS_CHILD, 60, 344, 500, 24, a.hwnd, 0)
+	help := createControl("STATIC", "Essas informações ajudam a localizar o equipamento no painel.", WS_CHILD, 80, 438, 540, 24, a.hwnd, 0)
 	applyFont(help, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, help)
+
 	labs := []struct {
 		text string
 		x, y int32
 	}{
-		{"Nome deste computador", 60, 388}, {"Setor", 60, 466}, {"Local / unidade", 320, 466},
+		{"Nome deste computador", 80, 482},
+		{"Setor", 80, 560},
+		{"Local / unidade", 360, 560},
 	}
 	for _, v := range labs {
-		h := createControl("STATIC", v.text, WS_CHILD, v.x, v.y, 240, 20, a.hwnd, 0)
+		h := createControl("STATIC", v.text, WS_CHILD, v.x, v.y, 260, 20, a.hwnd, 0)
 		applyFont(h, a.smallFont)
 		a.dashboardGroup = append(a.dashboardGroup, h)
 	}
 	host, _ := os.Hostname()
-	a.add(idDeviceName, createControl("EDIT", host, WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 60, 414, 500, 36, a.hwnd, idDeviceName), &a.dashboardGroup)
-	a.add(idSector, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 60, 492, 240, 36, a.hwnd, idSector), &a.dashboardGroup)
-	a.add(idLocation, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 320, 492, 240, 36, a.hwnd, idLocation), &a.dashboardGroup)
-	a.add(idInstall, createControl("BUTTON", "Instalar e continuar", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON, 60, 554, 500, 48, a.hwnd, idInstall), &a.dashboardGroup)
+	a.add(idDeviceName, createControl("EDIT", host, WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 80, 508, 540, 40, a.hwnd, idDeviceName), &a.dashboardGroup)
+	a.add(idSector, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 80, 586, 260, 40, a.hwnd, idSector), &a.dashboardGroup)
+	a.add(idLocation, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 360, 586, 260, 40, a.hwnd, idLocation), &a.dashboardGroup)
+	a.add(idInstall, createControl("BUTTON", "Instalar e continuar", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 654, 540, 50, a.hwnd, idInstall), &a.dashboardGroup)
 	applyFont(a.controls[idInstall], a.buttonFont)
-	a.add(idOpenCentral, createControl("BUTTON", "Abrir painel web", WS_CHILD|WS_TABSTOP, 60, 622, 240, 40, a.hwnd, idOpenCentral), &a.dashboardGroup)
-	a.add(idLogout, createControl("BUTTON", "Trocar conta", WS_CHILD|WS_TABSTOP, 320, 622, 240, 40, a.hwnd, idLogout), &a.dashboardGroup)
-	footer := createControl("STATIC", "Instalação segura e verificada. O CoreTuner não acessa documentos, conversas ou senhas.", WS_CHILD, 60, 690, 500, 34, a.hwnd, 0)
-	applyFont(footer, a.smallFont)
-	a.dashboardGroup = append(a.dashboardGroup, footer)
+	a.add(idOpenCentral, createControl("BUTTON", "Abrir painel web", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 80, 724, 260, 44, a.hwnd, idOpenCentral), &a.dashboardGroup)
+	a.add(idLogout, createControl("BUTTON", "Trocar conta", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 360, 724, 260, 44, a.hwnd, idLogout), &a.dashboardGroup)
+	applyFont(a.controls[idOpenCentral], a.buttonFont)
+	applyFont(a.controls[idLogout], a.buttonFont)
 
 	a.showMode("login")
 }
 
 func (a *App) showMode(mode string) {
+	a.mode = mode
 	for _, h := range a.loginGroup {
 		show(h, mode == "login")
 	}
@@ -494,12 +536,13 @@ func (a *App) showMode(mode string) {
 		show(h, mode == "dashboard")
 	}
 	if mode == "dashboard" {
-		setText(a.title, "CoreTuner")
-		setText(a.subtitle, "Instalação segura do computador — "+companyName(a.company))
+		setText(a.subtitle, "Instalação segura — "+companyName(a.company))
+	} else if mode == "register" {
+		setText(a.subtitle, "Crie sua conta e conecte o primeiro computador")
 	} else {
-		setText(a.title, "CoreTuner")
-		setText(a.subtitle, "Instalação segura do computador")
+		setText(a.subtitle, "Instalação segura e monitoramento inteligente")
 	}
+	invalidateTheme(a.hwnd)
 }
 
 func companyName(c *Company) string {
