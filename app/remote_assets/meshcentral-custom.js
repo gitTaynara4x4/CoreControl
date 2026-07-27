@@ -13,9 +13,9 @@
     window.__coreTunerRemoteAutoStart = true;
 
     var INTERVALO_MS = 300;
-    var TEMPO_ESTAVEL_MS = 1500;
+    var TEMPO_ESTAVEL_MS = 1200;
     var LIMITE_CONEXAO_MS = 20000;
-    var INTERVALO_REPETICAO_MS = 2000;
+    var INTERVALO_REPETICAO_MS = 1800;
     var LIMITE_TOTAL_MS = 120000;
     var MAX_TENTATIVAS = 4;
 
@@ -27,7 +27,7 @@
     var encerrado = false;
 
     function registrar(mensagem, erro) {
-        var prefixo = '[CoreTuner Remote v5] ';
+        var prefixo = '[CoreTuner Remote v6] ';
         if (erro) {
             console.error(prefixo + mensagem, erro);
         } else {
@@ -43,23 +43,11 @@
     }
 
     function canalControlePronto() {
-        return Boolean(
-            window.meshserver &&
-            window.meshserver.State === 2
-        );
-    }
-
-    function botaoConectar() {
-        return document.getElementById('connectbutton1');
-    }
-
-    function botaoDesconectar() {
-        return document.getElementById('disconnectbutton1');
+        return Boolean(window.meshserver && window.meshserver.State === 2);
     }
 
     function paginaPronta() {
         var computador = window.currentNode;
-        var botao = botaoConectar();
 
         return Boolean(
             document.readyState === 'complete' &&
@@ -70,9 +58,18 @@
             computador.agent &&
             ((computador.conn & 1) !== 0) &&
             ((computador.agent.caps & 1) !== 0) &&
-            botao &&
-            botao.disabled === false
+            typeof window.connectDesktop === 'function'
         );
+    }
+
+    function atualizarBotoesOficiais() {
+        try {
+            if (typeof window.updateDesktopButtons === 'function' && window.currentNode) {
+                window.updateDesktopButtons();
+            }
+        } catch (erro) {
+            registrar('Não foi possível atualizar os botões oficiais.', erro);
+        }
     }
 
     function finalizar(mensagem, erro) {
@@ -83,60 +80,53 @@
     }
 
     function limparTentativaPresa(agora) {
-        var botao = botaoDesconectar();
-
         registrar(
-            'A conexão oficial ficou parada no estado ' +
+            'A conexão direta ficou parada no estado ' +
             (window.desktop ? window.desktop.State : 'desconhecido') +
             '; reiniciando.'
         );
         atualizarStatus('Reconectando automaticamente...');
 
         try {
-            // Usa o próprio botão oficial do MeshCentral. Isso preserva o fluxo
-            // interno da versão instalada e evita manipular cookies de relay ou
-            // chamar connectDesktop com parâmetros privados.
-            if (botao && botao.disabled === false) {
-                botao.click();
-            } else if (window.desktop && typeof window.desktop.Stop === 'function') {
+            if (window.desktop && typeof window.desktop.Stop === 'function') {
                 window.desktop.Stop();
-                window.desktopNode = null;
-                window.desktop = null;
             }
         } catch (erro) {
             registrar('Falha ao encerrar a tentativa anterior.', erro);
-            try {
-                window.desktopNode = null;
-                window.desktop = null;
-            } catch (_) {
-            }
         }
 
+        try {
+            window.desktopNode = null;
+            window.desktop = null;
+        } catch (_) {
+        }
+
+        atualizarBotoesOficiais();
         conexaoIniciadaEm = 0;
         paginaProntaDesde = 0;
         proximaTentativaEm = agora + INTERVALO_REPETICAO_MS;
     }
 
-    function iniciarPeloBotaoOficial(agora) {
-        var botao = botaoConectar();
-        if (!botao || botao.disabled) {
-            return;
-        }
-
+    function iniciarConexaoDireta(agora) {
         tentativas += 1;
         conexaoIniciadaEm = agora;
         atualizarStatus('Conectando automaticamente...');
         registrar(
-            'Iniciando tentativa ' + tentativas + ' de ' +
-            MAX_TENTATIVAS + ' pelo botão oficial.'
+            'Iniciando tentativa direta ' + tentativas + ' de ' +
+            MAX_TENTATIVAS + ' pelo MeshAgent.'
         );
 
         try {
-            // O onclick do botão é mantido pelo próprio MeshCentral e chama o
-            // modo correto para o Mesh Agent da versão em execução.
-            botao.click();
+            /*
+             * O botão padrão desta versão chama connectDesktop(event, 3).
+             * Em agentes Windows id 3/4, esse modo primeiro pede a lista de
+             * sessões do Windows. Como o CoreTuner esconde essa seleção, a
+             * sessão pode permanecer em "Desconectado" sem abrir meshrelay.
+             * O modo 1 é o fluxo direto oficial do MeshAgent e abre o relay.
+             */
+            window.connectDesktop(null, 1);
         } catch (erro) {
-            registrar('O botão oficial não iniciou a conexão.', erro);
+            registrar('A conexão direta não pôde ser iniciada.', erro);
             conexaoIniciadaEm = 0;
             proximaTentativaEm = agora + INTERVALO_REPETICAO_MS;
         }
@@ -184,9 +174,12 @@
             return;
         }
 
+        atualizarBotoesOficiais();
+
         if (!paginaProntaDesde) {
             paginaProntaDesde = agora;
             atualizarStatus('Preparando conexão segura...');
+            registrar('Página, agente e canal de controle estão prontos.');
             return;
         }
 
@@ -194,6 +187,6 @@
             return;
         }
 
-        iniciarPeloBotaoOficial(agora);
+        iniciarConexaoDireta(agora);
     }, INTERVALO_MS);
 })();
