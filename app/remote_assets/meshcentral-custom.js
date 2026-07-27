@@ -29,10 +29,11 @@
     var cookieAtualizado = false;
     var tentativaIniciadaEm = 0;
     var tentativas = 0;
+    var usarConexaoDireta = false;
     var encerrado = false;
 
     function registrar(mensagem, erro) {
-        var prefixo = '[CoreTuner Remote v4] ';
+        var prefixo = '[CoreTuner Remote v4.1] ';
         if (erro) {
             console.error(prefixo + mensagem, erro);
         } else {
@@ -163,15 +164,31 @@
     function iniciarConexao(agora) {
         tentativas += 1;
         tentativaIniciadaEm = agora;
+
+        var modo = usarConexaoDireta ? 1 : 3;
+        var descricaoModo = usarConexaoDireta
+            ? 'conexão direta'
+            : 'localização automática da sessão do Windows';
+
         atualizarStatus('Conectando automaticamente...');
-        registrar('Iniciando tentativa ' + tentativas + ' de ' + MAX_TENTATIVAS + '.');
+        registrar(
+            'Iniciando tentativa ' + tentativas + ' de ' + MAX_TENTATIVAS +
+            ' usando ' + descricaoModo + '.'
+        );
 
         try {
-            // É o mesmo caminho usado internamente pelo menu do MeshCentral:
-            // primeiro consulta as sessões do Windows e então conecta à sessão ativa.
-            window.connectDesktop(null, 3);
+            // Primeiro usa o fluxo oficial do MeshCentral para localizar a sessão
+            // ativa do Windows. Se essa consulta ficar esperando uma escolha de
+            // sessão que está oculta pelo modo incorporado, a próxima tentativa
+            // usa o modo 1 e abre o relay diretamente.
+            if (modo === 3) {
+                window.connectDesktop(null, 3);
+            } else {
+                window.connectDesktop(null, 1);
+            }
         } catch (erro) {
             registrar('A chamada de conexão falhou.', erro);
+            usarConexaoDireta = true;
             prepararNovaTentativa(agora);
         }
     }
@@ -218,6 +235,7 @@
                 atualizarStatus('Reconectando automaticamente...');
                 registrar('A conexão ficou parada no estado ' + conexao.State + '; limpando.');
                 limparConexaoParada();
+                usarConexaoDireta = true;
                 prepararNovaTentativa(agora);
             }
             return;
@@ -228,8 +246,23 @@
             // ter criado o objeto desktop. Se não houver resposta, recomeça com
             // um cookie de relay novo.
             if (agora - tentativaIniciadaEm >= RESPOSTA_SESSAO_MS) {
-                registrar('A consulta das sessões do Windows não respondeu; repetindo.');
-                prepararNovaTentativa(agora);
+                if (!usarConexaoDireta) {
+                    registrar(
+                        'A seleção da sessão do Windows não abriu o relay; ' +
+                        'ativando conexão direta.'
+                    );
+                    usarConexaoDireta = true;
+                    proximaAcaoEm = agora + 500;
+                } else {
+                    registrar('A conexão direta não respondeu; repetindo com novo cookie.');
+                    proximaAcaoEm = agora + INTERVALO_REPETICAO_MS;
+                }
+
+                tentativaIniciadaEm = 0;
+                prontoDesde = 0;
+                cookieSolicitadoEm = 0;
+                cookieAnterior = '';
+                cookieAtualizado = false;
             }
             return;
         }
