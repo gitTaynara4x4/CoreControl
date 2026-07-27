@@ -303,7 +303,11 @@ def test_site_central_and_health_are_served():
 
         central = client.get("/central")
         assert central.status_code == 200
-        assert "registerCompanyForm" in central.text
+        assert 'id="loginMount"' in central.text
+
+        login_page = client.get("/static/pages/login.html")
+        assert login_page.status_code == 200
+        assert "registerCompanyForm" in login_page.text
 
         site_js = client.get("/site/site.js")
         assert site_js.status_code == 200

@@ -1,0 +1,36 @@
+<section class="page page-device">
+  <div class="toolbar" style="margin-bottom:16px">
+    <button class="btn" id="backDevices">← Computadores</button>
+    <span id="deviceOnlineStatus" class="status"></span>
+    <span id="deviceHealthStatus" class="health"></span>
+  </div>
+
+  <div id="deviceMetrics" class="grid detail-grid"></div>
+
+  <div class="grid split" style="margin-top:18px">
+    <div class="card">
+      <div class="card-header"><div><h2>Histórico recente</h2><p id="deviceHistoryCount">Amostras recebidas.</p></div></div>
+      <canvas id="telemetryChart" class="chart"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><h2>Identificação</h2><p id="deviceCompanyName"></p></div></div>
+      <div id="deviceIdentity" class="info-list"></div>
+    </div>
+  </div>
+
+  <div class="grid split" style="margin-top:18px">
+    <div class="card">
+      <div class="card-header"><div><h2>Proteções e capacidade</h2><p>Coleta técnica, sem acesso a arquivos do cliente.</p></div></div>
+      <div id="deviceProtection" class="info-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div><h2>Acesso remoto</h2><p>A solicitação fica registrada no histórico administrativo.</p></div></div>
+      <div class="remote-panel">
+        <div><div id="deviceRemoteLabel"></div><p id="deviceRemoteText"></p></div>
+        <button id="remoteAccessBtn" class="btn primary">Acessar computador</button>
+      </div>
+    </div>
+  </div>
+</section>

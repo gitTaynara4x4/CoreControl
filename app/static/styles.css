@@ -44,3 +44,11 @@ body.remote-viewer-open{overflow:hidden}
 .remote-viewer-loading p{margin:0;font-size:14px}
 @keyframes remote-spin{to{transform:rotate(360deg)}}
 @media(max-width:650px){.remote-viewer{grid-template-rows:auto minmax(0,1fr)}.remote-viewer-header{align-items:flex-start;flex-direction:column}.remote-viewer-actions{width:100%}.remote-viewer-actions .btn{flex:1}}
+
+/* CoreTuner — estrutura de páginas separadas */
+#loginMount{min-height:100%}
+.page{min-width:0}
+.company-stats{grid-template-columns:repeat(4,1fr)}
+.remote-stats{grid-template-columns:repeat(3,1fr)}
+@media(max-width:1100px){.company-stats,.remote-stats{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:780px){#loginMount{min-height:100vh}.company-stats,.remote-stats{grid-template-columns:1fr}}

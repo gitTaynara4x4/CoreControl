@@ -5,40 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CoreTuner Central</title>
   <link rel="icon" href="/static/logo.png">
-  <link rel="stylesheet" href="/static/styles.css?v=20260724-remote-direct-v2">
+  <link rel="stylesheet" href="/static/styles.css?v=20260727-frontend-pages-v1">
 </head>
 <body>
   <div id="toast" class="toast"></div>
 
-  <section id="loginView" class="login-shell hidden">
-    <div class="login-card login-card-wide">
-      <img src="/static/logo.png" alt="CoreTuner" class="login-logo">
-      <h1>CoreTuner Central</h1>
-      <p>Entre na sua empresa ou crie o primeiro acesso.</p>
-      <div class="login-tabs">
-        <button id="centralLoginTab" type="button" class="active">Entrar</button>
-        <button id="centralRegisterTab" type="button">Criar empresa</button>
-      </div>
-      <form id="loginForm" class="stack">
-        <label>E-mail<input id="loginEmail" type="email" autocomplete="username" required></label>
-        <label>Senha<input id="loginPassword" type="password" autocomplete="current-password" required minlength="8"></label>
-        <div class="login-help-row">
-          <button id="centralForgotPassword" type="button" class="login-help-link">Esqueci minha senha</button>
-        </div>
-        <button class="btn primary" type="submit">Entrar</button>
-      </form>
-      <form id="registerCompanyForm" class="stack hidden">
-        <label>Nome da empresa<input id="centralCompanyName" required minlength="2" maxlength="160"></label>
-        <label>Nome do responsável<input id="centralResponsibleName" required minlength="2" maxlength="120"></label>
-        <label>E-mail<input id="centralRegisterEmail" type="email" autocomplete="username" required></label>
-        <label>Senha<input id="centralRegisterPassword" type="password" autocomplete="new-password" required minlength="10"></label>
-        <label>Confirmar senha<input id="centralRegisterPasswordConfirmation" type="password" autocomplete="new-password" required minlength="10"></label>
-        <button class="btn primary" type="submit">Criar empresa</button>
-      </form>
-      <small>A mesma conta funciona no site, no aplicativo e no painel.</small>
-    </div>
-  </section>
+  <!-- A tela de login fica em app/static/pages/login.html. -->
+  <div id="loginMount"></div>
 
+  <!-- Estrutura fixa do painel. As telas internas ficam em app/static/pages/. -->
   <div id="appView" class="app-shell hidden">
     <aside class="sidebar">
       <div class="brand">
@@ -86,6 +61,20 @@
     <div id="modal" class="modal"></div>
   </div>
 
-  <script src="/static/app.js?v=20260724-remote-direct-v2"></script>
+  <!-- O visualizador remoto fica em app/static/components/remote-viewer.html. -->
+  <div id="remoteViewerMount"></div>
+
+  <script defer src="/static/js/core.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/ui.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/auth.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/router.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/modals.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/pages/overview.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/pages/companies.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/pages/devices.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/pages/alerts.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/pages/remote.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/js/pages/users.js?v=20260727-frontend-pages-v1"></script>
+  <script defer src="/static/app.js?v=20260727-frontend-pages-v1"></script>
 </body>
 </html>

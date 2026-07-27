@@ -1,0 +1,13 @@
+<section id="remoteViewer" class="remote-viewer hidden">
+  <header class="remote-viewer-header">
+    <div><strong id="remoteViewerTitle">Acesso remoto</strong><small id="remoteViewerStatus">Preparando conexão segura...</small></div>
+    <div class="remote-viewer-actions">
+      <button id="remoteViewerNewTab" type="button" class="btn small">Abrir em nova guia</button>
+      <button id="remoteViewerClose" type="button" class="btn danger small">Encerrar</button>
+    </div>
+  </header>
+  <div class="remote-viewer-body">
+    <div id="remoteViewerLoading" class="remote-viewer-loading"><span></span><p>Conectando ao computador...</p></div>
+    <iframe id="remoteViewerFrame" title="Área de trabalho remota" allow="clipboard-read; clipboard-write" referrerpolicy="no-referrer"></iframe>
+  </div>
+</section>

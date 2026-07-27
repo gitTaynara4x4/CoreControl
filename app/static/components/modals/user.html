@@ -1,0 +1,19 @@
+<h2>Cadastrar usuário</h2>
+<p>Conceda somente o nível necessário para o trabalho da pessoa.</p>
+<form id="userForm" class="stack">
+  <label>Nome<input id="newUserName" required minlength="2"></label>
+  <label>E-mail<input id="newUserEmail" type="email" required></label>
+  <label>Senha inicial<input id="newUserPassword" type="password" required minlength="10"></label>
+  <label>Perfil
+    <select id="newUserRole">
+      <option value="viewer">Visualização</option>
+      <option value="technician">Técnico</option>
+      <option value="company_admin">Administrador da empresa</option>
+    </select>
+  </label>
+  <label id="userCompanyField" class="hidden">Empresa<select id="userCompany"></select></label>
+  <div class="modal-actions">
+    <button type="button" class="btn" id="cancelModal">Cancelar</button>
+    <button class="btn primary" type="submit">Cadastrar</button>
+  </div>
+</form>

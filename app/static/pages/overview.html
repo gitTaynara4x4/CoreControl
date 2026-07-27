@@ -1,0 +1,29 @@
+<section class="page page-overview">
+  <div id="overviewStats" class="grid stats-grid"></div>
+
+  <div class="grid split">
+    <div class="card">
+      <div class="card-header">
+        <div><h2>Computadores que exigem atenção</h2><p>Offline, nota baixa ou alerta ativo.</p></div>
+        <button class="btn small" data-go="devices">Ver todos</button>
+      </div>
+      <div id="overviewAttention"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div><h2>Alertas recentes</h2><p>Eventos técnicos ativos.</p></div>
+        <button class="btn small" data-go="alerts">Ver alertas</button>
+      </div>
+      <div id="overviewAlerts"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="card-header">
+      <div><h2>Empresas</h2><p>Resumo por cliente.</p></div>
+      <button id="newCompanyBtn" class="btn primary hidden">Cadastrar empresa</button>
+    </div>
+    <div id="overviewCompanies" class="grid company-cards"></div>
+  </div>
+</section>
