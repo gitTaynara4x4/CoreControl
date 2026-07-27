@@ -56,18 +56,23 @@ A chave nunca deve ser gravada no GitHub, enviada ao navegador ou incorporada ao
 
 ## Conexão automática dentro da Central
 
-O CoreTuner adiciona `coretuner=1` à URL temporária do MeshCentral. Esse marcador é preservado após o login e impede que o script automático seja executado em acessos administrativos comuns.
+O CoreTuner adiciona `coretuner=1` à URL temporária do MeshCentral. Esse marcador impede que a automação rode em acessos administrativos comuns.
 
-Depois de implantar o serviço `coretuner`, instale ou atualize o script no terminal do serviço `coretuner-remote`:
+A versão V4 não considera a página pronta apenas porque o botão `Conectar` apareceu. Ela aguarda o WebSocket de controle ficar no estado conectado, solicita um novo `authcookie` ao MeshCentral e só então inicia o fluxo oficial `connectDesktop(null, 3)`. Isso evita abrir o relay cedo demais e ficar preso em `Desconectar / Desconectado`.
+
+Depois de implantar o serviço `coretuner`, atualize o script no terminal do serviço `coretuner-remote`. No EasyPanel, prefira o endereço interno do serviço para não depender do DNS público:
 
 ```bash
 curl -fsSL \
-  https://apps-coretuner.9ywrah.easypanel.host/remote-assets/meshcentral-custom.js \
+  http://apps-coretuner:8280/remote-assets/meshcentral-custom.js \
   -o /opt/meshcentral/meshcentral/public/scripts/custom.js
 
 node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
+grep "CoreTuner Remote v4" /opt/meshcentral/meshcentral/public/scripts/custom.js | head
 ```
 
-O script usa o mesmo fluxo do botão oficial `Conectar` (`connectDesktop(..., 3)`), espera o painel e o agente ficarem prontos e reinicia tentativas presas no estado `Desconectado`. Não é necessário reinstalar o Mesh Agent nos computadores.
+Também existe o instalador `tools/install_meshcentral_custom.sh`, que tenta primeiro o endereço interno e usa o público como alternativa.
+
+Não é necessário reinstalar o CoreTuner Setup nem o Mesh Agent nos computadores.
 
 O arquivo gravado diretamente dentro do contêiner pode ser perdido em uma recriação do serviço `coretuner-remote`. Para produção, mantenha `/opt/meshcentral/meshcentral/public/scripts/custom.js` em volume persistente ou em uma imagem personalizada do MeshCentral.

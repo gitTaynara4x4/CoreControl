@@ -1,30 +1,38 @@
 (function () {
     'use strict';
 
-    var parametrosIniciais = new URLSearchParams(window.location.search);
+    var parametros = new URLSearchParams(window.location.search);
     var sessaoCoreTuner =
-        parametrosIniciais.get('coretuner') === '1' ||
+        parametros.get('coretuner') === '1' ||
         (window.args && String(window.args.coretuner) === '1');
 
-    if (!sessaoCoreTuner) {
+    if (!sessaoCoreTuner || window.__coreTunerRemoteAutoStart) {
         return;
     }
 
-    var INTERVALO_MS = 500;
-    var ESPERA_INICIAL_MS = 1500;
-    var TEMPO_TENTATIVA_MS = 15000;
-    var INTERVALO_NOVA_TENTATIVA_MS = 2500;
-    var LIMITE_TOTAL_MS = 120000;
-    var MAX_TENTATIVAS = 6;
+    window.__coreTunerRemoteAutoStart = true;
+
+    var INTERVALO_MS = 250;
+    var ESTABILIDADE_MS = 2500;
+    var RESPOSTA_COOKIE_MS = 5000;
+    var RESPOSTA_SESSAO_MS = 12000;
+    var CONEXAO_MS = 25000;
+    var INTERVALO_REPETICAO_MS = 3000;
+    var LIMITE_TOTAL_MS = 150000;
+    var MAX_TENTATIVAS = 5;
 
     var inicio = Date.now();
-    var tentativas = 0;
+    var prontoDesde = 0;
+    var proximaAcaoEm = 0;
+    var cookieSolicitadoEm = 0;
+    var cookieAnterior = '';
+    var cookieAtualizado = false;
     var tentativaIniciadaEm = 0;
-    var ultimaAcaoEm = 0;
+    var tentativas = 0;
     var encerrado = false;
 
     function registrar(mensagem, erro) {
-        var prefixo = '[CoreTuner Remote] ';
+        var prefixo = '[CoreTuner Remote v4] ';
         if (erro) {
             console.error(prefixo + mensagem, erro);
         } else {
@@ -39,15 +47,28 @@
         }
     }
 
+    function canalControlePronto() {
+        return Boolean(
+            window.meshserver &&
+            window.meshserver.State === 2 &&
+            typeof window.meshserver.send === 'function'
+        );
+    }
+
     function paginaPronta() {
         var computador = window.currentNode;
         var botao = document.getElementById('connectbutton1');
+        var corpoVisivel = document.body &&
+            window.getComputedStyle(document.body).display !== 'none';
 
-        return (
+        return Boolean(
             document.readyState === 'complete' &&
+            corpoVisivel &&
+            canalControlePronto() &&
             window.xxcurrentView === 11 &&
             typeof window.connectDesktop === 'function' &&
             computador &&
+            computador._id &&
             computador.agent &&
             ((computador.conn & 1) !== 0) &&
             ((computador.agent.caps & 1) !== 0) &&
@@ -56,58 +77,113 @@
         );
     }
 
+    function cookiesRelayPresentes() {
+        return Boolean(
+            typeof window.authCookie === 'string' &&
+            window.authCookie.length > 20 &&
+            typeof window.authRelayCookie === 'string' &&
+            window.authRelayCookie.length > 20
+        );
+    }
+
+    function solicitarCookieAtualizado() {
+        if (!canalControlePronto() || cookieSolicitadoEm > 0) {
+            return;
+        }
+
+        cookieAnterior = String(window.authRelayCookie || '');
+        cookieSolicitadoEm = Date.now();
+        cookieAtualizado = false;
+        atualizarStatus('Preparando canal seguro...');
+        registrar('Solicitando cookie de relay vinculado à sessão de controle atual.');
+
+        try {
+            window.meshserver.send({ action: 'authcookie' });
+        } catch (erro) {
+            registrar('Falha ao solicitar o cookie de relay.', erro);
+            cookieSolicitadoEm = 0;
+        }
+    }
+
+    function verificarCookieAtualizado(agora) {
+        if (!cookiesRelayPresentes()) {
+            return false;
+        }
+
+        if (!cookieSolicitadoEm) {
+            return false;
+        }
+
+        if (String(window.authRelayCookie) !== cookieAnterior) {
+            cookieAtualizado = true;
+        }
+
+        // O cookie é criptografado e normalmente muda a cada resposta. Caso a
+        // implementação devolva o mesmo texto, cinco segundos com o canal de
+        // controle aberto ainda garantem que a sessão terminou de inicializar.
+        if (!cookieAtualizado && agora - cookieSolicitadoEm >= RESPOSTA_COOKIE_MS) {
+            cookieAtualizado = true;
+        }
+
+        return cookieAtualizado;
+    }
+
     function limparConexaoParada() {
         if (!window.desktop) {
             return;
         }
 
         try {
-            // Quando existe um objeto desktop, o mesmo método oficial faz a desconexão
-            // e devolve a variável global desktop para null.
+            // Com desktop existente, a função oficial entra no ramo de
+            // desconexão, chama Stop() e devolve desktop para null.
             window.connectDesktop(null, 0);
         } catch (erro) {
-            registrar('Falha ao limpar a tentativa anterior.', erro);
+            registrar('Falha ao limpar a conexão anterior.', erro);
             try {
                 window.desktop.Stop();
             } catch (_) {
-                // A próxima tentativa ainda poderá ocorrer depois do recarregamento.
+            }
+            try {
+                window.desktopNode = null;
+                window.desktop = null;
+            } catch (_) {
             }
         }
     }
 
-    function finalizar(mensagem, falha) {
-        encerrado = true;
-        clearInterval(temporizador);
-        atualizarStatus(mensagem);
-        registrar(mensagem, falha || null);
+    function prepararNovaTentativa(agora) {
+        tentativaIniciadaEm = 0;
+        prontoDesde = 0;
+        cookieSolicitadoEm = 0;
+        cookieAnterior = '';
+        cookieAtualizado = false;
+        proximaAcaoEm = agora + INTERVALO_REPETICAO_MS;
     }
 
-    function iniciarTentativa() {
+    function iniciarConexao(agora) {
         tentativas += 1;
-        tentativaIniciadaEm = Date.now();
-        ultimaAcaoEm = tentativaIniciadaEm;
+        tentativaIniciadaEm = agora;
         atualizarStatus('Conectando automaticamente...');
         registrar('Iniciando tentativa ' + tentativas + ' de ' + MAX_TENTATIVAS + '.');
 
-        // Pequeno atraso evita iniciar a captura no mesmo instante em que o
-        // MeshCentral termina de selecionar o computador e montar o painel.
-        setTimeout(function () {
-            if (encerrado || window.desktop || !paginaPronta()) {
-                return;
-            }
-
-            try {
-                // É o mesmo fluxo do botão oficial "Conectar": o modo 3 permite
-                // ao MeshCentral localizar a sessão ativa do Windows quando necessário.
-                window.connectDesktop({ shiftKey: false }, 3);
-            } catch (erro) {
-                registrar('A chamada de conexão falhou.', erro);
-                tentativaIniciadaEm = 0;
-            }
-        }, ESPERA_INICIAL_MS);
+        try {
+            // É o mesmo caminho usado internamente pelo menu do MeshCentral:
+            // primeiro consulta as sessões do Windows e então conecta à sessão ativa.
+            window.connectDesktop(null, 3);
+        } catch (erro) {
+            registrar('A chamada de conexão falhou.', erro);
+            prepararNovaTentativa(agora);
+        }
     }
 
-    var temporizador = setInterval(function () {
+    function finalizar(mensagem, erro) {
+        encerrado = true;
+        window.clearInterval(temporizador);
+        atualizarStatus(mensagem);
+        registrar(mensagem, erro || null);
+    }
+
+    var temporizador = window.setInterval(function () {
         if (encerrado) {
             return;
         }
@@ -120,34 +196,69 @@
             return;
         }
 
-        // Uma tentativa pode criar o objeto desktop, mas permanecer em State 0
-        // (a tela mostra "Desconectar / Desconectado"). Nesse caso limpamos o
-        // objeto e repetimos o fluxo oficial desde o início.
-        if (
-            conexao &&
-            tentativaIniciadaEm > 0 &&
-            conexao.State !== 3 &&
-            agora - tentativaIniciadaEm >= TEMPO_TENTATIVA_MS
-        ) {
-            atualizarStatus('Reconectando automaticamente...');
-            registrar('A tentativa ficou parada no estado ' + conexao.State + '; reiniciando.');
-            limparConexaoParada();
-            tentativaIniciadaEm = 0;
-            ultimaAcaoEm = agora;
-            return;
-        }
-
-        if (agora - inicio >= LIMITE_TOTAL_MS || tentativas >= MAX_TENTATIVAS) {
-            finalizar('Falha na conexão automática. Use o botão Conectar.');
+        if (agora - inicio >= LIMITE_TOTAL_MS) {
+            finalizar('Não foi possível conectar automaticamente.');
             return;
         }
 
         if (
-            !conexao &&
-            paginaPronta() &&
-            agora - ultimaAcaoEm >= INTERVALO_NOVA_TENTATIVA_MS
+            tentativas >= MAX_TENTATIVAS &&
+            tentativaIniciadaEm === 0 &&
+            !conexao
         ) {
-            iniciarTentativa();
+            finalizar('Não foi possível conectar automaticamente.');
+            return;
         }
+
+        if (conexao) {
+            if (
+                tentativaIniciadaEm > 0 &&
+                agora - tentativaIniciadaEm >= CONEXAO_MS
+            ) {
+                atualizarStatus('Reconectando automaticamente...');
+                registrar('A conexão ficou parada no estado ' + conexao.State + '; limpando.');
+                limparConexaoParada();
+                prepararNovaTentativa(agora);
+            }
+            return;
+        }
+
+        if (tentativaIniciadaEm > 0) {
+            // O modo 3 consulta primeiro as sessões do Windows e pode ainda não
+            // ter criado o objeto desktop. Se não houver resposta, recomeça com
+            // um cookie de relay novo.
+            if (agora - tentativaIniciadaEm >= RESPOSTA_SESSAO_MS) {
+                registrar('A consulta das sessões do Windows não respondeu; repetindo.');
+                prepararNovaTentativa(agora);
+            }
+            return;
+        }
+
+        if (agora < proximaAcaoEm) {
+            return;
+        }
+
+        if (!paginaPronta()) {
+            prontoDesde = 0;
+            return;
+        }
+
+        if (!prontoDesde) {
+            prontoDesde = agora;
+            atualizarStatus('Preparando conexão segura...');
+            return;
+        }
+
+        if (agora - prontoDesde < ESTABILIDADE_MS) {
+            return;
+        }
+
+        solicitarCookieAtualizado();
+
+        if (!verificarCookieAtualizado(agora)) {
+            return;
+        }
+
+        iniciarConexao(agora);
     }, INTERVALO_MS);
 })();

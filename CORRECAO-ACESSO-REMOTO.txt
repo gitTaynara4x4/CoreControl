@@ -1,44 +1,39 @@
-CORREÇÃO — CONEXÃO AUTOMÁTICA DO ACESSO REMOTO
+CORREÇÃO V4 — CONEXÃO AUTOMÁTICA DO ACESSO REMOTO
 
-O que foi corrigido
-- A URL temporária agora inclui coretuner=1 para identificar somente sessões abertas pela Central.
-- O custom.js usa o mesmo fluxo do botão oficial Conectar: connectDesktop(..., 3).
-- O script espera o computador/painel ficarem prontos.
-- Se a sessão ficar presa em "Desconectar / Desconectado", ela é limpa e tentada novamente.
-- O padrão de consentimento foi ajustado para 65 (não assistido com barra/aviso visível).
-- O CoreTuner passa a servir a versão atual do script em /remote-assets/meshcentral-custom.js.
+CAUSA CORRIGIDA
+- O script anterior iniciava o relay assim que o botão Conectar ficava habilitado.
+- Nesse ponto o WebSocket de controle e o cookie de relay ainda podiam não estar vinculados à sessão atual.
+- O MeshCentral criava o objeto de desktop, mas ele ficava em "Desconectar / Desconectado".
+- Ao clicar manualmente depois, a inicialização já havia terminado e a conexão funcionava.
+
+O QUE A V4 FAZ
+- Espera meshserver.State === 2.
+- Espera o computador, a aba Área de Trabalho e o botão oficial ficarem estáveis.
+- Solicita um authcookie novo pelo WebSocket atual.
+- Aguarda authCookie e authRelayCookie válidos.
+- Usa o fluxo oficial connectDesktop(null, 3), que localiza a sessão ativa do Windows.
+- Limpa tentativas presas e repete com um cookie de relay novo.
 
 COMO APLICAR
-
-1) Extraia este ZIP dentro da pasta principal do CoreTuner Central e substitua os arquivos.
-
+1) Extraia o ZIP na pasta principal do CoreTuner Central e substitua os arquivos.
 2) Envie ao Git:
    git add .
-   git commit -m "Corrige conexão automática do acesso remoto"
+   git commit -m "Corrige sincronização do relay remoto"
    git push
-
 3) Aguarde o deploy do serviço coretuner.
-
-4) No terminal do serviço coretuner-remote, rode:
+4) No terminal do coretuner-remote, use a rede interna do EasyPanel:
 
    curl -fsSL \
-     https://apps-coretuner.9ywrah.easypanel.host/remote-assets/meshcentral-custom.js \
+     http://apps-coretuner:8280/remote-assets/meshcentral-custom.js \
      -o /opt/meshcentral/meshcentral/public/scripts/custom.js
 
    node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
-   wc -c /opt/meshcentral/meshcentral/public/scripts/custom.js
+   grep "CoreTuner Remote v4" /opt/meshcentral/meshcentral/public/scripts/custom.js | head
 
-5) Feche as telas remotas antigas, volte para /central, pressione Ctrl + Shift + R e abra uma NOVA sessão.
+5) Feche todas as telas remotas antigas e abra uma nova sessão pela Central.
 
 NÃO É NECESSÁRIO
-- reinstalar o CoreTuner no computador;
+- reinstalar o Setup;
 - reinstalar o Mesh Agent;
-- alterar a chave de login;
-- criar outro grupo;
-- dar deploy no coretuner-remote para este teste.
-
-VALIDAÇÃO REALIZADA
-- 18 testes Python aprovados;
-- compileall aprovado;
-- app/static/app.js validado pelo Node.js;
-- meshcentral-custom.js validado pelo Node.js.
+- recriar a empresa ou o grupo;
+- trocar a chave para esta correção.
