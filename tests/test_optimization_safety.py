@@ -48,4 +48,28 @@ def test_restore_keeps_backup_when_incomplete():
 
 def test_desktop_manifest_matches_optimizer_release():
     api = (ROOT / "app" / "api.py").read_text(encoding="utf-8")
-    assert 'return {"version": "0.4.13", "files": files}' in api
+    assert 'return {"version": "0.4.14", "files": files}' in api
+
+
+def test_optimization_screen_explains_each_profile_in_plain_language():
+    main = read("main.go")
+    core = read("optimizer_core.go")
+
+    assert '"O que o perfil "+detail.Name+" fará"' in main
+    assert '"Proteções em todos os perfis"' in main
+    assert '"Ver e selecionar"' in main
+    assert '"Ajustes seguros"' not in main
+    assert '"Bloqueado por segurança"' not in main
+
+    required_customer_texts = [
+        "Deixa o Windows mais leve sem mudar energia ou programas.",
+        "Reduz efeitos visuais e mantém desempenho e consumo equilibrados.",
+        "Prepara o PC para navegador, WhatsApp, CRM e discador.",
+        "Na tomada, ativa Alto desempenho; na bateria ou sem confirmação de energia, usa Equilibrado.",
+        "Desfaz as mudanças do CoreTuner e volta ao estado salvo.",
+        "Nenhum arquivo ou pasta é apagado ou movido.",
+        "Sem backup seguro, nenhuma alteração é iniciada.",
+    ]
+    combined = main + core
+    for text in required_customer_texts:
+        assert text in combined

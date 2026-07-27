@@ -1,0 +1,43 @@
+CORETUNER v0.4.14 — O QUE CADA PERFIL FAZ
+
+CONSERVADOR
+- Cria ou preserva o backup das configurações originais.
+- Desativa pequenas animações internas de menus e telas do Windows.
+- Mantém o plano de energia que já está em uso.
+- Não altera a prioridade dos programas.
+Resultado: menor mudança possível, com pequenos efeitos visuais reduzidos.
+
+EQUILIBRADO
+- Cria ou preserva o backup das configurações originais.
+- Desativa animações ao minimizar ou maximizar janelas e pequenas animações de menus.
+- Ativa o plano de energia Equilibrado do Windows.
+- Não altera a prioridade dos programas.
+Resultado: interface mais direta, sem colocar o computador em consumo máximo.
+
+MODO ATENDIMENTO
+- Cria ou preserva o backup das configurações originais.
+- Reduz animações de janelas, menus e telas do Windows.
+- Ativa o plano de energia Equilibrado do Windows.
+- Dá prioridade moderada a navegadores, WhatsApp, ZapsChat, Teams e discadores compatíveis que já estiverem abertos.
+Resultado: o Windows tenta atender primeiro os programas de trabalho. Aplicativos abertos depois precisam de uma nova aplicação do perfil.
+
+ALTO DESEMPENHO
+- Cria ou preserva o backup das configurações originais.
+- Reduz animações de janelas, menus e telas do Windows.
+- Dá prioridade moderada aos aplicativos de atendimento compatíveis que já estiverem abertos.
+- Na tomada, ativa Alto desempenho; na bateria ou sem confirmação de energia, usa Equilibrado.
+Resultado: busca maior resposta e pode consumir mais energia. Se Alto desempenho não existir, o plano atual é preservado e o CoreTuner avisa.
+
+RESTAURAR ORIGINAL
+- Restaura as animações originais do Windows.
+- Restaura o plano de energia que estava ativo antes da otimização.
+- Restaura a prioridade dos aplicativos compatíveis que ainda estiverem abertos.
+- Só arquiva o backup depois que a restauração termina sem falhas.
+Resultado: volta ao estado salvo antes da primeira otimização. Se algo falhar, o backup é mantido para tentar novamente.
+
+PROTEÇÕES EM TODOS OS PERFIS
+- Nenhum arquivo ou pasta é apagado ou movido.
+- Defender e Firewall não são desativados.
+- Registro, Lixeira e Downloads não são limpos.
+- Nenhum programa é encerrado à força.
+- Sem backup seguro, nenhuma alteração é iniciada.

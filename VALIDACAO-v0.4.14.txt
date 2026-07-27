@@ -1,0 +1,16 @@
+CORETUNER DESKTOP v0.4.14 — VALIDAÇÃO
+
+VALIDAÇÕES EXECUTADAS
+- 39 testes Python aprovados.
+- Testes Go do aplicativo aprovados.
+- Compilação cruzada dos testes Windows aprovada.
+- go vet para Windows aprovado no aplicativo e no instalador.
+- CoreTuner.exe compilado como PE32+ Windows GUI x86-64.
+- CoreTunerSetup.exe compilado como PE32+ Windows GUI x86-64.
+- Ícone oficial incorporado nos dois executáveis.
+- URL de produção incorporada: https://apps-coretuner.9ywrah.easypanel.host
+- Manifesto atualizado para a versão 0.4.14.
+- Testes confirmam as descrições dos cinco perfis e as proteções exibidas ao cliente.
+
+LIMITAÇÃO DA VALIDAÇÃO
+A interface Win32 não pode ser executada visualmente neste ambiente Linux. O teste visual final deve ser feito no Windows. O código foi compilado e validado, mas a aparência final deve ser conferida no computador do cliente antes da publicação geral.

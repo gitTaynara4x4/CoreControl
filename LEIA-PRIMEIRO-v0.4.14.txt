@@ -1,0 +1,29 @@
+CORETUNER DESKTOP v0.4.14 — DESCRIÇÕES CLARAS DOS PERFIS
+
+O QUE MUDOU
+- A tela Otimizações agora explica, em linguagem simples, o que cada perfil fará no computador.
+- Cada cartão mostra um resumo fácil de entender.
+- Ao selecionar um perfil, aparece um painel detalhado com as quatro ações exatas daquele perfil.
+- O painel também mostra o resultado esperado na prática e as proteções que valem para todos os perfis.
+- O funcionamento real, o backup e a restauração da v0.4.13 foram preservados.
+
+COMO PUBLICAR
+1. Substitua app/downloads/CoreTuner.exe no servidor.
+2. Substitua app/downloads/CoreTunerSetup.exe no servidor.
+3. Substitua app/api.py para o manifesto informar a versão 0.4.14.
+4. Reinicie somente o serviço CoreTuner Central.
+5. Abra o novo aplicativo e acesse Otimizações.
+
+O QUE NÃO FOI ALTERADO
+- Login e vínculo da empresa.
+- Telemetria e diagnóstico.
+- Agente do CoreTuner.
+- Acesso remoto e MeshCentral.
+- Regras reais de aplicação dos perfis.
+- Backup em %LOCALAPPDATA%\CoreTuner\optimization-state.json.
+
+TESTE RECOMENDADO
+1. Abra Otimizações.
+2. Clique em cada perfil e confira o painel “O que o perfil ... fará”.
+3. Selecione Conservador e aplique.
+4. Depois selecione Restaurar Original e confirme a restauração.

@@ -118,6 +118,90 @@ func optimizationPlan(profile int, onBattery bool) (OptimizationPlan, error) {
 	return plan, nil
 }
 
+type OptimizationProfileExplanation struct {
+	Name    string
+	Short   string
+	Summary string
+	Actions []string
+	Result  string
+}
+
+// optimizationProfileExplanation contains the exact user-facing explanation of
+// what each profile changes. Keep these texts aligned with optimizationPlan and
+// applyOptimizationProfile so the interface never promises an action that the
+// optimizer does not perform.
+func optimizationProfileExplanation(profile int) OptimizationProfileExplanation {
+	switch profile {
+	case 1:
+		return OptimizationProfileExplanation{
+			Name:    "Conservador",
+			Short:   "Deixa o Windows mais leve sem mudar energia ou programas.",
+			Summary: "Faz a menor alteração possível para reduzir pequenos efeitos visuais.",
+			Actions: []string{
+				"Cria ou preserva o backup das configurações originais.",
+				"Desativa pequenas animações internas de menus e telas do Windows.",
+				"Mantém o plano de energia que já está em uso.",
+				"Não altera a prioridade dos programas.",
+			},
+			Result: "Na prática: menus e telas podem responder de forma um pouco mais direta, com impacto mínimo no visual.",
+		}
+	case 2:
+		return OptimizationProfileExplanation{
+			Name:    "Equilibrado",
+			Short:   "Reduz efeitos visuais e mantém desempenho e consumo equilibrados.",
+			Summary: "Combina uma interface mais leve com o plano Equilibrado do Windows.",
+			Actions: []string{
+				"Cria ou preserva o backup das configurações originais.",
+				"Desativa animações ao minimizar ou maximizar janelas e pequenas animações de menus.",
+				"Ativa o plano de energia Equilibrado do Windows.",
+				"Não altera a prioridade dos programas.",
+			},
+			Result: "Na prática: reduz efeitos visuais sem colocar o computador em consumo máximo de energia.",
+		}
+	case 3:
+		return OptimizationProfileExplanation{
+			Name:    "Modo Atendimento",
+			Short:   "Prepara o PC para navegador, WhatsApp, CRM e discador.",
+			Summary: "Aplica os ajustes equilibrados e dá preferência moderada aos aplicativos de trabalho que já estiverem abertos.",
+			Actions: []string{
+				"Cria ou preserva o backup das configurações originais.",
+				"Reduz animações de janelas, menus e telas do Windows.",
+				"Ativa o plano de energia Equilibrado do Windows.",
+				"Dá prioridade moderada a navegadores, WhatsApp, ZapsChat, Teams e discadores compatíveis que já estiverem abertos.",
+			},
+			Result: "Na prática: o Windows tenta atender primeiro os programas de trabalho. Aplicativos abertos depois precisam de uma nova aplicação do perfil.",
+		}
+	case 4:
+		return OptimizationProfileExplanation{
+			Name:    "Alto Desempenho",
+			Short:   "Entrega mais resposta quando o computador está ligado à tomada.",
+			Summary: "Prioriza velocidade, mas mantém uma proteção automática para notebooks usando bateria.",
+			Actions: []string{
+				"Cria ou preserva o backup das configurações originais.",
+				"Reduz animações de janelas, menus e telas do Windows.",
+				"Dá prioridade moderada aos aplicativos de atendimento compatíveis que já estiverem abertos.",
+				"Na tomada, ativa Alto desempenho; na bateria ou sem confirmação de energia, usa Equilibrado.",
+			},
+			Result: "Na prática: busca maior resposta e pode consumir mais energia. Se Alto desempenho não existir neste PC, o plano atual é preservado e o CoreTuner avisa.",
+		}
+	case 5:
+		return OptimizationProfileExplanation{
+			Name:    "Restaurar Original",
+			Short:   "Desfaz as mudanças do CoreTuner e volta ao estado salvo.",
+			Summary: "Usa o backup criado antes da primeira otimização para devolver as configurações anteriores.",
+			Actions: []string{
+				"Restaura as animações originais do Windows.",
+				"Restaura o plano de energia que estava ativo antes da otimização.",
+				"Restaura a prioridade dos aplicativos compatíveis que ainda estiverem abertos.",
+				"Só arquiva o backup depois que a restauração termina sem falhas.",
+			},
+			Result: "Na prática: o computador volta ao estado salvo antes da primeira otimização. Se algo falhar, o backup é mantido para tentar novamente.",
+		}
+	default:
+		return OptimizationProfileExplanation{}
+	}
+}
+
 func optimizationConfirmation(plan OptimizationPlan) string {
 	if plan.Profile == 5 {
 		return "O CoreTuner restaurará exatamente as configurações salvas antes da primeira otimização.\n\nNenhum arquivo será apagado e nenhum programa será fechado à força.\n\nDeseja continuar?"

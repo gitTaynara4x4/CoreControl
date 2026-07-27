@@ -22,7 +22,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.13"
+const appVersion = "0.4.14"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -1425,7 +1425,7 @@ func (a *App) drawOptimizations(dc syscall.Handle) {
 	a.mu.RUnlock()
 
 	text(dc, "Perfis de otimização", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	intro := "Nenhum perfil é aplicado automaticamente. Selecione e confirme; o backup é salvo antes da primeira alteração."
+	intro := "Nenhum perfil é aplicado automaticamente. Selecione um perfil para ver exatamente o que será alterado."
 	if activeProfile > 0 {
 		intro = "Perfil ativo: " + optimizationProfileName(activeProfile)
 		if !activeAt.IsZero() {
@@ -1434,61 +1434,74 @@ func (a *App) drawOptimizations(dc syscall.Handle) {
 	}
 	text(dc, intro, Rect{x, y + 38, w, 30}, a.fonts["body"], rgb(81, 98, 126), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
 
-	profiles := []struct{ name, desc string }{
-		{"Conservador", "Reduz somente animações transitórias."},
-		{"Equilibrado", "Reduz animações e usa energia equilibrada."},
-		{"Modo Atendimento", "Prioriza apps de atendimento já abertos."},
-		{"Alto Desempenho", "Maior resposta quando ligado à tomada."},
-		{"Restaurar Original", "Restaura exatamente o backup anterior."},
-	}
 	cw := (w - 40) / 5
-	for i, p := range profiles {
-		r := Rect{x + int32(i)*(cw+10), y + 90, cw, 250}
-		selected := a.profile == i+1
-		active := activeProfile == i+1
+	for i := 1; i <= 5; i++ {
+		profileInfo := optimizationProfileExplanation(i)
+		r := Rect{x + int32(i-1)*(cw+10), y + 90, cw, 250}
+		selected := a.profile == i
+		active := activeProfile == i
 		if active {
 			roundedBox(dc, r, rgb(248, 253, 254), rgb(0, 151, 170), 14)
 		} else {
 			card(dc, r)
 		}
 		circle(dc, Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, choose(selected || active, rgb(220, 236, 255), rgb(239, 243, 248)))
-		text(dc, fmt.Sprintf("%d", i+1), Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, a.fonts["h1"], choose(selected || active, rgb(18, 101, 246), rgb(82, 101, 131)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-		text(dc, p.name, Rect{r.X + 12, r.Y + 100, r.W - 24, 34}, a.fonts["h2"], choose(selected || active, rgb(18, 101, 246), rgb(20, 42, 74)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-		text(dc, p.desc, Rect{r.X + 18, r.Y + 142, r.W - 36, 58}, a.fonts["small"], rgb(78, 95, 123), DT_CENTER|DT_WORDBREAK)
+		text(dc, fmt.Sprintf("%d", i), Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, a.fonts["h1"], choose(selected || active, rgb(18, 101, 246), rgb(82, 101, 131)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, profileInfo.Name, Rect{r.X + 10, r.Y + 100, r.W - 20, 34}, a.fonts["h2"], choose(selected || active, rgb(18, 101, 246), rgb(20, 42, 74)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, profileInfo.Short, Rect{r.X + 16, r.Y + 140, r.W - 32, 62}, a.fonts["small"], rgb(78, 95, 123), DT_CENTER|DT_WORDBREAK)
 		br := Rect{r.X + 18, r.Y + 205, r.W - 36, 34}
-		label := "Selecionar"
+		label := "Ver e selecionar"
 		if selected {
 			label = "Selecionado"
 		} else if active {
-			label = "Ativo"
+			label = "Ativo • ver detalhes"
 		}
 		button(dc, label, br, selected)
 		if !optimizationBusy {
-			a.hits = append(a.hits, Hit{br, "profile", i + 1})
+			a.hits = append(a.hits, Hit{br, "profile", i})
 		}
 	}
 
+	detailProfile := a.profile
+	if detailProfile == 0 {
+		detailProfile = activeProfile
+	}
+	if detailProfile == 0 {
+		detailProfile = 1
+	}
+	detail := optimizationProfileExplanation(detailProfile)
+
 	sy := y + 370
-	card(dc, Rect{x, sy, w/2 - 10, 250})
-	card(dc, Rect{x + w/2 + 10, sy, w/2 - 10, 250})
-	text(dc, "Ajustes seguros", Rect{x + 22, sy + 18, w/2 - 50, 28}, a.fonts["h2"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE)
-	allowed := []string{
-		"Backup automático antes de alterar",
-		"Reduzir animações do Windows",
-		"Ajustar o plano de energia",
-		"Priorizar apps de atendimento em execução",
-		"Restaurar as configurações anteriores",
+	detailH := int32(265)
+	card(dc, Rect{x, sy, w, detailH})
+	leftW := w * 64 / 100
+	line(dc, x+leftW, sy+18, x+leftW, sy+detailH-18, rgb(226, 233, 241))
+
+	text(dc, "O que o perfil "+detail.Name+" fará", Rect{x + 22, sy + 16, leftW - 44, 30}, a.fonts["h2"], rgb(18, 101, 246), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, detail.Summary, Rect{x + 22, sy + 48, leftW - 44, 42}, a.fonts["body"], rgb(74, 92, 121), DT_LEFT|DT_WORDBREAK)
+	for i, action := range detail.Actions {
+		text(dc, "✓", Rect{x + 24, sy + 96 + int32(i*32), 20, 26}, a.fonts["body"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE)
+		text(dc, action, Rect{x + 48, sy + 94 + int32(i*32), leftW - 72, 30}, a.fonts["body"], rgb(43, 70, 94), DT_LEFT|DT_WORDBREAK)
 	}
-	for i, v := range allowed {
-		text(dc, "✓  "+v, Rect{x + 24, sy + 58 + int32(i*34), w/2 - 55, 28}, a.fonts["body"], rgb(43, 91, 67), DT_LEFT|DT_SINGLELINE)
+	text(dc, detail.Result, Rect{x + 22, sy + 220, leftW - 44, 34}, a.fonts["small"], rgb(58, 79, 107), DT_LEFT|DT_WORDBREAK)
+
+	rightX := x + leftW + 22
+	rightW := w - leftW - 44
+	text(dc, "Proteções em todos os perfis", Rect{rightX, sy + 16, rightW, 30}, a.fonts["h2"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	protected := []string{
+		"Nenhum arquivo ou pasta é apagado ou movido.",
+		"Defender e Firewall não são desativados.",
+		"Registro, Lixeira e Downloads não são limpos.",
+		"Nenhum programa é encerrado à força.",
+		"Sem backup seguro, nenhuma alteração é iniciada.",
 	}
-	text(dc, "Bloqueado por segurança", Rect{x + w/2 + 32, sy + 18, w/2 - 50, 28}, a.fonts["h2"], rgb(211, 57, 57), DT_LEFT|DT_SINGLELINE)
-	blocked := []string{"Excluir ou mover arquivos", "Limpar Registro automaticamente", "Esvaziar Lixeira ou Downloads", "Desativar Defender ou Firewall", "Finalizar programas à força"}
-	for i, v := range blocked {
-		text(dc, "×  "+v, Rect{x + w/2 + 34, sy + 58 + int32(i*34), w/2 - 55, 28}, a.fonts["body"], rgb(113, 64, 64), DT_LEFT|DT_SINGLELINE)
+	for i, item := range protected {
+		text(dc, "✓", Rect{rightX + 2, sy + 58 + int32(i*34), 20, 28}, a.fonts["body"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE)
+		text(dc, item, Rect{rightX + 25, sy + 56 + int32(i*34), rightW - 25, 32}, a.fonts["body"], rgb(43, 91, 67), DT_LEFT|DT_WORDBREAK)
 	}
 
-	apply := Rect{x, sy + 275, 260, 42}
+	buttonsY := sy + detailH + 20
+	apply := Rect{x, buttonsY, 260, 42}
 	applyLabel := "Aplicar perfil com backup"
 	if a.profile == 5 {
 		applyLabel = "Restaurar configurações"
@@ -1500,7 +1513,7 @@ func (a *App) drawOptimizations(dc syscall.Handle) {
 	if !optimizationBusy {
 		a.hits = append(a.hits, Hit{apply, "apply-profile", 0})
 	}
-	reset := Rect{x + 280, sy + 275, 210, 42}
+	reset := Rect{x + 280, buttonsY, 210, 42}
 	button(dc, "Cancelar seleção", reset, false)
 	if !optimizationBusy {
 		a.hits = append(a.hits, Hit{reset, "cancel-profile", 0})
@@ -1508,7 +1521,7 @@ func (a *App) drawOptimizations(dc syscall.Handle) {
 	if optimizationNote == "" {
 		optimizationNote = "O backup original nunca é substituído enquanto existir um perfil ativo."
 	}
-	text(dc, optimizationNote, Rect{x + 520, sy + 273, w - 520, 48}, a.fonts["small"], rgb(91, 107, 132), DT_LEFT|DT_WORDBREAK)
+	text(dc, optimizationNote, Rect{x + 520, buttonsY - 2, w - 520, 48}, a.fonts["small"], rgb(91, 107, 132), DT_LEFT|DT_WORDBREAK)
 }
 
 func (a *App) refreshOptimizationSummary() {

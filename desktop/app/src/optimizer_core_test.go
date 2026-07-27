@@ -84,3 +84,35 @@ func TestWorkProcessAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestOptimizationProfileExplanationsAreClearAndExact(t *testing.T) {
+	for profile := 1; profile <= 5; profile++ {
+		explanation := optimizationProfileExplanation(profile)
+		if explanation.Name != optimizationProfileName(profile) {
+			t.Fatalf("profile %d explanation name mismatch: %q", profile, explanation.Name)
+		}
+		if explanation.Short == "" || explanation.Summary == "" || explanation.Result == "" {
+			t.Fatalf("profile %d has incomplete customer explanation: %#v", profile, explanation)
+		}
+		if len(explanation.Actions) != 4 {
+			t.Fatalf("profile %d must explain exactly four actions, got %d", profile, len(explanation.Actions))
+		}
+	}
+
+	checks := map[int][]string{
+		1: {"Mantém o plano de energia", "Não altera a prioridade"},
+		2: {"plano de energia Equilibrado", "Não altera a prioridade"},
+		3: {"já estiverem abertos", "WhatsApp", "discadores"},
+		4: {"Na tomada", "na bateria", "Alto desempenho"},
+		5: {"Restaura o plano de energia", "Só arquiva o backup"},
+	}
+	for profile, required := range checks {
+		explanation := optimizationProfileExplanation(profile)
+		joined := explanation.Summary + "\n" + strings.Join(explanation.Actions, "\n") + "\n" + explanation.Result
+		for _, phrase := range required {
+			if !strings.Contains(joined, phrase) {
+				t.Fatalf("profile %d explanation missing %q: %s", profile, phrase, joined)
+			}
+		}
+	}
+}
