@@ -1,0 +1,30 @@
+CORETUNER - DESENVOLVIMENTO LOCAL WEB
+======================================
+
+A interface do CoreTuner nao precisa ser instalada durante o desenvolvimento.
+
+COMO ABRIR
+----------
+1. Execute DEV_Web.bat (ou DEV_Tudo.bat).
+2. Deixe a janela do terminal aberta.
+3. O navegador abre automaticamente em:
+
+   http://127.0.0.1:8001
+
+4. Altere HTML, CSS, JavaScript ou Python normalmente.
+5. Atualize o navegador para ver as mudancas visuais.
+6. Alteracoes Python reiniciam o servidor automaticamente (uvicorn reload).
+
+IMPORTANTE
+----------
+- Nao precisa abrir CoreTuner.exe.
+- Nao precisa instalar/desinstalar CoreTunerSetup.exe.
+- O desktop/agent antigo permanece no projeto somente como referencia e motor nativo.
+- O empacotamento em aplicativo fica para o final, depois que interface e funcoes estiverem prontas.
+- Em modo DEV a raiz / abre o painel diretamente.
+- O site publico continua acessivel em http://127.0.0.1:8001/site-home
+- API docs: http://127.0.0.1:8001/api/docs
+
+ENCERRAR
+--------
+Na janela do DEV_Web.bat, pressione CTRL+C.

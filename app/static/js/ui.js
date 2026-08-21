@@ -4,7 +4,24 @@
   const CT = window.CoreTuner;
 
   CT.stat = function stat(label, value, hint, color = 'var(--ink)') {
-    return `<div class="stat-card"><div class="label">${CT.esc(label)}</div><div class="value" style="color:${color}">${CT.esc(value)}</div><div class="hint">${CT.esc(hint)}</div></div>`;
+    const normalized = String(label || '').toLowerCase();
+    let tone = 'blue';
+    let icon = '<path d="M4 20V7l8-3v16M12 9h8v11M7 9h2M7 13h2M7 17h2M15 12h2M15 16h2"/>';
+
+    if (normalized.includes('computador')) {
+      icon = '<rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M8 20h8M12 16.5V20"/>';
+    } else if (normalized.includes('online')) {
+      tone = 'green';
+      icon = '<path d="M7 12.5 10.5 16 17.5 8"/><circle cx="12" cy="12" r="9"/>';
+    } else if (normalized.includes('offline')) {
+      tone = 'red';
+      icon = '<path d="m8.5 8.5 7 7m0-7-7 7"/><circle cx="12" cy="12" r="9"/>';
+    } else if (normalized.includes('alerta')) {
+      tone = 'amber';
+      icon = '<path d="M12 4 3.8 18h16.4L12 4zM12 9v4M12 16h.01"/>';
+    }
+
+    return `<div class="stat-card" data-tone="${tone}"><span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><div class="label">${CT.esc(label)}</div><div class="value" style="color:${color}">${CT.esc(value)}</div><div class="hint">${CT.esc(hint)}</div></div>`;
   };
 
   CT.companyCard = function companyCard(company) {
@@ -89,7 +106,7 @@
       context.stroke();
     });
 
-    context.font = '12px Segoe UI';
+    context.font = '12px Inter';
     context.fillStyle = '#66758d';
     context.fillText('CPU', padding, 15);
     context.fillStyle = '#1ca650';

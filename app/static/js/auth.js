@@ -3,12 +3,29 @@
 
   const CT = window.CoreTuner;
 
+  function setAuthCopy(login) {
+    const title = CT.$('#centralAuthTitle');
+    const subtitle = CT.$('#centralAuthSubtitle');
+    if (title) title.textContent = login ? 'Acessar minha conta' : 'Criar minha conta';
+    if (subtitle) {
+      subtitle.textContent = login
+        ? 'Entre com seu código, e-mail ou CNPJ.'
+        : 'Cadastre sua empresa para fazer o primeiro acesso.';
+    }
+  }
+
   CT.setCentralAuthMode = function setCentralAuthMode(mode) {
     const login = mode === 'login';
-    CT.$('#centralLoginTab').classList.toggle('active', login);
-    CT.$('#centralRegisterTab').classList.toggle('active', !login);
+    const loginTab = CT.$('#centralLoginTab');
+    const registerTab = CT.$('#centralRegisterTab');
+
+    loginTab.classList.toggle('active', login);
+    registerTab.classList.toggle('active', !login);
+    loginTab.setAttribute('aria-selected', String(login));
+    registerTab.setAttribute('aria-selected', String(!login));
     CT.$('#loginForm').classList.toggle('hidden', !login);
     CT.$('#registerCompanyForm').classList.toggle('hidden', login);
+    setAuthCopy(login);
   };
 
   CT.showLogin = function showLogin() {
@@ -34,6 +51,36 @@
     CT.$('#centralLoginTab').addEventListener('click', () => CT.setCentralAuthMode('login'));
     CT.$('#centralRegisterTab').addEventListener('click', () => CT.setCentralAuthMode('register'));
 
+    const createPasswordShortcut = CT.$('#centralCreatePasswordShortcut');
+    if (createPasswordShortcut) {
+      createPasswordShortcut.addEventListener('click', () => CT.setCentralAuthMode('register'));
+    }
+
+    const backToLogin = CT.$('#centralBackToLogin');
+    if (backToLogin) {
+      backToLogin.addEventListener('click', () => CT.setCentralAuthMode('login'));
+    }
+
+    const passwordToggle = CT.$('#toggleLoginPassword');
+    if (passwordToggle) {
+      passwordToggle.addEventListener('click', () => {
+        const input = CT.$('#loginPassword');
+        const revealing = input.type === 'password';
+        input.type = revealing ? 'text' : 'password';
+        passwordToggle.setAttribute('aria-label', revealing ? 'Ocultar senha' : 'Mostrar senha');
+        passwordToggle.setAttribute('title', revealing ? 'Ocultar senha' : 'Mostrar senha');
+        CT.$('.ct-eye-open', passwordToggle)?.classList.toggle('hidden', revealing);
+        CT.$('.ct-eye-closed', passwordToggle)?.classList.toggle('hidden', !revealing);
+      });
+    }
+
+    const supportLink = CT.$('#centralSupportLink');
+    if (supportLink) {
+      supportLink.addEventListener('click', () => {
+        CT.toast('Entre em contato com o suporte responsável pelo seu CoreTuner.');
+      });
+    }
+
     CT.$('#centralForgotPassword').addEventListener('click', () => {
       const email = CT.$('#loginEmail').value.trim();
       const target = new URL('/', window.location.origin);
@@ -45,8 +92,9 @@
     CT.$('#loginForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = event.submitter;
+      const label = button?.querySelector('span');
       button.disabled = true;
-      button.textContent = 'Entrando...';
+      if (label) label.textContent = 'Entrando...';
 
       try {
         await CT.api('/auth/login', {
@@ -65,15 +113,16 @@
         CT.toast(error.message, true);
       } finally {
         button.disabled = false;
-        button.textContent = 'Entrar';
+        if (label) label.textContent = 'Entrar no CoreTuner';
       }
     });
 
     CT.$('#registerCompanyForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = event.submitter;
+      const label = button?.querySelector('span');
       button.disabled = true;
-      button.textContent = 'Criando empresa...';
+      if (label) label.textContent = 'Criando empresa...';
 
       try {
         await CT.api('/auth/register-company', {
@@ -96,7 +145,7 @@
         CT.toast(error.message, true);
       } finally {
         button.disabled = false;
-        button.textContent = 'Criar empresa';
+        if (label) label.textContent = 'Criar empresa e entrar';
       }
     });
   };

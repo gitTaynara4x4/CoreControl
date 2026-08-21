@@ -1,0 +1,141 @@
+/* CoreTuner Login — painel esquerdo preservado + acesso compacto e clean. */
+#loginMount{min-height:100vh;background:#fff}
+.ct-auth{
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:47.85% 52.15%;
+  background:#fff;
+  color:#0a1930;
+  font-family:"Inter",sans-serif;
+}
+.ct-auth button,.ct-auth input,.ct-auth select,.ct-auth textarea{font-family:"Inter",sans-serif}
+
+/* Painel esquerdo: identidade CoreTuner preservada */
+.ct-auth-hero{
+  position:relative;
+  overflow:hidden;
+  min-height:100vh;
+  background:
+    radial-gradient(95% 70% at 2% 0%,rgba(0,62,122,.16),transparent 58%),
+    radial-gradient(70% 62% at 95% 95%,rgba(9,67,130,.12),transparent 62%),
+    linear-gradient(155deg,#001633 0%,#000f27 56%,#00112a 100%);
+  color:#fff;
+}
+.ct-auth-hero-inner{
+  position:relative;z-index:2;min-height:100vh;
+  padding:58px 0 46px 50px;
+  display:flex;flex-direction:column;
+}
+.ct-auth-brand{display:inline-flex;width:max-content;color:#fff;text-decoration:none}
+.ct-auth-brand img.ct-auth-brand-image{width:188px;height:46px;object-fit:contain;object-position:left center;display:block}
+.ct-auth-copy{margin-top:108px}
+.ct-auth-eyebrow{display:block;margin-bottom:22px;color:#3180ff;font-size:11px;line-height:1;font-weight:700;letter-spacing:.05em}
+.ct-auth-copy h1{margin:0;max-width:500px;color:#fff;font-size:42px;line-height:1.11;letter-spacing:-.045em;font-weight:750}
+.ct-auth-copy p{margin:24px 0 0;max-width:500px;color:#c7cfdd;font-size:13px;line-height:1.62;font-weight:400}
+.ct-auth-features{
+  width:455px;max-width:calc(100% - 50px);
+  margin-top:auto;padding-top:30px;
+  border-top:1px solid rgba(255,255,255,.18);
+  display:grid;grid-template-columns:1.16fr 1fr .94fr;gap:22px;align-items:center;
+}
+.ct-auth-feature{display:flex;align-items:center;gap:8px;color:#fff;font-size:11.5px;line-height:1;font-weight:600;white-space:nowrap}
+.ct-auth-feature svg{width:25px;height:25px;fill:none;stroke:#2d7dff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.ct-auth-orb{position:absolute;border-radius:50%;pointer-events:none}
+.ct-auth-orb-top{width:360px;height:360px;right:-170px;top:-105px;border:1px solid rgba(75,132,209,.27);background:radial-gradient(circle at 25% 65%,rgba(21,88,176,.11),rgba(0,25,58,0) 68%)}
+.ct-auth-orb-bottom{width:330px;height:330px;right:-135px;bottom:-95px;border:1px solid rgba(75,132,209,.23);background:radial-gradient(circle at 34% 34%,rgba(22,92,190,.12),rgba(0,25,58,0) 70%)}
+.ct-auth-orb-bottom::after{content:"";position:absolute;left:70px;top:94px;width:150px;height:120px;background-image:radial-gradient(rgba(64,133,228,.35) 1px,transparent 1px);background-size:8px 8px;opacity:.4;mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 72%,transparent)}
+
+/* Direita: mais leve, estreita e compacta */
+.ct-auth-main{
+  min-height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  padding:38px 28px;
+  background:radial-gradient(circle at 50% 42%,rgba(31,106,255,.035),transparent 220px),#fff;
+}
+.ct-auth-panel{width:350px;max-width:100%;display:flex;flex-direction:column;align-items:stretch}
+.ct-auth-user-icon{
+  align-self:center;width:52px;height:52px;margin:0 0 18px;border-radius:13px;
+  display:grid;place-items:center;background:#f3f7ff;border:1px solid #dbe7fb;
+  box-shadow:0 8px 22px rgba(40,102,190,.05);
+}
+.ct-auth-user-icon svg{width:25px;height:25px;fill:none;stroke:#1769ff;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.ct-auth-heading{text-align:center}
+.ct-auth-heading h2{margin:0;color:#09172f;font-size:24px;line-height:1.16;letter-spacing:-.035em;font-weight:730}
+.ct-auth-heading p{margin:6px 0 0;color:#6f7c90;font-size:11.5px;line-height:1.4;font-weight:400}
+
+.ct-auth-tabs{width:100%;margin:23px 0 25px;padding:3px;display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #dce4ee;border-radius:10px;background:#fbfcfe}
+.ct-auth-tabs button{min-height:39px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#526078;font-size:11px;font-weight:600;box-shadow:none!important}
+.ct-auth-tabs button.active{background:#f2f7ff;color:#0868e8;box-shadow:inset 0 0 0 1px #c9dcfb!important}
+
+.ct-auth-form{display:grid;gap:16px}
+.ct-auth-form#loginForm > .ct-auth-field:nth-of-type(2){margin-top:3px}
+.ct-auth-field{display:grid;gap:6px;color:#132138;font-size:11.5px;line-height:1.15;font-weight:600}
+.ct-auth-input-wrap{position:relative;display:block}
+.ct-auth-input-wrap input{
+  width:100%;height:44px;margin:0!important;padding:0 42px 0 43px;
+  border:1px solid #d2dce8!important;border-radius:11px!important;background:#fff!important;
+  color:#101c2e;font-size:12px;line-height:44px;font-weight:400;outline:0;box-shadow:none!important;caret-color:#1769ff;
+  transition:border-color .15s ease,box-shadow .15s ease;
+}
+.ct-auth-input-wrap input::placeholder{color:#9aa6b7;opacity:1;font-weight:400}
+.ct-auth-input-wrap input:hover{border-color:#bcc9d9!important}
+.ct-auth-input-wrap input:focus{border-color:#7da9f7!important;box-shadow:0 0 0 3px rgba(23,105,255,.065)!important;background:#fff!important}
+.ct-auth-input-wrap input:-webkit-autofill,.ct-auth-input-wrap input:-webkit-autofill:hover,.ct-auth-input-wrap input:-webkit-autofill:focus{-webkit-text-fill-color:#101c2e!important;-webkit-box-shadow:0 0 0 1000px #fff inset!important;box-shadow:0 0 0 1000px #fff inset!important;transition:background-color 99999s ease-out 0s}
+.ct-auth-input-icon{position:absolute;z-index:2;left:10px;top:50%;transform:translateY(-50%);width:27px;height:27px;border-radius:7px;display:grid;place-items:center;background:#f3f7ff;color:#1769ff;pointer-events:none}
+.ct-auth-input-icon svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ct-auth-password-toggle{position:absolute;z-index:3;right:5px;top:50%;transform:translateY(-50%);width:34px;height:34px;padding:0;border:0;border-radius:8px;background:transparent;display:grid;place-items:center;color:#8190a4}
+.ct-auth-password-toggle:hover{background:#f5f7fb;color:#1769ff}
+.ct-auth-password-toggle svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.ct-auth-submit{height:44px;margin-top:2px;padding:0 18px;border:0;border-radius:11px;background:#001a38;color:#fff;display:flex;align-items:center;justify-content:center;gap:12px;font-size:12px;font-weight:650;box-shadow:0 9px 22px rgba(1,23,52,.09);transition:background .15s ease,transform .15s ease}
+.ct-auth-submit:hover:not(:disabled){background:#002142;transform:translateY(-1px)}
+.ct-auth-submit:active:not(:disabled){transform:none}
+.ct-auth-submit:disabled{opacity:.65;cursor:wait}
+.ct-auth-submit svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ct-auth-inline-help{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:1px;color:#7c899b;font-size:10.5px;line-height:1.3}
+.ct-auth-inline-help button,.ct-auth-forgot,.ct-auth-support-row button{border:0;background:transparent;padding:0;color:#0768eb;font-size:inherit;font-weight:600;cursor:pointer}
+.ct-auth-inline-help button:hover,.ct-auth-support-row button:hover{text-decoration:underline}
+.ct-auth-forgot{display:none!important}
+.ct-auth-footer{margin-top:22px;padding-top:18px;border-top:1px solid #e7ecf2}
+.ct-auth-support-row{display:flex;align-items:center;justify-content:center;gap:18px;color:#768397;font-size:10.5px;line-height:1.2}
+.ct-auth-support-row button{color:#0669ee;font-size:10.5px}
+.ct-auth-security{margin-top:17px;display:flex;align-items:flex-start;justify-content:center;gap:7px;color:#8b98aa;font-size:9.5px;line-height:1.4;text-align:left}
+.ct-auth-security svg{width:13px;height:13px;fill:none;stroke:#8d9aaa;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-top:1px;flex:0 0 auto}
+
+/* Cadastro segue compacto e funcional */
+.ct-auth-register{gap:13px}
+.ct-auth-register .ct-auth-input-wrap input{padding-left:13px;padding-right:13px}
+.ct-auth-register .ct-auth-input-icon+input{padding-left:43px}
+.ct-auth-register-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+@media(max-height:760px) and (min-width:941px){
+  .ct-auth-hero-inner{padding-top:40px;padding-bottom:34px}
+  .ct-auth-copy{margin-top:64px}
+  .ct-auth-copy h1{font-size:38px}
+  .ct-auth-copy p{margin-top:18px;font-size:12px}
+  .ct-auth-features{padding-top:20px}
+  .ct-auth-main{padding-top:26px;padding-bottom:26px}
+  .ct-auth-user-icon{width:46px;height:46px;margin-bottom:13px}
+  .ct-auth-heading h2{font-size:22px}
+  .ct-auth-tabs{margin:18px 0 19px}
+  .ct-auth-form{gap:12px}
+  .ct-auth-input-wrap input{height:41px;line-height:41px}
+  .ct-auth-submit{height:41px}
+  .ct-auth-footer{margin-top:16px;padding-top:14px}
+  .ct-auth-security{margin-top:12px}
+}
+@media(max-width:940px){
+  .ct-auth{display:block;background:#fff}
+  .ct-auth-hero{min-height:auto}
+  .ct-auth-hero-inner{min-height:auto;padding:30px 28px 34px}
+  .ct-auth-brand img.ct-auth-brand-image{width:165px;height:40px}
+  .ct-auth-copy{margin-top:44px}.ct-auth-copy h1{font-size:34px;line-height:1.06}.ct-auth-copy p{margin-top:20px;font-size:12.5px}.ct-auth-desktop-break{display:none}
+  .ct-auth-features{width:100%;max-width:100%;margin-top:42px;grid-template-columns:repeat(3,max-content);gap:24px}
+  .ct-auth-orb-top{right:-215px;top:-135px}.ct-auth-orb-bottom{display:none}
+  .ct-auth-main{min-height:auto;padding:48px 24px 64px}.ct-auth-panel{width:min(100%,350px)}
+}
+@media(max-width:620px){
+  .ct-auth-hero-inner{padding:24px 20px 28px}.ct-auth-copy{margin-top:34px}.ct-auth-eyebrow{font-size:10px;margin-bottom:16px}.ct-auth-copy h1{font-size:30px}.ct-auth-copy p{font-size:12px}
+  .ct-auth-features{display:flex;gap:17px;overflow-x:auto;padding-bottom:4px}.ct-auth-feature{font-size:10.5px;gap:7px}.ct-auth-feature svg{width:21px;height:21px}
+  .ct-auth-main{padding:40px 18px 58px}.ct-auth-user-icon{width:48px;height:48px;margin-bottom:16px}.ct-auth-heading h2{font-size:22px}.ct-auth-heading p{font-size:11px}
+  .ct-auth-tabs{margin-top:21px}.ct-auth-register-grid{grid-template-columns:1fr}.ct-auth-support-row{gap:10px;flex-wrap:wrap}.ct-auth-security br{display:none}
+}

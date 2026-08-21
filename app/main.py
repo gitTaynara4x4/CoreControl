@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
@@ -76,6 +76,20 @@ app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
 app.mount("/site", StaticFiles(directory=PUBLIC_DIR), name="site")
 
 
+@app.middleware("http")
+async def development_no_cache(request: Request, call_next):
+    response = await call_next(request)
+    if settings.dev_web and (
+        request.url.path == "/"
+        or request.url.path.startswith("/central")
+        or request.url.path.startswith("/static/")
+    ):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/remote-assets/meshcentral-custom.js")
 def meshcentral_custom_script():
     file_path = REMOTE_ASSET_DIR / "meshcentral-custom.js"
@@ -117,6 +131,16 @@ def protected_download(filename: str, token: str = Query(..., min_length=20)):
 
 @app.get("/")
 def landing_page():
+    # No desenvolvimento local, o CoreTuner abre direto na interface do sistema.
+    # Em produção, a raiz continua sendo o site público.
+    if settings.dev_web:
+        return FileResponse(DASHBOARD_DIR / "index.html")
+    return FileResponse(PUBLIC_DIR / "index.html")
+
+
+@app.get("/site-home")
+def public_site_home():
+    # Atalho útil quando CORETUNER_DEV_WEB=1 e a raiz foi ocupada pelo sistema.
     return FileResponse(PUBLIC_DIR / "index.html")
 
 
@@ -127,7 +151,7 @@ def plans_page():
 
 @app.get("/entrar")
 def enter_central():
-    return RedirectResponse(url="/central", status_code=307)
+    return RedirectResponse(url="/" if settings.dev_web else "/central", status_code=307)
 
 
 @app.get("/central")

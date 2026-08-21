@@ -1,0 +1,19 @@
+ARQUIVOS ALTERADOS / ADICIONADOS
+=================================
+ M .gitignore
+ M desktop/app/src/main.go
+ M tests/test_desktop_privacy_ui.py
+ M tests/test_optimization_safety.py
+?? ARQUIVOS_ALTERADOS_DEV.txt
+?? DESENVOLVIMENTO_LOCAL.txt
+?? DEV_CoreTuner.bat
+?? DEV_CoreTuner.ps1
+?? DEV_Tudo.bat
+?? desktop/app/src/api_auth_windows.go
+?? desktop/app/src/runtime_mode_windows.go
+?? desktop/app/src/storage_windows.go
+?? desktop/app/src/system_info_windows.go
+?? desktop/app/src/ui_auth_windows.go
+?? desktop/app/src/ui_draw_windows.go
+?? desktop/app/src/ui_interactions_windows.go
+?? desktop/app/src/ui_pages_windows.go

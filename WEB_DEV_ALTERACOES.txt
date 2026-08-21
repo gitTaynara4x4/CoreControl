@@ -1,0 +1,18 @@
+CoreTuner - ajuste para desenvolvimento WEB local
+
+Arquivos alterados/criados:
+- app/config.py
+- app/main.py
+- dev_web.py
+- DEV_Web.bat
+- DEV_Tudo.bat
+- DEV_CoreTuner.bat
+- DESENVOLVIMENTO_LOCAL.txt
+
+Comportamento:
+- CORETUNER_DEV_WEB=1 faz / abrir a Central diretamente.
+- Desenvolvimento local fixado em http://127.0.0.1:8001.
+- Uvicorn com reload=True.
+- Cache de HTML/CSS/JS desabilitado no modo DEV.
+- Site institucional preservado em /site-home.
+- O executavel desktop nao e iniciado no fluxo DEV.

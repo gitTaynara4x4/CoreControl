@@ -8,6 +8,14 @@ def read(name: str) -> str:
     return (APP_SRC / name).read_text(encoding="utf-8")
 
 
+def read_app_source() -> str:
+    return "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted(APP_SRC.glob("*.go"))
+        if not p.name.endswith("_test.go")
+    )
+
+
 def test_real_optimizer_has_persistent_backup_before_changes():
     source = read("optimization_windows.go")
     assert "createOptimizationBaseline" in source
@@ -52,14 +60,14 @@ def test_desktop_manifest_matches_optimizer_release():
 
 
 def test_optimization_screen_explains_each_profile_in_plain_language():
-    main = read("main.go")
+    app_source = read_app_source()
     core = read("optimizer_core.go")
 
-    assert '"O que o perfil "+detail.Name+" fará"' in main
-    assert '"Proteções em todos os perfis"' in main
-    assert '"Ver e selecionar"' in main
-    assert '"Ajustes seguros"' not in main
-    assert '"Bloqueado por segurança"' not in main
+    assert '"O que o perfil "+detail.Name+" fará"' in app_source
+    assert '"Proteções em todos os perfis"' in app_source
+    assert '"Ver e selecionar"' in app_source
+    assert '"Ajustes seguros"' not in app_source
+    assert '"Bloqueado por segurança"' not in app_source
 
     required_customer_texts = [
         "Deixa o Windows mais leve sem mudar energia ou programas.",
@@ -70,6 +78,6 @@ def test_optimization_screen_explains_each_profile_in_plain_language():
         "Nenhum arquivo ou pasta é apagado ou movido.",
         "Sem backup seguro, nenhuma alteração é iniciada.",
     ]
-    combined = main + core
+    combined = app_source + core
     for text in required_customer_texts:
         assert text in combined

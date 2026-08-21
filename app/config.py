@@ -48,6 +48,7 @@ class Settings:
     secret_key: str = os.getenv("CORETUNER_SECRET_KEY", "change-this-in-production")
     database_url: str = _database_url()
     public_url: str = os.getenv("CORETUNER_PUBLIC_URL", "http://127.0.0.1:8002").rstrip("/")
+    dev_web: bool = _bool_env("CORETUNER_DEV_WEB", False)
     admin_email: str = os.getenv("CORETUNER_ADMIN_EMAIL", "admin@coretuner.com.br")
     admin_password: str = os.getenv("CORETUNER_ADMIN_PASSWORD", "TroqueAgora123!")
     download_password: str = os.getenv("CORETUNER_DOWNLOAD_PASSWORD", "")

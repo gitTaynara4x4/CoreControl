@@ -2,7 +2,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_SOURCE = (ROOT / "desktop" / "app" / "src" / "main.go").read_text(encoding="utf-8")
+APP_SRC = ROOT / "desktop" / "app" / "src"
+APP_SOURCE = "\n".join(
+    p.read_text(encoding="utf-8")
+    for p in sorted(APP_SRC.glob("*.go"))
+    if not p.name.endswith("_test.go")
+)
 SETUP_SOURCE = (ROOT / "desktop" / "setup" / "src" / "main.go").read_text(encoding="utf-8")
 
 
