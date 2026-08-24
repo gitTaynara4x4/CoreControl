@@ -375,10 +375,10 @@ func restoreOptimizationOriginal() (OptimizationResult, error) {
 		return OptimizationResult{}, err
 	}
 	if state == nil {
-		return OptimizationResult{}, errors.New("não existe backup ativo para restaurar; o CoreTuner ainda não alterou este computador")
+		return OptimizationResult{}, errors.New("não existe backup ativo para restaurar; o CoreControl ainda não alterou este computador")
 	}
 
-	result := OptimizationResult{ProfileName: "Restaurar Original", Restored: true, AppliedAt: time.Now()}
+	result := OptimizationResult{ProfileName: "Desativar otimização", Restored: true, AppliedAt: time.Now()}
 	var failures []string
 	if err := setMinimizeAnimation(state.OriginalAnimations.MinimizeWindows); err != nil {
 		failures = append(failures, err.Error())
@@ -442,9 +442,9 @@ func loadOptimizationSummary() (activeProfile int, appliedAt time.Time, note str
 		return 0, time.Time{}, "Backup de otimização precisa de revisão: " + err.Error()
 	}
 	if state == nil {
-		return 0, time.Time{}, "Nenhum perfil ativo. O CoreTuner ainda não alterou o Windows."
+		return 0, time.Time{}, "Nenhum perfil ativo. O CoreControl ainda não alterou o Windows."
 	}
-	return state.ActiveProfile, state.UpdatedAt, "Backup automático disponível para Restaurar Original."
+	return state.ActiveProfile, state.UpdatedAt, "Backup automático disponível para desativar a otimização e restaurar o estado anterior."
 }
 
 func optimizationBackupDirectory() string {

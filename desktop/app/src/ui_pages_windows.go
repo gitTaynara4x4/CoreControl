@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func contentOrigin() (int32, int32) { return 238, 102 }
+func contentOrigin() (int32, int32) { return shellContentLeft, shellContentTop }
 
 func health(sys SystemInfo) int {
 	score := 100
@@ -42,131 +42,579 @@ func health(sys SystemInfo) int {
 }
 func metricColor(v float64) uintptr {
 	if v >= 90 {
-		return rgb(235, 75, 70)
+		return rgb(232, 77, 73)
 	}
 	if v >= 75 {
-		return rgb(242, 153, 39)
+		return rgb(241, 153, 32)
 	}
-	return rgb(30, 165, 89)
+	return rgb(42, 176, 91)
 }
 func healthColor(score int) uintptr {
 	if score < 55 {
-		return rgb(235, 75, 70)
+		return rgb(232, 77, 73)
 	}
 	if score < 80 {
-		return rgb(242, 153, 39)
+		return rgb(241, 153, 32)
 	}
-	return rgb(30, 165, 89)
+	return rgb(42, 176, 91)
 }
+
+func clamp32(v, minV, maxV int32) int32 {
+	if v < minV {
+		return minV
+	}
+	if v > maxV {
+		return maxV
+	}
+	return v
+}
+
+func softCard(dc syscall.Handle, r Rect) {
+	roundedBox(dc, Rect{r.X, r.Y + 2, r.W, r.H}, rgb(241, 243, 247), rgb(241, 243, 247), 12)
+	roundedBox(dc, r, rgb(255, 255, 255), rgb(229, 233, 239), 12)
+}
+
+type dashboardSample struct {
+	At                time.Time
+	CPU, Memory, Disk float64
+	Latency           float64
+}
+
+var dashboardSamples []dashboardSample
+
+func recordDashboardSample(s SystemInfo) []dashboardSample {
+	stamp := s.Updated
+	if stamp.IsZero() {
+		stamp = time.Now()
+	}
+	if len(dashboardSamples) == 0 || !dashboardSamples[len(dashboardSamples)-1].At.Equal(stamp) {
+		dashboardSamples = append(dashboardSamples, dashboardSample{
+			At: stamp, CPU: s.CPU, Memory: s.Memory, Disk: s.Disk, Latency: float64(s.LatencyMS),
+		})
+		if len(dashboardSamples) > 60 {
+			dashboardSamples = append([]dashboardSample(nil), dashboardSamples[len(dashboardSamples)-60:]...)
+		}
+	}
+	return append([]dashboardSample(nil), dashboardSamples...)
+}
+
+func sampleValues(samples []dashboardSample, kind string) []float64 {
+	values := make([]float64, 0, len(samples))
+	for _, s := range samples {
+		switch kind {
+		case "cpu":
+			values = append(values, s.CPU)
+		case "ram":
+			values = append(values, s.Memory)
+		case "disk":
+			values = append(values, s.Disk)
+		case "latency":
+			values = append(values, s.Latency)
+		}
+	}
+	return values
+}
+
+func drawSparkline(dc syscall.Handle, r Rect, values []float64, maxValue float64, color uintptr) {
+	if r.W <= 4 || r.H <= 4 || len(values) == 0 {
+		return
+	}
+	if maxValue <= 0 {
+		maxValue = 100
+	}
+	if len(values) == 1 {
+		y := r.Y + r.H - int32(values[0]/maxValue*float64(r.H))
+		if y < r.Y {
+			y = r.Y
+		}
+		if y > r.Y+r.H {
+			y = r.Y + r.H
+		}
+		line(dc, r.X, y, r.X+r.W, y, color)
+		return
+	}
+	step := float64(r.W) / float64(len(values)-1)
+	var px, py int32
+	for i, value := range values {
+		if value < 0 {
+			value = 0
+		}
+		if value > maxValue {
+			value = maxValue
+		}
+		x := r.X + int32(float64(i)*step)
+		y := r.Y + r.H - int32(value/maxValue*float64(r.H))
+		if i > 0 {
+			line(dc, px, py, x, y, color)
+		}
+		px, py = x, y
+	}
+}
+
+type dashboardAlert struct {
+	Title, Detail string
+	Critical      bool
+}
+
+func dashboardAlerts(s SystemInfo) []dashboardAlert {
+	alerts := make([]dashboardAlert, 0, 6)
+	if s.Disk >= 90 {
+		alerts = append(alerts, dashboardAlert{"Espaço em disco crítico", fmt.Sprintf("Disco com %.0f%% de uso", s.Disk), true})
+	} else if s.Disk >= 80 {
+		alerts = append(alerts, dashboardAlert{"Espaço em disco baixo", fmt.Sprintf("Disco com %.0f%% de uso", s.Disk), false})
+	}
+	if s.Memory >= 90 {
+		alerts = append(alerts, dashboardAlert{"Memória em nível crítico", fmt.Sprintf("RAM em %.0f%% de uso", s.Memory), true})
+	} else if s.Memory >= 75 {
+		alerts = append(alerts, dashboardAlert{"Memória em uso elevado", fmt.Sprintf("RAM em %.0f%% de uso", s.Memory), false})
+	}
+	if s.CPU >= 90 {
+		alerts = append(alerts, dashboardAlert{"Processador sobrecarregado", fmt.Sprintf("CPU em %.0f%%", s.CPU), true})
+	} else if s.CPU >= 75 {
+		alerts = append(alerts, dashboardAlert{"Processador em uso elevado", fmt.Sprintf("CPU em %.0f%%", s.CPU), false})
+	}
+	if !s.InternetOK {
+		alerts = append(alerts, dashboardAlert{"Sem acesso à internet", "A conexão precisa ser verificada", true})
+	}
+	if !s.AudioOK {
+		alerts = append(alerts, dashboardAlert{"Áudio não detectado", "Verifique o dispositivo de saída", false})
+	}
+	if !s.MicOK {
+		alerts = append(alerts, dashboardAlert{"Microfone não detectado", "Verifique o dispositivo de entrada", false})
+	}
+	return alerts
+}
+
+func dashboardCheckStats(s SystemInfo, centralOK bool) (healthy, warning, critical int) {
+	classify := func(value float64, warn, crit float64) {
+		if value >= crit {
+			critical++
+		} else if value >= warn {
+			warning++
+		} else {
+			healthy++
+		}
+	}
+	classify(s.CPU, 75, 90)
+	classify(s.Memory, 75, 90)
+	classify(s.Disk, 80, 90)
+	if s.InternetOK {
+		healthy++
+	} else {
+		critical++
+	}
+	if s.AudioOK {
+		healthy++
+	} else {
+		warning++
+	}
+	if s.MicOK {
+		healthy++
+	} else {
+		warning++
+	}
+	if centralOK {
+		healthy++
+	} else {
+		critical++
+	}
+	return
+}
+
+func drawMetricIcon(dc syscall.Handle, kind string, r Rect, color uintptr) {
+	switch kind {
+	case "cpu":
+		roundedBox(dc, Rect{r.X + 4, r.Y + 4, r.W - 8, r.H - 8}, rgb(255, 255, 255), color, 3)
+		for i := int32(0); i < 3; i++ {
+			x := r.X + 7 + i*5
+			line(dc, x, r.Y+1, x, r.Y+4, color)
+			line(dc, x, r.Y+r.H-4, x, r.Y+r.H-1, color)
+			y := r.Y + 7 + i*5
+			line(dc, r.X+1, y, r.X+4, y, color)
+			line(dc, r.X+r.W-4, y, r.X+r.W-1, y, color)
+		}
+	case "ram":
+		roundedBox(dc, Rect{r.X + 2, r.Y + 5, r.W - 4, r.H - 10}, rgb(255, 255, 255), color, 3)
+		for i := int32(0); i < 3; i++ {
+			roundedBox(dc, Rect{r.X + 6 + i*6, r.Y + 9, 4, 8}, rgb(255, 255, 255), color, 1)
+		}
+	case "disk":
+		roundedBox(dc, Rect{r.X + 4, r.Y + 3, r.W - 8, r.H - 6}, rgb(255, 255, 255), color, 4)
+		line(dc, r.X+7, r.Y+r.H-7, r.X+r.W-7, r.Y+r.H-7, color)
+		circle(dc, Rect{r.X + r.W - 9, r.Y + r.H - 10, 3, 3}, color)
+	case "internet":
+		line(dc, r.X+4, r.Y+9, r.X+r.W/2, r.Y+4, color)
+		line(dc, r.X+r.W/2, r.Y+4, r.X+r.W-4, r.Y+9, color)
+		line(dc, r.X+7, r.Y+13, r.X+r.W/2, r.Y+9, color)
+		line(dc, r.X+r.W/2, r.Y+9, r.X+r.W-7, r.Y+13, color)
+		circle(dc, Rect{r.X + r.W/2 - 2, r.Y + r.H - 5, 4, 4}, color)
+	}
+}
+
+func drawTopMetricCard(dc syscall.Handle, r Rect, title, value, caption, foot1, foot2, kind string, color uintptr, samples []dashboardSample) {
+	softCard(dc, r)
+	drawMetricIcon(dc, kind, Rect{r.X + 16, r.Y + 15, 23, 23}, color)
+	text(dc, title, Rect{r.X + 48, r.Y + 13, r.W - 60, 25}, app.fonts["body"], rgb(40, 52, 72), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, value, Rect{r.X + 18, r.Y + 51, r.W - 36, 34}, app.fonts["h1"], rgb(25, 36, 55), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, caption, Rect{r.X + 18, r.Y + 82, r.W - 36, 18}, app.fonts["small"], rgb(120, 131, 151), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	values := sampleValues(samples, kind)
+	maxValue := 100.0
+	if kind == "internet" {
+		values = sampleValues(samples, "latency")
+		maxValue = 200
+	}
+	drawSparkline(dc, Rect{r.X + 18, r.Y + 112, r.W - 36, 35}, values, maxValue, color)
+	line(dc, r.X+18, r.Y+r.H-49, r.X+r.W-18, r.Y+r.H-49, rgb(240, 242, 246))
+	text(dc, foot1, Rect{r.X + 18, r.Y + r.H - 38, r.W - 36, 17}, app.fonts["small"], rgb(105, 117, 137), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, foot2, Rect{r.X + 18, r.Y + r.H - 21, r.W - 36, 17}, app.fonts["small"], rgb(47, 62, 87), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+}
+
+func drawActionTile(dc syscall.Handle, r Rect, icon, line1, line2 string, hovered bool) {
+	bg := rgb(255, 255, 255)
+	border := rgb(229, 233, 239)
+	if hovered {
+		bg = rgb(247, 250, 255)
+		border = rgb(207, 222, 247)
+	}
+	roundedBox(dc, r, bg, border, 9)
+	text(dc, icon, Rect{r.X, r.Y + 9, r.W, 23}, app.fonts["h2"], rgb(47, 124, 246), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	text(dc, line1, Rect{r.X + 5, r.Y + 37, r.W - 10, 17}, app.fonts["small"], rgb(59, 72, 94), DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	if line2 != "" {
+		text(dc, line2, Rect{r.X + 5, r.Y + 53, r.W - 10, 16}, app.fonts["small"], rgb(59, 72, 94), DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+}
+
 func (a *App) drawDashboard(dc syscall.Handle) {
 	x, y := contentOrigin()
 	a.mu.RLock()
 	s := a.sys
 	statusText := a.statusText
+	centralOK := a.centralOK
+	processes := append([]ProcessInfo(nil), a.processes...)
+	history := append([]HistoryItem(nil), a.history...)
+	activeProfile := a.optimizationActive
 	a.mu.RUnlock()
-	w := a.width - x - 28
+
+	w := a.width - x - 24
 	if w < 760 {
 		w = 760
 	}
+	availableH := a.height - y - 16
+	if availableH < 620 {
+		availableH = 620
+	}
+	samples := recordDashboardSample(s)
 
 	expired := strings.Contains(strings.ToLower(statusText), "sessão inválida") || strings.Contains(strings.ToLower(statusText), "expirada")
 	if expired {
-		banner := Rect{x, y, w, 72}
-		roundedBox(dc, banner, rgb(255, 249, 240), rgb(245, 215, 174), 12)
-		text(dc, "⚠", Rect{banner.X + 18, banner.Y + 12, 42, 46}, a.fonts["h1"], rgb(238, 139, 26), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-		text(dc, "Sessão da Central expirada", Rect{banner.X + 68, banner.Y + 12, 430, 25}, a.fonts["h2"], rgb(83, 57, 28), DT_LEFT|DT_SINGLELINE)
-		text(dc, "Entre novamente para manter este computador conectado ao CoreTuner Central.", Rect{banner.X + 68, banner.Y + 38, 600, 22}, a.fonts["small"], rgb(111, 88, 58), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
-		br := Rect{banner.X + banner.W - 180, banner.Y + 17, 150, 38}
+		banner := Rect{x, y, w, 52}
+		roundedBox(dc, banner, rgb(255, 249, 240), rgb(245, 215, 174), 10)
+		text(dc, "!", Rect{banner.X + 14, banner.Y + 10, 30, 30}, a.fonts["h2"], rgb(238, 139, 26), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, "Sessão da Central expirada", Rect{banner.X + 50, banner.Y + 7, 280, 21}, a.fonts["body"], rgb(83, 57, 28), DT_LEFT|DT_SINGLELINE)
+		text(dc, "Entre novamente para manter este computador conectado.", Rect{banner.X + 50, banner.Y + 27, 440, 18}, a.fonts["small"], rgb(111, 88, 58), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		br := Rect{banner.X + banner.W - 148, banner.Y + 9, 128, 34}
 		button(dc, "Entrar novamente", br, true)
 		a.hits = append(a.hits, Hit{br, "reauth", 0})
-		y += 90
+		y += 62
+		availableH -= 62
 	}
 
-	gap := int32(16)
-	leftW := int32(float64(w) * 0.43)
-	rightW := w - leftW - gap
-	deviceCard := Rect{x, y, leftW, 218}
-	healthCard := Rect{x + leftW + gap, y, rightW, 218}
-	card(dc, deviceCard)
-	card(dc, healthCard)
-
-	roundedBox(dc, Rect{deviceCard.X + 22, deviceCard.Y + 22, 52, 52}, rgb(233, 248, 250), rgb(233, 248, 250), 12)
-	monitorIcon(dc, Rect{deviceCard.X + 35, deviceCard.Y + 35, 26, 25}, rgb(0, 139, 158))
-	text(dc, nz(s.Hostname, "Este computador"), Rect{deviceCard.X + 92, deviceCard.Y + 22, deviceCard.W - 116, 34}, a.fonts["h1"], rgb(12, 33, 62), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
-	pairs := []struct{ label, value string }{
-		{"Fabricante", nz(s.Manufacturer, "Não identificado")},
-		{"Modelo", nz(s.Model, "Não identificado")},
-		{"Usuário", nz(s.Username, "Não identificado")},
-		{"Sistema", nz(s.OS, "Windows")},
+	gap := int32(12)
+	rightW := clamp32(w*24/100, 238, 292)
+	mainW := w - rightW - gap
+	healthW := clamp32(mainW*25/100, 190, 232)
+	metricW := (mainW - healthW - gap*4) / 4
+	row1H := int32(220)
+	row2H := int32(232)
+	footerH := int32(38)
+	row3H := availableH - row1H - row2H - footerH - gap*3
+	if row3H < 170 {
+		footerH = 0
+		row2H = 212
+		row3H = availableH - row1H - row2H - gap*2
 	}
-	for i, pair := range pairs {
-		py := deviceCard.Y + 83 + int32(i*28)
-		text(dc, pair.label, Rect{deviceCard.X + 30, py, 92, 22}, a.fonts["small"], rgb(95, 111, 136), DT_LEFT|DT_SINGLELINE)
-		text(dc, pair.value, Rect{deviceCard.X + 126, py, deviceCard.W - 154, 22}, a.fonts["small"], rgb(35, 53, 80), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	if row3H < 145 {
+		row3H = 145
 	}
 
+	// Saúde
+	healthCard := Rect{x, y, healthW, row1H}
+	softCard(dc, healthCard)
+	text(dc, "Saúde do computador", Rect{healthCard.X + 18, healthCard.Y + 14, healthCard.W - 36, 24}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 	score := health(s)
-	text(dc, "Saúde do computador", Rect{healthCard.X + 24, healthCard.Y + 20, healthCard.W - 48, 30}, a.fonts["h2"], rgb(15, 37, 68), DT_LEFT|DT_SINGLELINE)
-	circle(dc, Rect{healthCard.X + 28, healthCard.Y + 66, 122, 122}, rgb(241, 245, 249))
-	text(dc, fmt.Sprintf("%d", score), Rect{healthCard.X + 28, healthCard.Y + 83, 122, 62}, a.fonts["metric"], healthColor(score), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "/100", Rect{healthCard.X + 28, healthCard.Y + 142, 122, 25}, a.fonts["small"], rgb(97, 112, 137), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	status := "Excelente"
+	gaugeSize := clamp32(healthCard.W-72, 104, 132)
+	gaugeX := healthCard.X + (healthCard.W-gaugeSize)/2
+	gaugeY := healthCard.Y + 50
+	circle(dc, Rect{gaugeX, gaugeY, gaugeSize, gaugeSize}, rgb(231, 236, 242))
+	circle(dc, Rect{gaugeX + 8, gaugeY + 8, gaugeSize - 16, gaugeSize - 16}, healthColor(score))
+	circle(dc, Rect{gaugeX + 15, gaugeY + 15, gaugeSize - 30, gaugeSize - 30}, rgb(255, 255, 255))
+	text(dc, fmt.Sprintf("%d", score), Rect{gaugeX + 8, gaugeY + 26, gaugeSize - 16, 47}, a.fonts["metric"], rgb(22, 33, 52), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "/100", Rect{gaugeX + 8, gaugeY + 73, gaugeSize - 16, 18}, a.fonts["small"], rgb(119, 130, 149), DT_CENTER|DT_SINGLELINE)
+	state := "Excelente"
 	if score < 80 {
-		status = "Atenção"
+		state = "Atenção"
 	}
 	if score < 55 {
-		status = "Crítico"
+		state = "Crítico"
 	}
-	text(dc, status, Rect{healthCard.X + 180, healthCard.Y + 74, healthCard.W - 205, 38}, a.fonts["h1"], healthColor(score), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "O CoreTuner encontrou os pontos que precisam da sua atenção.", Rect{healthCard.X + 180, healthCard.Y + 116, healthCard.W - 210, 56}, a.fonts["body"], rgb(77, 95, 121), DT_LEFT|DT_WORDBREAK)
+	text(dc, state, Rect{healthCard.X + 15, healthCard.Y + 184, healthCard.W - 30, 20}, a.fonts["small"], healthColor(score), DT_CENTER|DT_SINGLELINE)
 
-	metricsY := y + 236
-	metricW := (w - gap*3) / 4
-	type metricInfo struct {
-		name, value, detail string
-		pct                 float64
-		color               uintptr
-		internet            bool
+	// Métricas
+	metricX := x + healthW + gap
+	cpuCard := Rect{metricX, y, metricW, row1H}
+	ramCard := Rect{metricX + metricW + gap, y, metricW, row1H}
+	diskCard := Rect{metricX + (metricW+gap)*2, y, metricW, row1H}
+	netCard := Rect{metricX + (metricW+gap)*3, y, metricW, row1H}
+	drawTopMetricCard(dc, cpuCard, "CPU", fmt.Sprintf("%.0f%%", s.CPU), "Uso atual", "Processador", nz(s.CPUName, "Não identificado"), "cpu", rgb(47, 124, 246), samples)
+	drawTopMetricCard(dc, ramCard, "Memória RAM", fmt.Sprintf("%.0f%%", s.Memory), "Uso atual", fmt.Sprintf("Usado %.1f GB", s.UsedRAMGB), fmt.Sprintf("Total %.1f GB", s.TotalRAMGB), "ram", rgb(26, 181, 196), samples)
+	drawTopMetricCard(dc, diskCard, "Disco (C:)", fmt.Sprintf("%.0f%%", s.Disk), "Uso atual", fmt.Sprintf("Usado %.0f GB", s.DiskUsedGB), fmt.Sprintf("Total %.0f GB • %s", s.DiskTotalGB, nz(s.DiskType, "disco")), "disk", rgb(42, 176, 91), samples)
+	netValue := fmt.Sprintf("%d ms", s.LatencyMS)
+	netCaption := "Latência"
+	if !s.InternetOK {
+		netValue = "Offline"
+		netCaption = "Sem conexão"
 	}
-	metrics := []metricInfo{
-		{"Processador", fmt.Sprintf("%.0f%%", s.CPU), nz(s.CPUName, "Uso atual"), s.CPU, metricColor(s.CPU), false},
-		{"Memória RAM", fmt.Sprintf("%.0f%%", s.Memory), fmt.Sprintf("%.1f de %.1f GB usados", s.UsedRAMGB, s.TotalRAMGB), s.Memory, metricColor(s.Memory), false},
-		{"Disco", fmt.Sprintf("%.0f%%", s.Disk), fmt.Sprintf("%.0f de %.0f GB usados", s.DiskUsedGB, s.DiskTotalGB), s.Disk, metricColor(s.Disk), false},
-		{"Internet", chooseText(s.InternetOK, "Conectado", "Sem conexão"), fmt.Sprintf("Latência %d ms", s.LatencyMS), 0, choose(s.InternetOK, rgb(29, 161, 91), rgb(226, 71, 67)), true},
+	drawTopMetricCard(dc, netCard, "Internet", netValue, netCaption, "Estado", chooseText(s.InternetOK, "Conectado", "Verificar rede"), "internet", rgb(134, 93, 255), samples)
+
+	// Alertas - coluna direita topo
+	alerts := dashboardAlerts(s)
+	alertsCard := Rect{x + mainW + gap, y, rightW, row1H}
+	softCard(dc, alertsCard)
+	text(dc, "Alertas", Rect{alertsCard.X + 18, alertsCard.Y + 14, alertsCard.W - 74, 25}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	badgeText := fmt.Sprintf("%d", len(alerts))
+	badgeBg := rgb(231, 242, 255)
+	badgeFg := rgb(47, 124, 246)
+	if len(alerts) > 0 {
+		badgeBg = rgb(255, 235, 235)
+		badgeFg = rgb(223, 74, 74)
 	}
-	for i, m := range metrics {
-		r := Rect{x + int32(i)*(metricW+gap), metricsY, metricW, 158}
-		card(dc, r)
-		text(dc, m.name, Rect{r.X + 18, r.Y + 16, r.W - 36, 25}, a.fonts["h2"], rgb(18, 40, 73), DT_LEFT|DT_SINGLELINE)
-		if m.internet {
-			text(dc, m.value, Rect{r.X + 18, r.Y + 54, r.W - 36, 38}, a.fonts["h1"], m.color, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-			circle(dc, Rect{r.X + r.W - 35, r.Y + 24, 10, 10}, m.color)
-			text(dc, m.detail, Rect{r.X + 18, r.Y + 104, r.W - 36, 22}, a.fonts["small"], rgb(89, 105, 131), DT_LEFT|DT_SINGLELINE)
-			text(dc, chooseText(s.InternetOK, "Sem perda de pacotes", "Verifique a rede"), Rect{r.X + 18, r.Y + 128, r.W - 36, 20}, a.fonts["small"], rgb(89, 105, 131), DT_LEFT|DT_SINGLELINE)
-		} else {
-			text(dc, m.value, Rect{r.X + 18, r.Y + 46, r.W - 36, 42}, a.fonts["metric"], m.color, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-			progress(dc, Rect{r.X + 18, r.Y + 100, r.W - 36, 7}, m.pct, m.color)
-			text(dc, m.detail, Rect{r.X + 18, r.Y + 122, r.W - 36, 24}, a.fonts["small"], rgb(89, 105, 131), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
+	statusPill(dc, badgeText, Rect{alertsCard.X + alertsCard.W - 45, alertsCard.Y + 14, 27, 20}, badgeBg, badgeFg)
+	if len(alerts) == 0 {
+		circle(dc, Rect{alertsCard.X + 18, alertsCard.Y + 62, 22, 22}, rgb(42, 176, 91))
+		text(dc, "✓", Rect{alertsCard.X + 18, alertsCard.Y + 62, 22, 22}, a.fonts["small"], rgb(255, 255, 255), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, "Nenhum alerta ativo", Rect{alertsCard.X + 50, alertsCard.Y + 60, alertsCard.W - 68, 22}, a.fonts["body"], rgb(47, 62, 87), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		text(dc, "O computador está dentro dos limites monitorados.", Rect{alertsCard.X + 50, alertsCard.Y + 83, alertsCard.W - 68, 36}, a.fonts["small"], rgb(118, 129, 149), DT_LEFT|DT_WORDBREAK)
+	} else {
+		for i, alert := range alerts[:min(2, len(alerts))] {
+			ay := alertsCard.Y + 54 + int32(i*68)
+			c := rgb(241, 153, 32)
+			if alert.Critical {
+				c = rgb(232, 77, 73)
+			}
+			text(dc, "!", Rect{alertsCard.X + 18, ay + 4, 22, 22}, a.fonts["h2"], c, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+			text(dc, alert.Title, Rect{alertsCard.X + 50, ay, alertsCard.W - 68, 20}, a.fonts["small"], rgb(47, 62, 87), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			text(dc, alert.Detail, Rect{alertsCard.X + 50, ay + 23, alertsCard.W - 68, 28}, a.fonts["small"], rgb(119, 130, 149), DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS)
 		}
 	}
+	alertLink := Rect{alertsCard.X + 18, alertsCard.Y + alertsCard.H - 33, 145, 22}
+	text(dc, "Ver diagnóstico completo", alertLink, a.fonts["small"], rgb(47, 124, 246), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	a.hits = append(a.hits, Hit{alertLink, "page", 1})
 
-	bottomY := metricsY + 176
-	attentionCard := Rect{x, bottomY, w, 205}
-	card(dc, attentionCard)
-
-	text(dc, "⚠", Rect{attentionCard.X + 18, attentionCard.Y + 17, 28, 28}, a.fonts["h2"], rgb(229, 76, 68), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "Atenção necessária", Rect{attentionCard.X + 52, attentionCard.Y + 18, attentionCard.W - 72, 28}, a.fonts["h2"], rgb(20, 41, 72), DT_LEFT|DT_SINGLELINE)
-	line(dc, attentionCard.X, attentionCard.Y+55, attentionCard.X+attentionCard.W, attentionCard.Y+55, rgb(232, 237, 243))
-	recs := recommendations(s)
-	for i, recommendation := range recs[:min(3, len(recs))] {
-		bulletColor := rgb(231, 76, 68)
-		if i > 0 {
-			bulletColor = rgb(238, 148, 30)
-		}
-		circle(dc, Rect{attentionCard.X + 22, attentionCard.Y + 74 + int32(i*42), 8, 8}, bulletColor)
-		text(dc, recommendation, Rect{attentionCard.X + 42, attentionCard.Y + 66 + int32(i*42), attentionCard.W - 62, 34}, a.fonts["small"], rgb(62, 79, 106), DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS)
+	// Segunda linha
+	row2Y := y + row1H + gap
+	diagW := clamp32(mainW*28/100, 220, 260)
+	perfW := clamp32(mainW*39/100, 300, 365)
+	updatesW := mainW - diagW - perfW - gap*2
+	if updatesW < 210 {
+		perfW -= 210 - updatesW
+		updatesW = 210
 	}
 
+	diag := Rect{x, row2Y, diagW, row2H}
+	softCard(dc, diag)
+	text(dc, "Diagnóstico rápido", Rect{diag.X + 18, diag.Y + 14, diag.W - 36, 22}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_SINGLELINE)
+	okCount := 0
+	checks := []struct {
+		Name string
+		OK   bool
+	}{{"Internet", s.InternetOK}, {"Áudio", s.AudioOK}, {"Microfone", s.MicOK}, {"Central CoreControl", centralOK}}
+	for _, c := range checks {
+		if c.OK {
+			okCount++
+		}
+	}
+	diagStatus := fmt.Sprintf("%d de %d verificações OK", okCount, len(checks))
+	text(dc, diagStatus, Rect{diag.X + 18, diag.Y + 38, diag.W - 36, 18}, a.fonts["small"], choose(okCount == len(checks), rgb(42, 176, 91), rgb(241, 153, 32)), DT_LEFT|DT_SINGLELINE)
+	line(dc, diag.X+18, diag.Y+66, diag.X+diag.W-18, diag.Y+66, rgb(239, 241, 245))
+	for i, c := range checks {
+		cy := diag.Y + 78 + int32(i*27)
+		markColor := choose(c.OK, rgb(42, 176, 91), rgb(232, 77, 73))
+		mark := "✓"
+		stateTxt := "OK"
+		if !c.OK {
+			mark = "!"
+			stateTxt = "Atenção"
+		}
+		circle(dc, Rect{diag.X + 18, cy + 2, 14, 14}, markColor)
+		text(dc, mark, Rect{diag.X + 18, cy + 2, 14, 14}, a.fonts["small"], rgb(255, 255, 255), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, c.Name, Rect{diag.X + 42, cy, diag.W - 105, 18}, a.fonts["small"], rgb(66, 79, 100), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, stateTxt, Rect{diag.X + diag.W - 70, cy, 52, 18}, a.fonts["small"], markColor, DT_RIGHT|DT_SINGLELINE)
+	}
+	diagBtn := Rect{diag.X + 18, diag.Y + diag.H - 42, diag.W - 36, 30}
+	button(dc, "Executar diagnóstico", diagBtn, true)
+	a.hits = append(a.hits, Hit{diagBtn, "refresh-local", 0})
+
+	perf := Rect{x + diagW + gap, row2Y, perfW, row2H}
+	softCard(dc, perf)
+	text(dc, "Desempenho em tempo real", Rect{perf.X + 18, perf.Y + 14, perf.W - 36, 22}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_SINGLELINE)
+	legendY := perf.Y + 43
+	legend := []struct {
+		Name  string
+		Color uintptr
+	}{{"CPU", rgb(47, 124, 246)}, {"RAM", rgb(26, 181, 196)}, {"Disco", rgb(42, 176, 91)}}
+	for i, l := range legend {
+		lx := perf.X + 18 + int32(i*68)
+		fill(dc, Rect{lx, legendY + 7, 12, 2}, l.Color)
+		text(dc, l.Name, Rect{lx + 18, legendY, 45, 17}, a.fonts["small"], rgb(100, 112, 133), DT_LEFT|DT_SINGLELINE)
+	}
+	graph := Rect{perf.X + 42, perf.Y + 72, perf.W - 62, 103}
+	for i := int32(0); i <= 4; i++ {
+		gy := graph.Y + i*graph.H/4
+		line(dc, graph.X, gy, graph.X+graph.W, gy, rgb(238, 241, 245))
+		text(dc, fmt.Sprintf("%d%%", 100-int(i)*25), Rect{perf.X + 8, gy - 6, 30, 14}, a.fonts["small"], rgb(145, 154, 169), DT_RIGHT|DT_SINGLELINE)
+	}
+	drawSparkline(dc, graph, sampleValues(samples, "cpu"), 100, rgb(47, 124, 246))
+	drawSparkline(dc, graph, sampleValues(samples, "ram"), 100, rgb(26, 181, 196))
+	drawSparkline(dc, graph, sampleValues(samples, "disk"), 100, rgb(42, 176, 91))
+	valsY := perf.Y + perf.H - 38
+	text(dc, fmt.Sprintf("%.0f%%  CPU", s.CPU), Rect{perf.X + 18, valsY, 80, 18}, a.fonts["small"], rgb(65, 78, 99), DT_LEFT|DT_SINGLELINE)
+	text(dc, fmt.Sprintf("%.0f%%  RAM", s.Memory), Rect{perf.X + 105, valsY, 90, 18}, a.fonts["small"], rgb(65, 78, 99), DT_LEFT|DT_SINGLELINE)
+	text(dc, fmt.Sprintf("%.0f%%  Disco", s.Disk), Rect{perf.X + 205, valsY, 95, 18}, a.fonts["small"], rgb(65, 78, 99), DT_LEFT|DT_SINGLELINE)
+
+	updates := Rect{x + diagW + gap + perfW + gap, row2Y, updatesW, row2H}
+	softCard(dc, updates)
+	text(dc, "Atualizações", Rect{updates.X + 18, updates.Y + 14, updates.W - 36, 22}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_SINGLELINE)
+	text(dc, "Gerenciadas pela Central", Rect{updates.X + 18, updates.Y + 38, updates.W - 36, 18}, a.fonts["small"], rgb(118, 129, 149), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	updateRows := []struct{ Name, Sub string }{{"Windows Update", "Sistema operacional"}, {"Drivers", "Hardware e dispositivos"}, {"Aplicativos", "Pacotes via winget"}}
+	for i, row := range updateRows {
+		uy := updates.Y + 75 + int32(i*43)
+		text(dc, row.Name, Rect{updates.X + 18, uy, updates.W - 88, 18}, a.fonts["small"], rgb(56, 69, 90), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, row.Sub, Rect{updates.X + 18, uy + 18, updates.W - 88, 16}, a.fonts["small"], rgb(132, 142, 159), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		statusPill(dc, "Central", Rect{updates.X + updates.W - 66, uy + 2, 49, 18}, rgb(237, 245, 255), rgb(47, 124, 246))
+	}
+	updatesLink := Rect{updates.X + 18, updates.Y + updates.H - 34, 90, 22}
+	text(dc, "Abrir Central", updatesLink, a.fonts["small"], rgb(47, 124, 246), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	a.hits = append(a.hits, Hit{updatesLink, "open-web", 0})
+
+	quick := Rect{x + mainW + gap, row2Y, rightW, row2H}
+	softCard(dc, quick)
+	text(dc, "Ações rápidas", Rect{quick.X + 18, quick.Y + 14, quick.W - 36, 22}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_SINGLELINE)
+	actions := []struct {
+		Icon, A, B, Action string
+		Value              int
+	}{{"✓", "Verificar", "sistema", "refresh-local", 0}, {"◈", "Abrir", "diagnóstico", "page", 1}, {"↗", "Abrir", "testes", "page", 2}, {"⚡", "Otimizar", "computador", "page", 3}, {"▤", "Gerar", "relatório", "report", 0}, {"?", "Abrir", "suporte", "page", 8}}
+	innerGap := int32(9)
+	tileW := (quick.W - 36 - innerGap*2) / 3
+	tileH := (quick.H - 59 - innerGap) / 2
+	for i, act := range actions {
+		col := int32(i % 3)
+		row := int32(i / 3)
+		r := Rect{quick.X + 18 + col*(tileW+innerGap), quick.Y + 49 + row*(tileH+innerGap), tileW, tileH}
+		drawActionTile(dc, r, act.Icon, act.A, act.B, a.isHovered(r))
+		a.hits = append(a.hits, Hit{r, act.Action, act.Value})
+	}
+
+	// Terceira linha
+	row3Y := row2Y + row2H + gap
+	processW := clamp32(w*42/100, 340, 500)
+	historyW := clamp32(w*31/100, 270, 380)
+	summaryW := w - processW - historyW - gap*2
+	if summaryW < 230 {
+		historyW -= 230 - summaryW
+		summaryW = 230
+	}
+
+	procCard := Rect{x, row3Y, processW, row3H}
+	softCard(dc, procCard)
+	text(dc, "Processos em execução", Rect{procCard.X + 18, procCard.Y + 13, procCard.W - 130, 22}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_SINGLELINE)
+	procLink := Rect{procCard.X + procCard.W - 92, procCard.Y + 13, 74, 20}
+	text(dc, "Ver todos", procLink, a.fonts["small"], rgb(47, 124, 246), DT_RIGHT|DT_SINGLELINE)
+	a.hits = append(a.hits, Hit{procLink, "page", 4})
+	line(dc, procCard.X+18, procCard.Y+42, procCard.X+procCard.W-18, procCard.Y+42, rgb(239, 241, 245))
+	text(dc, "Processo", Rect{procCard.X + 18, procCard.Y + 50, procCard.W / 2, 17}, a.fonts["small"], rgb(134, 144, 160), DT_LEFT|DT_SINGLELINE)
+	text(dc, "CPU", Rect{procCard.X + procCard.W - 130, procCard.Y + 50, 44, 17}, a.fonts["small"], rgb(134, 144, 160), DT_RIGHT|DT_SINGLELINE)
+	text(dc, "Memória", Rect{procCard.X + procCard.W - 78, procCard.Y + 50, 60, 17}, a.fonts["small"], rgb(134, 144, 160), DT_RIGHT|DT_SINGLELINE)
+	sort.Slice(processes, func(i, j int) bool { return processes[i].MemoryMB > processes[j].MemoryMB })
+	rows := min(5, len(processes))
+	if row3H < 195 {
+		rows = min(3, len(processes))
+	}
+	for i := 0; i < rows; i++ {
+		pr := processes[i]
+		py := procCard.Y + 73 + int32(i*29)
+		text(dc, nz(pr.Name, "Processo"), Rect{procCard.X + 18, py, procCard.W - 165, 18}, a.fonts["small"], rgb(66, 79, 100), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, fmt.Sprintf("%.1f%%", pr.CPU), Rect{procCard.X + procCard.W - 130, py, 44, 18}, a.fonts["small"], rgb(82, 95, 116), DT_RIGHT|DT_SINGLELINE)
+		text(dc, fmt.Sprintf("%.0f MB", pr.MemoryMB), Rect{procCard.X + procCard.W - 78, py, 60, 18}, a.fonts["small"], rgb(82, 95, 116), DT_RIGHT|DT_SINGLELINE)
+	}
+	if rows == 0 {
+		text(dc, "Atualize o sistema para carregar os processos.", Rect{procCard.X + 18, procCard.Y + 82, procCard.W - 36, 30}, a.fonts["small"], rgb(120, 131, 150), DT_LEFT|DT_WORDBREAK)
+	}
+
+	histCard := Rect{x + processW + gap, row3Y, historyW, row3H}
+	softCard(dc, histCard)
+	text(dc, "Histórico recente", Rect{histCard.X + 18, histCard.Y + 13, histCard.W - 120, 22}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_SINGLELINE)
+	histLink := Rect{histCard.X + histCard.W - 92, histCard.Y + 13, 74, 20}
+	text(dc, "Ver histórico", histLink, a.fonts["small"], rgb(47, 124, 246), DT_RIGHT|DT_SINGLELINE)
+	a.hits = append(a.hits, Hit{histLink, "page", 6})
+	line(dc, histCard.X+18, histCard.Y+42, histCard.X+histCard.W-18, histCard.Y+42, rgb(239, 241, 245))
+	hRows := min(5, len(history))
+	if row3H < 195 {
+		hRows = min(3, len(history))
+	}
+	for i := 0; i < hRows; i++ {
+		item := history[len(history)-1-i]
+		hy := histCard.Y + 57 + int32(i*31)
+		circle(dc, Rect{histCard.X + 18, hy + 3, 10, 10}, rgb(42, 176, 91))
+		text(dc, item.Title, Rect{histCard.X + 38, hy, histCard.W - 56, 17}, a.fonts["small"], rgb(66, 79, 100), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, item.At.Format("02/01 15:04"), Rect{histCard.X + 38, hy + 17, histCard.W - 56, 14}, a.fonts["small"], rgb(139, 148, 164), DT_LEFT|DT_SINGLELINE)
+	}
+	if hRows == 0 {
+		text(dc, "As ações realizadas aparecerão aqui.", Rect{histCard.X + 18, histCard.Y + 72, histCard.W - 36, 28}, a.fonts["small"], rgb(120, 131, 150), DT_LEFT|DT_WORDBREAK)
+	}
+
+	summary := Rect{x + processW + gap + historyW + gap, row3Y, summaryW, row3H}
+	softCard(dc, summary)
+	text(dc, "Resumo do diagnóstico", Rect{summary.X + 18, summary.Y + 13, summary.W - 36, 22}, a.fonts["body"], rgb(42, 53, 72), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	healthy, warn, crit := dashboardCheckStats(s, centralOK)
+	total := healthy + warn + crit
+	ring := clamp32(summary.W*37/100, 82, 112)
+	rx := summary.X + 18
+	ry := summary.Y + 55
+	circle(dc, Rect{rx, ry, ring, ring}, choose(crit > 0, rgb(232, 77, 73), choose(warn > 0, rgb(241, 153, 32), rgb(42, 176, 91))))
+	circle(dc, Rect{rx + 12, ry + 12, ring - 24, ring - 24}, rgb(255, 255, 255))
+	text(dc, fmt.Sprintf("%d", total), Rect{rx + 10, ry + 25, ring - 20, 32}, a.fonts["h1"], rgb(31, 43, 63), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "checks", Rect{rx + 10, ry + 58, ring - 20, 18}, a.fonts["small"], rgb(126, 136, 153), DT_CENTER|DT_SINGLELINE)
+	legendX := rx + ring + 18
+	legendW := summary.X + summary.W - 18 - legendX
+	legendRows := []struct {
+		Name  string
+		Count int
+		Color uintptr
+	}{{"Saudável", healthy, rgb(42, 176, 91)}, {"Atenção", warn, rgb(241, 153, 32)}, {"Crítico", crit, rgb(232, 77, 73)}}
+	for i, l := range legendRows {
+		ly := ry + 8 + int32(i*30)
+		circle(dc, Rect{legendX, ly + 3, 8, 8}, l.Color)
+		text(dc, l.Name, Rect{legendX + 16, ly, legendW - 52, 17}, a.fonts["small"], rgb(82, 95, 116), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, fmt.Sprintf("%d", l.Count), Rect{summary.X + summary.W - 42, ly, 24, 17}, a.fonts["small"], rgb(82, 95, 116), DT_RIGHT|DT_SINGLELINE)
+	}
+	reportLink := Rect{summary.X + 18, summary.Y + summary.H - 33, 130, 22}
+	text(dc, "Gerar relatório completo", reportLink, a.fonts["small"], rgb(47, 124, 246), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	a.hits = append(a.hits, Hit{reportLink, "report", 0})
+
+	if footerH > 0 {
+		footerY := row3Y + row3H + gap
+		footer := Rect{x, footerY, w, footerH}
+		roundedBox(dc, footer, rgb(255, 255, 255), rgb(229, 233, 239), 10)
+		profileName := "Nenhum"
+		if activeProfile > 0 {
+			profileName = optimizationProfileName(activeProfile)
+		}
+		footerItems := []string{fmt.Sprintf("Tempo ligado  %s", formatDuration(s.Uptime)), fmt.Sprintf("Latência  %d ms", s.LatencyMS), fmt.Sprintf("Memória  %.0f%%", s.Memory), fmt.Sprintf("Disco  %.0f%%", s.Disk), "Perfil  " + profileName}
+		fw := footer.W / int32(len(footerItems))
+		for i, item := range footerItems {
+			text(dc, item, Rect{footer.X + int32(i)*fw + 12, footer.Y, fw - 24, footer.H}, a.fonts["small"], rgb(102, 114, 135), DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		}
+	}
 }
 
 func chooseText(cond bool, yes, no string) string {
@@ -194,46 +642,118 @@ func min(a, b int) int {
 	return b
 }
 
+func drawModuleIntro(dc syscall.Handle, r Rect, title, desc string) {
+	softCard(dc, r)
+	text(dc, title, Rect{r.X + 20, r.Y + 14, r.W - 40, 25}, app.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, desc, Rect{r.X + 20, r.Y + 42, r.W - 40, r.H - 52}, app.fonts["small"], rgb(111, 124, 145), DT_LEFT|DT_WORDBREAK)
+}
+
+func drawMiniStat(dc syscall.Handle, r Rect, label, value, detail string, color uintptr) {
+	softCard(dc, r)
+	text(dc, label, Rect{r.X + 16, r.Y + 14, r.W - 32, 20}, app.fonts["small"], rgb(103, 117, 139), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, value, Rect{r.X + 16, r.Y + 38, r.W - 32, 34}, app.fonts["h1"], color, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, detail, Rect{r.X + 16, r.Y + 76, r.W - 32, 28}, app.fonts["small"], rgb(117, 130, 150), DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS)
+}
+
+func drawStatusRow(dc syscall.Handle, r Rect, title, detail, status string, ok bool, actionLabel, action string) {
+	fill(dc, Rect{r.X, r.Y + r.H - 1, r.W, 1}, rgb(237, 239, 243))
+	circle(dc, Rect{r.X + 2, r.Y + 17, 10, 10}, choose(ok, rgb(42, 176, 91), rgb(241, 153, 32)))
+	text(dc, title, Rect{r.X + 24, r.Y + 8, 250, 24}, app.fonts["body"], rgb(37, 50, 71), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, detail, Rect{r.X + 24, r.Y + 32, r.W - 300, 22}, app.fonts["small"], rgb(112, 125, 146), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, status, Rect{r.X + r.W - 285, r.Y + 12, 110, 28}, app.fonts["small"], choose(ok, rgb(42, 176, 91), rgb(241, 153, 32)), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
+	if action != "" {
+		br := Rect{r.X + r.W - 155, r.Y + 9, 145, 36}
+		button(dc, actionLabel, br, false)
+		app.hits = append(app.hits, Hit{br, action, 0})
+	}
+}
+
 func (a *App) drawDiagnostics(dc syscall.Handle) {
 	x, y := contentOrigin()
 	a.mu.RLock()
 	s := a.sys
+	centralOK := a.centralOK
 	a.mu.RUnlock()
 	w := a.width - x - 28
-	card(dc, Rect{x, y, w, 170})
-	text(dc, "Identificação completa", Rect{x + 24, y + 18, 400, 30}, a.fonts["h2"], rgb(14, 35, 67), DT_LEFT|DT_SINGLELINE)
-	cols := [][]string{{"Nome do computador", s.Hostname}, {"Fabricante", nz(s.Manufacturer, "Não identificado")}, {"Modelo", nz(s.Model, "Não identificado")}, {"Número de série", nz(s.Serial, "Não identificado")}, {"Sistema", nz(s.OS, "Windows")}, {"Tempo ligado", formatDuration(s.Uptime)}}
-	for i, p := range cols {
-		cx := x + 24 + int32(i%3)*(w-48)/3
-		cy := y + 58 + int32(i/3)*52
-		text(dc, p[0], Rect{cx, cy, (w - 80) / 3, 18}, a.fonts["small"], rgb(103, 118, 142), DT_LEFT|DT_SINGLELINE)
-		text(dc, p[1], Rect{cx, cy + 19, (w - 80) / 3, 25}, a.fonts["body"], rgb(25, 43, 71), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-	}
-	sy := y + 190
-	cards := []struct {
-		title  string
-		value  string
-		detail string
-		pct    float64
-	}{{"Processador", fmt.Sprintf("%.0f%%", s.CPU), nz(s.CPUName, "Modelo não identificado"), s.CPU}, {"Memória RAM", fmt.Sprintf("%.1f GB", s.TotalRAMGB), fmt.Sprintf("%.1f GB em uso (%.0f%%)", s.UsedRAMGB, s.Memory), s.Memory}, {"Armazenamento", nz(s.DiskType, "Disco"), fmt.Sprintf("%s • %.0f GB livres", nz(s.DiskName, "Unidade C:"), s.DiskTotalGB-s.DiskUsedGB), s.Disk}, {"Rede", statusWord(s.InternetOK), fmt.Sprintf("Latência aproximada: %d ms", s.LatencyMS), boolPct(s.InternetOK)}, {"Áudio e microfone", audioWord(s), "Detecção segura pelos dispositivos do Windows", audioPct(s)}}
 	gap := int32(12)
-	cw := (w - gap) / 2
-	ch := int32(145)
-	for i, c := range cards {
-		col := int32(i % 2)
-		row := int32(i / 2)
-		rw := cw
-		if i == 4 {
-			col = 0
-			rw = w
-		}
-		r := Rect{x + col*(cw+gap), sy + row*(ch+gap), rw, ch}
-		card(dc, r)
-		text(dc, c.title, Rect{r.X + 20, r.Y + 16, 230, 26}, a.fonts["h2"], rgb(17, 38, 70), DT_LEFT|DT_SINGLELINE)
-		text(dc, c.value, Rect{r.X + 260, r.Y + 12, r.W - 285, 38}, a.fonts["h1"], metricColor(c.pct), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
-		text(dc, c.detail, Rect{r.X + 20, r.Y + 55, r.W - 40, 34}, a.fonts["body"], rgb(74, 91, 118), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-		progress(dc, Rect{r.X + 20, r.Y + 108, r.W - 40, 9}, c.pct, metricColor(c.pct))
+
+	// Identificação em uma faixa compacta, no mesmo padrão do Painel.
+	info := Rect{x, y, w, 120}
+	softCard(dc, info)
+	text(dc, "Identificação do computador", Rect{x + 20, y + 14, 310, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	items := []struct{ label, value string }{
+		{"Computador", nz(s.Hostname, "Não identificado")},
+		{"Sistema", nz(s.OS, "Windows")},
+		{"Fabricante / modelo", strings.TrimSpace(nz(s.Manufacturer, "Não identificado") + " • " + nz(s.Model, "Modelo não identificado"))},
+		{"Tempo ligado", formatDuration(s.Uptime)},
 	}
+	colW := (w - 40) / 4
+	for i, it := range items {
+		cx := x + 20 + int32(i)*colW
+		text(dc, it.label, Rect{cx, y + 52, colW - 16, 18}, a.fonts["small"], rgb(119, 131, 150), DT_LEFT|DT_SINGLELINE)
+		text(dc, it.value, Rect{cx, y + 72, colW - 16, 28}, a.fonts["body"], rgb(34, 47, 68), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+
+	metricY := y + 134
+	mw := (w - gap*3) / 4
+	metrics := []struct {
+		label, value, detail string
+		color                uintptr
+	}{
+		{"Processador", fmt.Sprintf("%.0f%%", s.CPU), nz(s.CPUName, "Processador"), metricColor(s.CPU)},
+		{"Memória RAM", fmt.Sprintf("%.0f%%", s.Memory), fmt.Sprintf("%.1f de %.1f GB em uso", s.UsedRAMGB, s.TotalRAMGB), metricColor(s.Memory)},
+		{"Armazenamento", fmt.Sprintf("%.0f%%", s.Disk), fmt.Sprintf("%.0f GB livres", s.DiskTotalGB-s.DiskUsedGB), metricColor(s.Disk)},
+		{"Internet", chooseText(s.InternetOK, "Online", "Offline"), fmt.Sprintf("Latência %d ms", s.LatencyMS), choose(s.InternetOK, rgb(42, 176, 91), rgb(232, 77, 73))},
+	}
+	for i, m := range metrics {
+		drawMiniStat(dc, Rect{x + int32(i)*(mw+gap), metricY, mw, 112}, m.label, m.value, m.detail, m.color)
+	}
+
+	bottomY := metricY + 126
+	leftW := (w - gap) * 58 / 100
+	rightW := w - gap - leftW
+	left := Rect{x, bottomY, leftW, 310}
+	right := Rect{x + leftW + gap, bottomY, rightW, 310}
+	softCard(dc, left)
+	softCard(dc, right)
+
+	text(dc, "Hardware e sistema", Rect{left.X + 20, left.Y + 15, left.W - 40, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	hardware := []struct{ k, v string }{
+		{"Processador", nz(s.CPUName, "Não identificado")},
+		{"Memória instalada", fmt.Sprintf("%.1f GB", s.TotalRAMGB)},
+		{"Disco principal", strings.TrimSpace(nz(s.DiskName, "Unidade C:") + " • " + nz(s.DiskType, "Armazenamento"))},
+		{"Capacidade", fmt.Sprintf("%.0f GB total • %.0f GB livres", s.DiskTotalGB, s.DiskTotalGB-s.DiskUsedGB)},
+		{"Número de série", nz(s.Serial, "Não identificado")},
+	}
+	for i, it := range hardware {
+		ry := left.Y + 56 + int32(i)*47
+		if i > 0 {
+			line(dc, left.X+20, ry-8, left.X+left.W-20, ry-8, rgb(238, 240, 244))
+		}
+		text(dc, it.k, Rect{left.X + 20, ry, 155, 20}, a.fonts["small"], rgb(118, 130, 149), DT_LEFT|DT_SINGLELINE)
+		text(dc, it.v, Rect{left.X + 185, ry - 2, left.W - 205, 24}, a.fonts["body"], rgb(41, 54, 75), DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+
+	text(dc, "Conectividade e dispositivos", Rect{right.X + 20, right.Y + 15, right.W - 40, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	statuses := []struct {
+		title, detail string
+		ok            bool
+	}{
+		{"Internet", fmt.Sprintf("Latência aproximada de %d ms", s.LatencyMS), s.InternetOK},
+		{"Áudio", chooseText(s.AudioOK, "Dispositivo de saída detectado", "Saída de áudio não detectada"), s.AudioOK},
+		{"Microfone", chooseText(s.MicOK, "Dispositivo de entrada detectado", "Microfone não detectado"), s.MicOK},
+		{"Central CoreControl", chooseText(centralOK, "Comunicação confirmada", "Conexão não confirmada"), centralOK},
+	}
+	for i, st := range statuses {
+		ry := right.Y + 51 + int32(i)*53
+		circle(dc, Rect{right.X + 20, ry + 8, 10, 10}, choose(st.ok, rgb(42, 176, 91), rgb(241, 153, 32)))
+		text(dc, st.title, Rect{right.X + 42, ry, 145, 22}, a.fonts["body"], rgb(38, 51, 72), DT_LEFT|DT_SINGLELINE)
+		text(dc, st.detail, Rect{right.X + 42, ry + 23, right.W - 145, 20}, a.fonts["small"], rgb(115, 128, 148), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, chooseText(st.ok, "OK", "Atenção"), Rect{right.X + right.W - 90, ry + 4, 65, 22}, a.fonts["small"], choose(st.ok, rgb(42, 176, 91), rgb(241, 153, 32)), DT_RIGHT|DT_SINGLELINE)
+	}
+	br := Rect{right.X + 20, right.Y + right.H - 52, right.W - 40, 36}
+	button(dc, "Atualizar diagnóstico", br, true)
+	a.hits = append(a.hits, Hit{br, "refresh-all", 0})
 }
 
 func statusWord(v bool) string {
@@ -278,34 +798,45 @@ func (a *App) drawTests(dc syscall.Handle) {
 	centralOK := a.centralOK
 	serverURL := a.serverURL
 	a.mu.RUnlock()
-	tests := []struct {
-		title, detail string
-		ok            bool
-		action        string
-	}{{"Internet", fmt.Sprintf("Conexão %s • latência %d ms", statusWord(s.InternetOK), s.LatencyMS), s.InternetOK, "test-internet"}, {"Áudio", boolText(s.AudioOK, "Saída de áudio detectada", "Saída de áudio não detectada"), s.AudioOK, "test-audio"}, {"Microfone", boolText(s.MicOK, "Microfone detectado", "Microfone não detectado"), s.MicOK, "test-audio"}, {"Acesso ao CoreTuner Central", serverURL, centralOK, "refresh-central"}}
-	text(dc, "Testes rápidos", Rect{x, y, w, 35}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	for i, t := range tests {
-		r := Rect{x, y + 55 + int32(i)*120, w, 100}
-		card(dc, r)
-		c := rgb(39, 164, 88)
-		sym := "✓"
-		if !t.ok {
-			c = rgb(235, 91, 73)
-			sym = "!"
-		}
-		circle(dc, Rect{r.X + 22, r.Y + 24, 50, 50}, choose(t.ok, rgb(228, 248, 237), rgb(255, 235, 232)))
-		text(dc, sym, Rect{r.X + 22, r.Y + 24, 50, 50}, a.fonts["h1"], c, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-		text(dc, t.title, Rect{r.X + 92, r.Y + 18, 420, 28}, a.fonts["h2"], rgb(17, 38, 70), DT_LEFT|DT_SINGLELINE)
-		text(dc, t.detail, Rect{r.X + 92, r.Y + 51, r.W - 360, 28}, a.fonts["body"], rgb(82, 99, 126), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-		br := Rect{r.X + r.W - 220, r.Y + 28, 180, 40}
-		button(dc, "Executar teste", br, false)
-		a.hits = append(a.hits, Hit{br, t.action, 0})
+	gap := int32(12)
+	mw := (w - gap*3) / 4
+	cards := []struct {
+		label, value, detail string
+		ok                   bool
+	}{
+		{"Internet", chooseText(s.InternetOK, "Online", "Offline"), fmt.Sprintf("Latência %d ms", s.LatencyMS), s.InternetOK},
+		{"Áudio", chooseText(s.AudioOK, "Detectado", "Atenção"), "Saída de áudio do Windows", s.AudioOK},
+		{"Microfone", chooseText(s.MicOK, "Detectado", "Atenção"), "Entrada de áudio do Windows", s.MicOK},
+		{"CoreControl", chooseText(centralOK, "Conectado", "Atenção"), nz(serverURL, "Servidor não definido"), centralOK},
 	}
-	noteY := y + 55 + int32(len(tests))*120 + 15
-	card(dc, Rect{x, noteY, w, 120})
-	text(dc, "Privacidade", Rect{x + 22, noteY + 18, 250, 28}, a.fonts["h2"], rgb(18, 101, 246), DT_LEFT|DT_SINGLELINE)
-	text(dc, "Os testes verificam somente conexão e dispositivos técnicos. Nenhum áudio é gravado permanentemente e nenhum documento é acessado.", Rect{x + 22, noteY + 54, w - 44, 54}, a.fonts["body"], rgb(68, 86, 115), DT_LEFT|DT_WORDBREAK)
+	for i, c := range cards {
+		color := choose(c.ok, rgb(42, 176, 91), rgb(241, 153, 32))
+		drawMiniStat(dc, Rect{x + int32(i)*(mw+gap), y, mw, 112}, c.label, c.value, c.detail, color)
+	}
+
+	panelY := y + 126
+	panel := Rect{x, panelY, w, 360}
+	softCard(dc, panel)
+	text(dc, "Central de testes", Rect{x + 20, panelY + 14, 260, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "Execute novamente qualquer verificação sem alterar configurações do computador.", Rect{x + 20, panelY + 42, w - 40, 22}, a.fonts["small"], rgb(112, 125, 146), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	tests := []struct {
+		title, detail, status, action string
+		ok                            bool
+	}{
+		{"Conectividade com a internet", fmt.Sprintf("Verifica acesso e atualiza a latência atual (%d ms).", s.LatencyMS), chooseText(s.InternetOK, "Funcionando", "Verificar"), "test-internet", s.InternetOK},
+		{"Saída de áudio", chooseText(s.AudioOK, "Dispositivo de saída detectado pelo Windows.", "Nenhuma saída de áudio foi confirmada."), chooseText(s.AudioOK, "Detectado", "Atenção"), "test-audio", s.AudioOK},
+		{"Microfone", chooseText(s.MicOK, "Dispositivo de entrada detectado pelo Windows.", "Nenhum microfone foi confirmado."), chooseText(s.MicOK, "Detectado", "Atenção"), "test-audio", s.MicOK},
+		{"Conexão com a Central", nz(serverURL, "Servidor não configurado"), chooseText(centralOK, "Conectado", "Verificar"), "refresh-central", centralOK},
+	}
+	for i, t := range tests {
+		r := Rect{panel.X + 20, panel.Y + 73 + int32(i)*67, panel.W - 40, 58}
+		drawStatusRow(dc, r, t.title, t.detail, t.status, t.ok, "Executar teste", t.action)
+	}
+
+	note := Rect{x, panelY + 374, w, 112}
+	drawModuleIntro(dc, note, "Privacidade durante os testes", "As verificações usam apenas informações técnicas do Windows e conectividade. O CoreControl não grava conversas, não lê documentos e não acessa senhas para executar estes testes.")
 }
+
 func boolText(v bool, a, b string) string {
 	if v {
 		return a
@@ -322,40 +853,41 @@ func (a *App) drawOptimizations(dc syscall.Handle) {
 	optimizationNote := a.optimizationNote
 	optimizationBusy := a.optimizationBusy
 	a.mu.RUnlock()
+	verification, _ := loadOptimizationVerification()
+	gap := int32(10)
 
-	text(dc, "Perfis de otimização", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	intro := "Nenhum perfil é aplicado automaticamente. Selecione um perfil para ver exatamente o que será alterado."
+	intro := "Nenhum perfil é aplicado automaticamente. Escolha um perfil para revisar as alterações antes de confirmar."
 	if activeProfile > 0 {
 		intro = "Perfil ativo: " + optimizationProfileName(activeProfile)
 		if !activeAt.IsZero() {
-			intro += " • aplicado em " + activeAt.Format("02/01/2006 15:04")
+			intro += " • " + activeAt.Format("02/01/2006 15:04")
 		}
 	}
-	text(dc, intro, Rect{x, y + 38, w, 30}, a.fonts["body"], rgb(81, 98, 126), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	drawModuleIntro(dc, Rect{x, y, w, 76}, "Otimização segura", intro)
 
-	cw := (w - 40) / 5
+	cardY := y + 90
+	cw := (w - gap*4) / 5
 	for i := 1; i <= 5; i++ {
-		profileInfo := optimizationProfileExplanation(i)
-		r := Rect{x + int32(i-1)*(cw+10), y + 90, cw, 250}
+		p := optimizationProfileExplanation(i)
+		r := Rect{x + int32(i-1)*(cw+gap), cardY, cw, 166}
 		selected := a.profile == i
 		active := activeProfile == i
+		softCard(dc, r)
+		if selected || active {
+			roundedBox(dc, Rect{r.X + 1, r.Y + 1, r.W - 2, r.H - 2}, rgb(250, 252, 255), rgb(92, 151, 246), 11)
+		}
+		circle(dc, Rect{r.X + 16, r.Y + 16, 32, 32}, choose(selected || active, rgb(234, 243, 255), rgb(244, 246, 249)))
+		text(dc, fmt.Sprintf("%d", i), Rect{r.X + 16, r.Y + 16, 32, 32}, a.fonts["small"], choose(selected || active, rgb(47, 124, 246), rgb(103, 116, 138)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, p.Name, Rect{r.X + 58, r.Y + 15, r.W - 72, 26}, a.fonts["body"], rgb(34, 47, 68), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, p.Short, Rect{r.X + 16, r.Y + 58, r.W - 32, 48}, a.fonts["small"], rgb(112, 125, 146), DT_LEFT|DT_WORDBREAK)
+		status := "Ver e selecionar"
 		if active {
-			roundedBox(dc, r, rgb(248, 253, 254), rgb(0, 151, 170), 14)
-		} else {
-			card(dc, r)
+			status = "Ativo"
+		} else if selected {
+			status = "Selecionado"
 		}
-		circle(dc, Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, choose(selected || active, rgb(220, 236, 255), rgb(239, 243, 248)))
-		text(dc, fmt.Sprintf("%d", i), Rect{r.X + r.W/2 - 32, r.Y + 22, 64, 64}, a.fonts["h1"], choose(selected || active, rgb(18, 101, 246), rgb(82, 101, 131)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-		text(dc, profileInfo.Name, Rect{r.X + 10, r.Y + 100, r.W - 20, 34}, a.fonts["h2"], choose(selected || active, rgb(18, 101, 246), rgb(20, 42, 74)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-		text(dc, profileInfo.Short, Rect{r.X + 16, r.Y + 140, r.W - 32, 62}, a.fonts["small"], rgb(78, 95, 123), DT_CENTER|DT_WORDBREAK)
-		br := Rect{r.X + 18, r.Y + 205, r.W - 36, 34}
-		label := "Ver e selecionar"
-		if selected {
-			label = "Selecionado"
-		} else if active {
-			label = "Ativo • ver detalhes"
-		}
-		button(dc, label, br, selected)
+		br := Rect{r.X + 16, r.Y + r.H - 46, r.W - 32, 32}
+		button(dc, status, br, selected)
 		if !optimizationBusy {
 			a.hits = append(a.hits, Hit{br, "profile", i})
 		}
@@ -369,58 +901,107 @@ func (a *App) drawOptimizations(dc syscall.Handle) {
 		detailProfile = 1
 	}
 	detail := optimizationProfileExplanation(detailProfile)
-
-	sy := y + 370
-	detailH := int32(265)
-	card(dc, Rect{x, sy, w, detailH})
-	leftW := w * 64 / 100
-	line(dc, x+leftW, sy+18, x+leftW, sy+detailH-18, rgb(226, 233, 241))
-
-	text(dc, "O que o perfil "+detail.Name+" fará", Rect{x + 22, sy + 16, leftW - 44, 30}, a.fonts["h2"], rgb(18, 101, 246), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
-	text(dc, detail.Summary, Rect{x + 22, sy + 48, leftW - 44, 42}, a.fonts["body"], rgb(74, 92, 121), DT_LEFT|DT_WORDBREAK)
+	bottomY := cardY + 180
+	leftW := (w - gap) * 62 / 100
+	left := Rect{x, bottomY, leftW, 300}
+	right := Rect{x + leftW + gap, bottomY, w - leftW - gap, 300}
+	softCard(dc, left)
+	softCard(dc, right)
+	text(dc, "O que o perfil "+detail.Name+" fará", Rect{left.X + 20, left.Y + 15, left.W - 40, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, detail.Name+" — "+detail.Summary, Rect{left.X + 20, left.Y + 46, left.W - 40, 42}, a.fonts["small"], rgb(108, 122, 143), DT_LEFT|DT_WORDBREAK)
 	for i, action := range detail.Actions {
-		text(dc, "✓", Rect{x + 24, sy + 96 + int32(i*32), 20, 26}, a.fonts["body"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE)
-		text(dc, action, Rect{x + 48, sy + 94 + int32(i*32), leftW - 72, 30}, a.fonts["body"], rgb(43, 70, 94), DT_LEFT|DT_WORDBREAK)
+		if i >= 4 {
+			break
+		}
+		ry := left.Y + 98 + int32(i)*38
+		circle(dc, Rect{left.X + 21, ry + 5, 8, 8}, rgb(42, 176, 91))
+		text(dc, action, Rect{left.X + 42, ry, left.W - 62, 30}, a.fonts["body"], rgb(48, 62, 83), DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS)
 	}
-	text(dc, detail.Result, Rect{x + 22, sy + 220, leftW - 44, 34}, a.fonts["small"], rgb(58, 79, 107), DT_LEFT|DT_WORDBREAK)
+	text(dc, detail.Result, Rect{left.X + 20, left.Y + 250, left.W - 40, 34}, a.fonts["small"], rgb(104, 118, 139), DT_LEFT|DT_WORDBREAK)
 
-	rightX := x + leftW + 22
-	rightW := w - leftW - 44
-	text(dc, "Proteções em todos os perfis", Rect{rightX, sy + 16, rightW, 30}, a.fonts["h2"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
-	protected := []string{
-		"Nenhum arquivo ou pasta é apagado ou movido.",
-		"Defender e Firewall não são desativados.",
-		"Registro, Lixeira e Downloads não são limpos.",
-		"Nenhum programa é encerrado à força.",
-		"Sem backup seguro, nenhuma alteração é iniciada.",
+	if verification != nil {
+		verifiedAll := verification.Total > 0 && verification.Confirmed == verification.Total && verification.Error == ""
+		title := "Aplicado e verificado"
+		accent := rgb(42, 176, 91)
+		if verification.Profile == 5 {
+			title = "Otimização desativada"
+			if !verifiedAll {
+				title = "Restauração com observações"
+				accent = rgb(244, 148, 35)
+			}
+		} else if !verifiedAll {
+			title = "Aplicado com observações"
+			accent = rgb(244, 148, 35)
+		}
+		circle(dc, Rect{right.X + 20, right.Y + 18, 11, 11}, accent)
+		text(dc, title, Rect{right.X + 42, right.Y + 10, right.W - 62, 28}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		summary := fmt.Sprintf("%d de %d alterações confirmadas pelo Windows • %s", verification.Confirmed, verification.Total, verification.At.Format("15:04"))
+		if verification.Profile == 5 && verifiedAll {
+			summary = "Nenhum perfil ativo • configurações originais restauradas • " + verification.At.Format("15:04")
+		} else if verification.Total == 0 {
+			summary = "Operação concluída e registrada • " + verification.At.Format("15:04")
+		}
+		text(dc, summary, Rect{right.X + 20, right.Y + 42, right.W - 40, 22}, a.fonts["small"], rgb(106, 120, 141), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		shown := 0
+		for _, item := range verification.Items {
+			if shown >= 4 {
+				break
+			}
+			ry := right.Y + 76 + int32(shown)*34
+			dot := rgb(113, 126, 146)
+			if item.Status == "verified" {
+				dot = rgb(42, 176, 91)
+			} else if item.Status == "warning" {
+				dot = rgb(244, 148, 35)
+			}
+			circle(dc, Rect{right.X + 20, ry + 5, 9, 9}, dot)
+			value := item.After
+			if value == "" {
+				value = item.Note
+			}
+			text(dc, item.Label, Rect{right.X + 42, ry - 2, right.W * 48 / 100, 22}, a.fonts["body"], rgb(48, 62, 83), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			text(dc, value, Rect{right.X + right.W*52/100, ry - 2, right.W*48/100 - 20, 22}, a.fonts["small"], dot, DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			shown++
+		}
+		compare := Rect{right.X + 20, right.Y + right.H - 96, right.W - 40, 32}
+		button(dc, "Ver antes × depois", compare, false)
+		a.hits = append(a.hits, Hit{compare, "comparison-report", 0})
+	} else {
+		text(dc, "Proteções em todos os perfis", Rect{right.X + 20, right.Y + 15, right.W - 40, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		protected := []string{"Sem backup seguro, nenhuma alteração é iniciada.", "Nenhum arquivo ou pasta é apagado ou movido.", "Defender e Firewall preservados", "Nenhum programa encerrado à força", "Restauração disponível"}
+		for i, item := range protected {
+			ry := right.Y + 55 + int32(i)*38
+			circle(dc, Rect{right.X + 20, ry + 4, 9, 9}, rgb(42, 176, 91))
+			text(dc, item, Rect{right.X + 42, ry - 2, right.W - 62, 24}, a.fonts["body"], rgb(48, 62, 83), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		}
 	}
-	for i, item := range protected {
-		text(dc, "✓", Rect{rightX + 2, sy + 58 + int32(i*34), 20, 28}, a.fonts["body"], rgb(31, 151, 83), DT_LEFT|DT_SINGLELINE)
-		text(dc, item, Rect{rightX + 25, sy + 56 + int32(i*34), rightW - 25, 32}, a.fonts["body"], rgb(43, 91, 67), DT_LEFT|DT_WORDBREAK)
-	}
-
-	buttonsY := sy + detailH + 20
-	apply := Rect{x, buttonsY, 260, 42}
-	applyLabel := "Aplicar perfil com backup"
+	apply := Rect{right.X + 20, right.Y + right.H - 56, right.W - 40, 38}
+	label := "Aplicar perfil com backup"
 	if a.profile == 5 {
-		applyLabel = "Restaurar configurações"
+		label = "Desativar perfil e restaurar"
+	} else if verification != nil && a.profile != 0 && verification.Profile == a.profile {
+		label = "Aplicar novamente e verificar"
 	}
 	if optimizationBusy {
-		applyLabel = "Aplicando com segurança..."
+		label = "Aplicando e verificando..."
 	}
-	button(dc, applyLabel, apply, true)
-	if !optimizationBusy {
-		a.hits = append(a.hits, Hit{apply, "apply-profile", 0})
+	if activeProfile > 0 && a.profile != 5 && !optimizationBusy {
+		disableW := (apply.W - 10) * 38 / 100
+		disable := Rect{apply.X, apply.Y, disableW, apply.H}
+		primary := Rect{apply.X + disableW + 10, apply.Y, apply.W - disableW - 10, apply.H}
+		button(dc, "Desativar perfil", disable, false)
+		button(dc, label, primary, true)
+		a.hits = append(a.hits, Hit{disable, "disable-profile", 0})
+		a.hits = append(a.hits, Hit{primary, "apply-profile", 0})
+	} else {
+		button(dc, label, apply, true)
+		if !optimizationBusy {
+			a.hits = append(a.hits, Hit{apply, "apply-profile", 0})
+		}
 	}
-	reset := Rect{x + 280, buttonsY, 210, 42}
-	button(dc, "Cancelar seleção", reset, false)
-	if !optimizationBusy {
-		a.hits = append(a.hits, Hit{reset, "cancel-profile", 0})
+	if optimizationNote != "" {
+		text(dc, optimizationNote, Rect{x, bottomY + 312, w, 28}, a.fonts["small"], rgb(109, 122, 143), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
 	}
-	if optimizationNote == "" {
-		optimizationNote = "O backup original nunca é substituído enquanto existir um perfil ativo."
-	}
-	text(dc, optimizationNote, Rect{x + 520, buttonsY - 2, w - 520, 48}, a.fonts["small"], rgb(91, 107, 132), DT_LEFT|DT_WORDBREAK)
 }
 
 func (a *App) refreshOptimizationSummary() {
@@ -442,52 +1023,519 @@ func chooseLabel(c bool, a, b string) string {
 
 func (a *App) drawPrograms(dc syscall.Handle) {
 	x, y := contentOrigin()
+	y -= a.pageScrollY
 	w := a.width - x - 28
+	if w < 360 {
+		w = 360
+	}
 	a.mu.RLock()
-	p := append([]ProcessInfo(nil), a.processes...)
+	apps := append([]ActivityApp(nil), a.activityApps...)
+	processes := append([]ProcessInfo(nil), a.processes...)
+	sessions := append([]ActivitySession(nil), a.activitySessions...)
+	var current *ActivitySession
+	if a.activityCurrent != nil {
+		copyCurrent := *a.activityCurrent
+		current = &copyCurrent
+	}
+	s := a.sys
 	a.mu.RUnlock()
-	text(dc, "Programas e processos", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	text(dc, "Lista somente para diagnóstico. O CoreTuner não finaliza programas à força.", Rect{x, y + 38, w, 25}, a.fonts["body"], rgb(80, 97, 125), DT_LEFT|DT_SINGLELINE)
-	card(dc, Rect{x, y + 80, w, 520})
-	headers := []struct {
-		s string
-		x int32
-		w int32
-	}{{"Programa", x + 24, w - 420}, {"PID", x + w - 380, 90}, {"CPU acumulada", x + w - 280, 120}, {"Memória", x + w - 145, 110}}
-	for _, h := range headers {
-		text(dc, h.s, Rect{h.x, y + 98, h.w, 28}, a.fonts["h2"], rgb(31, 52, 83), DT_LEFT|DT_SINGLELINE)
+
+	now := time.Now()
+	groups := buildActivityGroups(apps, processes)
+	focusName := "Nenhum aplicativo"
+	focusDetail := "Aguardando uma janela em primeiro plano"
+	if current != nil {
+		focusName = friendlyProcessName(nz(current.ProcessName, "Aplicativo"))
+		focusDetail = nz(current.WindowTitle, "Janela em primeiro plano")
 	}
-	line(dc, x+20, y+135, x+w-20, y+135, rgb(226, 231, 239))
-	for i, v := range p[:min(12, len(p))] {
-		ry := y + 145 + int32(i*34)
-		if i%2 == 1 {
-			fill(dc, Rect{x + 14, ry - 2, w - 28, 32}, rgb(249, 251, 254))
+
+	// Layout adaptativo: as colunas menos importantes desaparecem primeiro.
+	compactHeader := w < 760
+	showStatus := w >= 610
+	showDisk := w >= 760
+	showNet := w >= 860
+	rowH := int32(34)
+	headOffset := int32(126)
+	if compactHeader {
+		headOffset = 166
+	}
+	panelH := headOffset + 54 + int32(len(groups))*rowH
+	minPanelH := int32(520)
+	if compactHeader {
+		minPanelH = 560
+	}
+	if panelH < minPanelH {
+		panelH = minPanelH
+	}
+
+	panel := Rect{x, y, w, panelH}
+	softCard(dc, panel)
+	text(dc, "Processos e aplicativos", Rect{panel.X + 20, panel.Y + 15, panel.W - 40, 28}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+
+	stats := []struct {
+		v, l string
+		c    uintptr
+	}{
+		{fmt.Sprintf("%.0f%%", s.CPU), "CPU", metricColor(s.CPU)},
+		{fmt.Sprintf("%.0f%%", s.Memory), "RAM", metricColor(s.Memory)},
+		{fmt.Sprintf("%.0f%%", s.Disk), "Disco", metricColor(s.Disk)},
+		{chooseLabel(s.InternetOK, "Online", "Offline"), "Rede", choose(s.InternetOK, rgb(42, 176, 91), rgb(232, 77, 73))},
+	}
+
+	if !compactHeader {
+		statW := int32(68)
+		statGap := int32(7)
+		statsX := panel.X + panel.W - 20 - int32(len(stats))*statW - int32(len(stats)-1)*statGap
+		leftInfoW := statsX - (panel.X + 20) - 16
+		if leftInfoW < 160 {
+			leftInfoW = 160
 		}
-		text(dc, v.Name, Rect{x + 24, ry, w - 430, 28}, a.fonts["body"], rgb(35, 52, 79), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-		text(dc, fmt.Sprint(v.PID), Rect{x + w - 380, ry, 90, 28}, a.fonts["body"], rgb(75, 91, 117), DT_LEFT|DT_SINGLELINE)
-		text(dc, fmt.Sprintf("%.1f s", v.CPU), Rect{x + w - 280, ry, 120, 28}, a.fonts["body"], rgb(75, 91, 117), DT_LEFT|DT_SINGLELINE)
-		text(dc, fmt.Sprintf("%.0f MB", v.MemoryMB), Rect{x + w - 145, ry, 110, 28}, a.fonts["body"], rgb(75, 91, 117), DT_RIGHT|DT_SINGLELINE)
+		text(dc, "Tudo que está rodando neste computador, com uso de recursos e janela atual.", Rect{panel.X + 20, panel.Y + 43, leftInfoW, 20}, a.fonts["small"], rgb(108, 122, 143), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, "Em foco: "+focusName+" • "+focusDetail, Rect{panel.X + 20, panel.Y + 68, leftInfoW, 20}, a.fonts["small"], rgb(47, 124, 246), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		for i, st := range stats {
+			sx := statsX + int32(i)*(statW+statGap)
+			r := Rect{sx, panel.Y + 14, statW, 58}
+			roundedBox(dc, r, rgb(248, 250, 253), rgb(226, 232, 240), 8)
+			text(dc, st.v, Rect{r.X + 2, r.Y + 8, r.W - 4, 20}, a.fonts["body"], st.c, DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+			text(dc, st.l, Rect{r.X + 2, r.Y + 32, r.W - 4, 16}, a.fonts["small"], rgb(109, 122, 143), DT_CENTER|DT_SINGLELINE)
+		}
+		refresh := Rect{panel.X + panel.W - 130, panel.Y + 82, 108, 32}
+		button(dc, "Atualizar", refresh, false)
+		a.hits = append(a.hits, Hit{refresh, "refresh-activity", 0})
+	} else {
+		text(dc, "Em foco: "+focusName+" • "+focusDetail, Rect{panel.X + 20, panel.Y + 45, panel.W - 40, 20}, a.fonts["small"], rgb(47, 124, 246), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		statGap := int32(6)
+		statW := (panel.W - 40 - statGap*3) / 4
+		for i, st := range stats {
+			sx := panel.X + 20 + int32(i)*(statW+statGap)
+			r := Rect{sx, panel.Y + 76, statW, 50}
+			roundedBox(dc, r, rgb(248, 250, 253), rgb(226, 232, 240), 8)
+			text(dc, st.v, Rect{r.X + 2, r.Y + 6, r.W - 4, 18}, a.fonts["small"], st.c, DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+			text(dc, st.l, Rect{r.X + 2, r.Y + 28, r.W - 4, 15}, a.fonts["small"], rgb(109, 122, 143), DT_CENTER|DT_SINGLELINE)
+		}
+		refreshW := clamp32(panel.W/4, 88, 118)
+		refresh := Rect{panel.X + panel.W - 20 - refreshW, panel.Y + 132, refreshW, 28}
+		button(dc, "Atualizar", refresh, false)
+		a.hits = append(a.hits, Hit{refresh, "refresh-activity", 0})
 	}
-	br := Rect{x, y + 620, 220, 42}
-	button(dc, "Atualizar processos", br, false)
-	a.hits = append(a.hits, Hit{br, "refresh-local", 0})
+
+	headY := panel.Y + headOffset
+	innerX := panel.X + 14
+	innerW := panel.W - 28
+	fill(dc, Rect{innerX, headY, innerW, 38}, rgb(247, 249, 252))
+	line(dc, innerX, headY+38, innerX+innerW, headY+38, rgb(226, 231, 238))
+
+	nameX := panel.X + 24
+	right := panel.X + panel.W - 24
+	metricGap := int32(6)
+	var netX, diskX int32
+	netW := int32(64)
+	diskW := int32(66)
+	memW := int32(76)
+	cpuW := int32(62)
+	if showNet {
+		netX = right - netW
+		right = netX - metricGap
+	}
+	if showDisk {
+		diskX = right - diskW
+		right = diskX - metricGap
+	}
+	memX := right - memW
+	right = memX - metricGap
+	cpuX := right - cpuW
+	right = cpuX - metricGap
+	statusX := int32(0)
+	statusW := int32(0)
+	if showStatus {
+		statusW = clamp32(panel.W*11/100, 72, 112)
+		statusX = right - statusW
+		right = statusX - 10
+	}
+	nameW := right - nameX
+	if nameW < 120 {
+		nameW = 120
+	}
+	showSubTitle := nameW >= 180
+
+	text(dc, "Nome", Rect{nameX, headY + 10, nameW, 20}, a.fonts["small"], rgb(101, 115, 136), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	if showStatus {
+		text(dc, "Status", Rect{statusX, headY + 10, statusW, 20}, a.fonts["small"], rgb(101, 115, 136), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+	text(dc, fmt.Sprintf("%.0f%% CPU", s.CPU), Rect{cpuX, headY + 10, cpuW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, fmt.Sprintf("%.0f%% RAM", s.Memory), Rect{memX, headY + 10, memW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	if showDisk {
+		text(dc, "Disco", Rect{diskX, headY + 10, diskW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE)
+	}
+	if showNet {
+		text(dc, "Rede", Rect{netX, headY + 10, netW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE)
+	}
+
+	rows := len(groups)
+	if rows == 0 {
+		text(dc, "Nenhum processo foi encontrado.", Rect{panel.X + 20, headY + 80, panel.W - 40, 30}, a.fonts["body"], rgb(109, 122, 143), DT_CENTER|DT_SINGLELINE)
+	} else {
+		maxMem := 1.0
+		maxCPU := 1.0
+		for _, g := range groups {
+			if g.MemoryMB > maxMem {
+				maxMem = g.MemoryMB
+			}
+			if g.CPU > maxCPU {
+				maxCPU = g.CPU
+			}
+		}
+		for i, g := range groups {
+			ry := headY + 40 + int32(i)*rowH
+			row := Rect{innerX, ry, innerW, rowH}
+			if i%2 == 1 {
+				fill(dc, row, rgb(251, 252, 254))
+			}
+			if g.Focused {
+				roundedBox(dc, row, rgb(237, 245, 255), rgb(160, 196, 246), 5)
+			}
+			fill(dc, Rect{cpuX, ry + 2, cpuW, 30}, activityHeatColorLight(g.CPU, maxCPU))
+			fill(dc, Rect{memX, ry + 2, memW, 30}, activityHeatColorLight(g.MemoryMB, maxMem))
+			if showDisk {
+				fill(dc, Rect{diskX, ry + 2, diskW, 30}, rgb(249, 250, 252))
+			}
+			if showNet {
+				fill(dc, Rect{netX, ry + 2, netW, 30}, rgb(249, 250, 252))
+			}
+
+			arrowW := int32(12)
+			dotX := nameX + arrowW + 6
+			labelX := dotX + 16
+			labelW := nameW - (labelX - nameX)
+			if labelW < 70 {
+				labelW = 70
+			}
+			text(dc, "›", Rect{nameX, ry + 7, arrowW, 18}, a.fonts["body"], rgb(126, 139, 159), DT_LEFT|DT_SINGLELINE)
+			circle(dc, Rect{dotX, ry + 11, 7, 7}, choose(g.Focused, rgb(47, 124, 246), rgb(160, 174, 195)))
+			label := friendlyProcessName(g.Name)
+			if g.Count > 1 {
+				label = fmt.Sprintf("%s (%d)", label, g.Count)
+			}
+			labelY := ry + 7
+			if showSubTitle {
+				labelY = ry + 3
+			}
+			text(dc, label, Rect{labelX, labelY, labelW, 20}, a.fonts["body"], rgb(40, 54, 75), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			if showSubTitle {
+				sub := g.Title
+				if sub == "" {
+					sub = chooseText(g.Visible, "Janela aberta", "Processo em segundo plano")
+				}
+				text(dc, sub, Rect{labelX, ry + 18, labelW, 14}, a.fonts["small"], rgb(115, 128, 148), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			}
+
+			status := "Segundo plano"
+			statusColor := rgb(117, 130, 150)
+			if g.Focused {
+				status, statusColor = "Em uso", rgb(39, 151, 91)
+			} else if g.Visible {
+				status = "Aberto"
+			}
+			if showStatus {
+				text(dc, status, Rect{statusX, ry + 7, statusW, 18}, a.fonts["small"], statusColor, DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			}
+			text(dc, fmt.Sprintf("%.1f%%", g.CPU), Rect{cpuX + 4, ry + 7, cpuW - 8, 18}, a.fonts["small"], rgb(54, 67, 88), DT_RIGHT|DT_SINGLELINE)
+			text(dc, formatMemoryMB(g.MemoryMB), Rect{memX + 4, ry + 7, memW - 8, 18}, a.fonts["small"], rgb(54, 67, 88), DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			if showDisk {
+				text(dc, "—", Rect{diskX + 4, ry + 7, diskW - 8, 18}, a.fonts["small"], rgb(117, 130, 150), DT_RIGHT|DT_SINGLELINE)
+			}
+			if showNet {
+				text(dc, "—", Rect{netX + 4, ry + 7, netW - 8, 18}, a.fonts["small"], rgb(117, 130, 150), DT_RIGHT|DT_SINGLELINE)
+			}
+		}
+	}
+
+	bottomY := y + panelH + 12
+	stackBottom := w < 760
+	var recent, summary Rect
+	if stackBottom {
+		recent = Rect{x, bottomY, w, 172}
+		summary = Rect{x, bottomY + 184, w, 172}
+	} else {
+		leftW := (w - 12) * 58 / 100
+		recent = Rect{x, bottomY, leftW, 172}
+		summary = Rect{x + leftW + 12, bottomY, w - leftW - 12, 172}
+	}
+	softCard(dc, recent)
+	softCard(dc, summary)
+	text(dc, "Trocas recentes", Rect{recent.X + 20, recent.Y + 14, recent.W - 40, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, "Aplicativos e janelas usados mais recentemente", Rect{recent.X + 20, recent.Y + 42, recent.W - 40, 18}, a.fonts["small"], rgb(113, 126, 147), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	recentItems := activityRecentSessions(sessions, current, 4)
+	if len(recentItems) == 0 {
+		text(dc, "A linha do tempo começa assim que você alterna entre aplicativos.", Rect{recent.X + 20, recent.Y + 90, recent.W - 40, 24}, a.fonts["small"], rgb(110, 123, 144), DT_LEFT|DT_WORDBREAK)
+	} else {
+		for i, item := range recentItems {
+			ry := recent.Y + 72 + int32(i)*24
+			circle(dc, Rect{recent.X + 22, ry + 6, 7, 7}, choose(i == 0 && current != nil && item.EndedAt.IsZero(), rgb(39, 179, 99), rgb(132, 150, 178)))
+			nameWRecent := clamp32(recent.W*24/100, 90, 145)
+			text(dc, friendlyProcessName(item.ProcessName), Rect{recent.X + 40, ry, nameWRecent, 20}, a.fonts["small"], rgb(45, 58, 79), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			titleX := recent.X + 48 + nameWRecent
+			timeW := int32(72)
+			titleW := recent.X + recent.W - 24 - timeW - titleX - 8
+			if titleW > 40 {
+				text(dc, item.WindowTitle, Rect{titleX, ry, titleW, 20}, a.fonts["small"], rgb(105, 119, 140), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			}
+			text(dc, formatActivitySeconds(item.ActiveSeconds), Rect{recent.X + recent.W - 24 - timeW, ry, timeW, 20}, a.fonts["small"], rgb(105, 119, 140), DT_RIGHT|DT_SINGLELINE)
+		}
+	}
+
+	text(dc, "Resumo técnico", Rect{summary.X + 20, summary.Y + 14, summary.W - 40, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	items := []string{
+		"Processos/grupos listados: " + fmt.Sprint(len(groups)),
+		"Janelas visíveis: " + fmt.Sprint(len(apps)),
+		"Tempo em foco hoje: " + formatActivitySeconds(activitySecondsToday(sessions, current, now)),
+		"Não registra teclas nem senhas.",
+	}
+	for i, item := range items {
+		ry := summary.Y + 52 + int32(i)*26
+		circle(dc, Rect{summary.X + 20, ry + 6, 7, 7}, rgb(42, 176, 91))
+		text(dc, item, Rect{summary.X + 38, ry, summary.W - 58, 20}, a.fonts["small"], rgb(76, 91, 113), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+}
+
+type activityGroup struct {
+	Name          string
+	Count         int
+	CPU           float64
+	MemoryMB      float64
+	Focused       bool
+	Visible       bool
+	ActiveSeconds int64
+	Title         string
+}
+
+func buildActivityGroups(apps []ActivityApp, processes []ProcessInfo) []activityGroup {
+	groups := map[string]*activityGroup{}
+	ensure := func(name string) *activityGroup {
+		key := strings.ToLower(strings.TrimSpace(name))
+		if key == "" {
+			key = "processo"
+			name = "Processo"
+		}
+		if existing, ok := groups[key]; ok {
+			return existing
+		}
+		item := &activityGroup{Name: name}
+		groups[key] = item
+		return item
+	}
+	for _, proc := range processes {
+		g := ensure(proc.Name)
+		g.Count++
+		g.CPU += proc.CPU
+		g.MemoryMB += proc.MemoryMB
+	}
+	for _, app := range apps {
+		g := ensure(app.Name)
+		if g.Count == 0 {
+			g.Count = 1
+			g.MemoryMB += app.MemoryMB
+			g.CPU += app.CPU
+		}
+		g.Visible = true
+		if app.Focused {
+			g.Focused = true
+		}
+		if app.ActiveSeconds > g.ActiveSeconds {
+			g.ActiveSeconds = app.ActiveSeconds
+		}
+		if g.Title == "" || app.Focused {
+			g.Title = app.WindowTitle
+		}
+	}
+	out := make([]activityGroup, 0, len(groups))
+	for _, item := range groups {
+		out = append(out, *item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Focused != out[j].Focused {
+			return out[i].Focused
+		}
+		if out[i].Visible != out[j].Visible {
+			return out[i].Visible
+		}
+		if out[i].MemoryMB != out[j].MemoryMB {
+			return out[i].MemoryMB > out[j].MemoryMB
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+func activityHeatColor(value, maxValue float64) uintptr {
+	if maxValue <= 0 {
+		maxValue = 1
+	}
+	ratio := value / maxValue
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	if ratio < 0.01 {
+		return rgb(28, 24, 38)
+	}
+	if ratio < 0.20 {
+		return rgb(49, 29, 76)
+	}
+	if ratio < 0.45 {
+		return rgb(74, 35, 113)
+	}
+	if ratio < 0.70 {
+		return rgb(96, 42, 136)
+	}
+	return rgb(120, 50, 160)
+}
+
+func activityHeatColorLight(value, maxValue float64) uintptr {
+	if maxValue <= 0 {
+		maxValue = 1
+	}
+	ratio := value / maxValue
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	if ratio < 0.01 {
+		return rgb(249, 250, 252)
+	}
+	if ratio < 0.20 {
+		return rgb(244, 248, 255)
+	}
+	if ratio < 0.45 {
+		return rgb(235, 244, 255)
+	}
+	if ratio < 0.70 {
+		return rgb(222, 238, 255)
+	}
+	return rgb(208, 229, 255)
+}
+
+func friendlyProcessName(name string) string {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "coretuner-desktop", "corecontrol", "corecontrol.exe":
+		return "CoreControl"
+	case "opera", "opera.exe":
+		return "Opera"
+	case "chrome", "chrome.exe":
+		return "Google Chrome"
+	case "msedge", "msedge.exe":
+		return "Microsoft Edge"
+	case "explorer", "explorer.exe":
+		return "Explorador do Windows"
+	case "taskmgr", "taskmgr.exe":
+		return "Gerenciador de Tarefas"
+	case "code", "code.exe":
+		return "Visual Studio Code"
+	case "snippingtool", "snippingtool.exe":
+		return "Ferramenta de Captura"
+	case "systemsettings", "systemsettings.exe":
+		return "Configurações do Windows"
+	}
+	return name
+}
+
+func activitySecondsToday(sessions []ActivitySession, current *ActivitySession, now time.Time) int64 {
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	var total int64
+	for _, item := range sessions {
+		if !item.StartedAt.Before(today) {
+			total += item.ActiveSeconds
+		}
+	}
+	if current != nil && !current.StartedAt.Before(today) {
+		total += maxInt64(0, int64(now.Sub(current.StartedAt).Seconds()))
+	}
+	return total
+}
+
+func activityRecentSessions(sessions []ActivitySession, current *ActivitySession, limit int) []ActivitySession {
+	result := make([]ActivitySession, 0, limit)
+	if current != nil {
+		copyCurrent := *current
+		copyCurrent.ActiveSeconds = maxInt64(0, int64(time.Since(copyCurrent.StartedAt).Seconds()))
+		result = append(result, copyCurrent)
+	}
+	for i := len(sessions) - 1; i >= 0 && len(result) < limit; i-- {
+		result = append(result, sessions[i])
+	}
+	return result
+}
+
+func formatActivitySeconds(seconds int64) string {
+	if seconds < 0 {
+		seconds = 0
+	}
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	if minutes < 60 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	hours := minutes / 60
+	minutes %= 60
+	return fmt.Sprintf("%dh %02dm", hours, minutes)
+}
+
+func formatMemoryMB(value float64) string {
+	if value >= 1024 {
+		return fmt.Sprintf("%.1f GB", value/1024)
+	}
+	return fmt.Sprintf("%.0f MB", value)
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (a *App) drawReports(dc syscall.Handle) {
 	x, y := contentOrigin()
 	w := a.width - x - 28
-	text(dc, "Relatórios técnicos", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	cards := []struct{ title, desc, action string }{{"Relatório de diagnóstico", "Identificação, CPU, memória, disco, rede e recomendações deste computador.", "report"}, {"Comparação antes e depois", "As otimizações já são aplicadas com backup; a comparação automática de métricas será adicionada em uma próxima etapa.", "report"}}
+	gap := int32(12)
+	cw := (w - gap) / 2
+	cards := []struct{ title, desc, meta, action string }{
+		{"Relatório de diagnóstico", "Identificação, saúde, CPU, memória, disco, rede e recomendações do computador.", "HTML local • pronto para imprimir em PDF", "report"},
+		{"Comparação antes e depois", "Compara as amostras registradas antes e depois da última otimização executada.", "Saúde • CPU • RAM • Disco • Latência", "comparison-report"},
+	}
 	for i, c := range cards {
-		r := Rect{x, y + 70 + int32(i)*160, w, 135}
-		card(dc, r)
-		text(dc, c.title, Rect{r.X + 24, r.Y + 20, 520, 32}, a.fonts["h2"], rgb(17, 38, 70), DT_LEFT|DT_SINGLELINE)
-		text(dc, c.desc, Rect{r.X + 24, r.Y + 58, r.W - 330, 45}, a.fonts["body"], rgb(75, 92, 119), DT_LEFT|DT_WORDBREAK)
-		br := Rect{r.X + r.W - 260, r.Y + 44, 220, 44}
+		r := Rect{x + int32(i)*(cw+gap), y, cw, 224}
+		softCard(dc, r)
+		circle(dc, Rect{r.X + 20, r.Y + 18, 34, 34}, rgb(239, 245, 255))
+		text(dc, chooseText(i == 0, "▤", "↔"), Rect{r.X + 20, r.Y + 18, 34, 34}, a.fonts["body"], rgb(47, 124, 246), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, c.title, Rect{r.X + 66, r.Y + 18, r.W - 86, 28}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, c.desc, Rect{r.X + 20, r.Y + 70, r.W - 40, 54}, a.fonts["body"], rgb(94, 108, 130), DT_LEFT|DT_WORDBREAK)
+		text(dc, c.meta, Rect{r.X + 20, r.Y + 132, r.W - 40, 24}, a.fonts["small"], rgb(118, 130, 149), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		br := Rect{r.X + 20, r.Y + r.H - 54, r.W - 40, 38}
 		button(dc, "Gerar e abrir", br, true)
 		a.hits = append(a.hits, Hit{br, c.action, 0})
 	}
-	text(dc, "Os relatórios são gerados localmente em HTML e podem ser impressos em PDF pelo navegador.", Rect{x, y + 410, w, 40}, a.fonts["body"], rgb(84, 101, 128), DT_LEFT|DT_WORDBREAK)
+	bottom := Rect{x, y + 238, w, 220}
+	softCard(dc, bottom)
+	text(dc, "Como os relatórios funcionam", Rect{bottom.X + 20, bottom.Y + 15, 340, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	steps := []struct{ n, title, desc string }{{"1", "Coleta local", "Usa somente os dados técnicos já exibidos pelo CoreControl."}, {"2", "Arquivo HTML", "O relatório é salvo na pasta local de dados do aplicativo."}, {"3", "Compartilhamento", "Abra no navegador e use a impressão do Windows para salvar em PDF."}}
+	stepW := (bottom.W - 60) / 3
+	for i, s := range steps {
+		cx := bottom.X + 20 + int32(i)*(stepW+10)
+		circle(dc, Rect{cx, bottom.Y + 62, 28, 28}, rgb(239, 245, 255))
+		text(dc, s.n, Rect{cx, bottom.Y + 62, 28, 28}, a.fonts["small"], rgb(47, 124, 246), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, s.title, Rect{cx + 40, bottom.Y + 60, stepW - 40, 24}, a.fonts["body"], rgb(42, 55, 76), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, s.desc, Rect{cx, bottom.Y + 104, stepW, 64}, a.fonts["small"], rgb(112, 125, 146), DT_LEFT|DT_WORDBREAK)
+	}
+	open := Rect{x, y + 474, 190, 36}
+	button(dc, "Abrir pasta de relatórios", open, false)
+	a.hits = append(a.hits, Hit{open, "open-reports-folder", 0})
 }
 
 func (a *App) drawHistory(dc syscall.Handle) {
@@ -497,56 +1545,139 @@ func (a *App) drawHistory(dc syscall.Handle) {
 	h := append([]HistoryItem(nil), a.history...)
 	a.mu.RUnlock()
 	sort.Slice(h, func(i, j int) bool { return h[i].At.After(h[j].At) })
-	text(dc, "Histórico completo", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	card(dc, Rect{x, y + 55, w, 650})
-	for i, v := range h[:min(16, len(h))] {
-		ry := y + 75 + int32(i*38)
-		text(dc, v.At.Format("02/01/2006 15:04"), Rect{x + 22, ry, 150, 28}, a.fonts["small"], rgb(102, 117, 141), DT_LEFT|DT_SINGLELINE)
-		text(dc, v.Title, Rect{x + 180, ry, 270, 28}, a.fonts["body"], rgb(27, 47, 77), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-		text(dc, v.Detail, Rect{x + 465, ry, w - 500, 28}, a.fonts["small"], rgb(78, 95, 121), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-		line(dc, x+18, ry+31, x+w-18, ry+31, rgb(235, 239, 245))
+	today := 0
+	reports := 0
+	opts := 0
+	for _, v := range h {
+		if time.Since(v.At) < 24*time.Hour {
+			today++
+		}
+		low := strings.ToLower(v.Title)
+		if strings.Contains(low, "relatório") {
+			reports++
+		}
+		if strings.Contains(low, "otimiza") || strings.Contains(low, "perfil") {
+			opts++
+		}
 	}
+	gap := int32(12)
+	sw := (w - gap*2) / 3
+	drawMiniStat(dc, Rect{x, y, sw, 104}, "Eventos nas últimas 24h", fmt.Sprint(today), "Atividades registradas localmente", rgb(47, 124, 246))
+	drawMiniStat(dc, Rect{x + sw + gap, y, sw, 104}, "Relatórios", fmt.Sprint(reports), "Gerações registradas", rgb(42, 176, 91))
+	drawMiniStat(dc, Rect{x + (sw+gap)*2, y, sw, 104}, "Otimizações", fmt.Sprint(opts), "Ações e perfis registrados", rgb(139, 92, 246))
+	panel := Rect{x, y + 118, w, 530}
+	softCard(dc, panel)
+	text(dc, "Atividade recente", Rect{panel.X + 20, panel.Y + 14, 300, 28}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "Histórico local das ações realizadas no CoreControl", Rect{panel.X + 20, panel.Y + 43, 360, 20}, a.fonts["small"], rgb(113, 126, 147), DT_LEFT|DT_SINGLELINE)
 	if len(h) == 0 {
-		text(dc, "Nenhum evento registrado ainda.", Rect{x + 25, y + 100, w - 50, 36}, a.fonts["body"], rgb(95, 111, 137), DT_CENTER|DT_SINGLELINE)
+		text(dc, "Nenhuma atividade registrada ainda.", Rect{panel.X + 20, panel.Y + 110, panel.W - 40, 32}, a.fonts["body"], rgb(109, 122, 143), DT_CENTER|DT_SINGLELINE)
+		return
+	}
+	for i, v := range h[:min(11, len(h))] {
+		ry := panel.Y + 80 + int32(i)*39
+		circle(dc, Rect{panel.X + 22, ry + 7, 8, 8}, rgb(47, 124, 246))
+		text(dc, v.Title, Rect{panel.X + 44, ry, 260, 24}, a.fonts["body"], rgb(42, 55, 76), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, v.Detail, Rect{panel.X + 320, ry, panel.W - 505, 24}, a.fonts["small"], rgb(108, 121, 142), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, v.At.Format("02/01 15:04"), Rect{panel.X + panel.W - 150, ry, 120, 24}, a.fonts["small"], rgb(119, 131, 150), DT_RIGHT|DT_SINGLELINE)
+		if i < min(11, len(h))-1 {
+			line(dc, panel.X+44, ry+31, panel.X+panel.W-22, ry+31, rgb(239, 241, 244))
+		}
 	}
 }
 
 func (a *App) drawSettings(dc syscall.Handle) {
 	x, y := contentOrigin()
 	w := a.width - x - 28
+	gap := int32(12)
 	a.mu.RLock()
 	server := a.serverURL
 	comp := companyName(a.company)
+	centralOK := a.centralOK
 	a.mu.RUnlock()
-	text(dc, "Configurações", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	items := []struct{ t, d string }{{"Servidor CoreTuner", server}, {"Empresa vinculada", comp}, {"Pasta de dados", dataDir()}, {"Atualização dos indicadores", "Dados locais a cada 2 segundos; conexão com a Central verificada a cada 30 segundos"}, {"Segurança", "Nenhuma limpeza, exclusão ou alteração crítica automática"}}
-	for i, v := range items {
-		r := Rect{x, y + 60 + int32(i)*100, w, 82}
-		card(dc, r)
-		text(dc, v.t, Rect{r.X + 22, r.Y + 14, 300, 26}, a.fonts["h2"], rgb(18, 39, 71), DT_LEFT|DT_SINGLELINE)
-		text(dc, v.d, Rect{r.X + 22, r.Y + 43, r.W - 44, 26}, a.fonts["body"], rgb(79, 96, 123), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
+	serverCard := Rect{x, y, w, 170}
+	softCard(dc, serverCard)
+	text(dc, "Conexão com a Central", Rect{x + 20, y + 14, 310, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	circle(dc, Rect{x + w - 154, y + 22, 8, 8}, choose(centralOK, rgb(42, 176, 91), rgb(241, 153, 32)))
+	text(dc, chooseText(centralOK, "Conectado", "Verificar conexão"), Rect{x + w - 138, y + 13, 118, 25}, a.fonts["small"], choose(centralOK, rgb(42, 176, 91), rgb(241, 153, 32)), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "Endereço do servidor", Rect{x + 20, y + 50, 250, 20}, a.fonts["small"], rgb(113, 126, 147), DT_LEFT|DT_SINGLELINE)
+	text(dc, "Fora do ambiente local, use sempre HTTPS.", Rect{x + 20, y + 126, w - 250, 22}, a.fonts["small"], rgb(118, 130, 149), DT_LEFT|DT_SINGLELINE)
+	br := Rect{x + w - 190, y + 112, 170, 36}
+	button(dc, "Salvar e testar", br, true)
+	a.hits = append(a.hits, Hit{br, "save-server", 0})
+
+	bottomY := y + 184
+	cw := (w - gap) / 2
+	left := Rect{x, bottomY, cw, 328}
+	right := Rect{x + cw + gap, bottomY, cw, 328}
+	softCard(dc, left)
+	softCard(dc, right)
+	text(dc, "Este computador", Rect{left.X + 20, left.Y + 15, left.W - 40, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	local := []struct{ k, v string }{{"Empresa vinculada", nz(comp, "Não vinculada")}, {"Pasta de dados", dataDir()}, {"Indicadores", "Atualização local a cada 2 segundos"}, {"Segurança", "Sem exclusões ou alterações críticas automáticas"}}
+	for i, it := range local {
+		ry := left.Y + 58 + int32(i)*55
+		text(dc, it.k, Rect{left.X + 20, ry, 150, 20}, a.fonts["small"], rgb(116, 129, 148), DT_LEFT|DT_SINGLELINE)
+		text(dc, it.v, Rect{left.X + 178, ry - 2, left.W - 198, 24}, a.fonts["body"], rgb(43, 56, 77), DT_RIGHT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		if i < 3 {
+			line(dc, left.X+20, ry+34, left.X+left.W-20, ry+34, rgb(239, 241, 244))
+		}
 	}
-	br := Rect{x, y + 585, 250, 42}
-	button(dc, "Abrir painel web", br, true)
-	a.hits = append(a.hits, Hit{br, "open-web", 0})
-	br2 := Rect{x + 270, y + 585, 230, 42}
-	button(dc, "Atualizar tudo", br2, false)
-	a.hits = append(a.hits, Hit{br2, "refresh-all", 0})
+	openData := Rect{left.X + 20, left.Y + left.H - 52, left.W - 40, 36}
+	button(dc, "Abrir pasta de dados", openData, false)
+	a.hits = append(a.hits, Hit{openData, "open-data-folder", 0})
+
+	text(dc, "Ações e manutenção", Rect{right.X + 20, right.Y + 15, right.W - 40, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	actions := []struct {
+		title, desc, label, action string
+		primary                    bool
+	}{{"Painel web", "Abra a Central da sua empresa no navegador.", "Abrir painel", "open-web", true}, {"Atualizar informações", "Atualiza dados locais e testa a conexão com o servidor.", "Atualizar tudo", "refresh-all", false}, {"Relatórios", "Acesse a pasta onde os relatórios locais são armazenados.", "Abrir relatórios", "open-reports-folder", false}}
+	for i, it := range actions {
+		ry := right.Y + 58 + int32(i)*78
+		text(dc, it.title, Rect{right.X + 20, ry, right.W - 200, 22}, a.fonts["body"], rgb(43, 56, 77), DT_LEFT|DT_SINGLELINE)
+		text(dc, it.desc, Rect{right.X + 20, ry + 25, right.W - 200, 36}, a.fonts["small"], rgb(112, 125, 146), DT_LEFT|DT_WORDBREAK)
+		b := Rect{right.X + right.W - 158, ry + 8, 138, 34}
+		button(dc, it.label, b, it.primary)
+		a.hits = append(a.hits, Hit{b, it.action, 0})
+	}
+	_ = server
 }
 
 func (a *App) drawSupport(dc syscall.Handle) {
 	x, y := contentOrigin()
 	w := a.width - x - 28
-	text(dc, "Suporte e segurança", Rect{x, y, w, 36}, a.fonts["h1"], rgb(13, 34, 65), DT_LEFT|DT_SINGLELINE)
-	card(dc, Rect{x, y + 60, w, 210})
-	text(dc, "Antes de solicitar suporte", Rect{x + 24, y + 80, w - 48, 30}, a.fonts["h2"], rgb(17, 39, 71), DT_LEFT|DT_SINGLELINE)
-	steps := []string{"Execute o Diagnóstico Profissional", "Teste internet, áudio e microfone", "Confirme a conexão com o CoreTuner Central", "Gere o relatório técnico"}
-	for i, v := range steps {
-		text(dc, fmt.Sprintf("%d. %s", i+1, v), Rect{x + 28, y + 122 + int32(i*34), w - 56, 28}, a.fonts["body"], rgb(67, 85, 113), DT_LEFT|DT_SINGLELINE)
+	gap := int32(12)
+	cw := (w - gap*2) / 3
+	actions := []struct {
+		title, desc, button, action string
+		primary                     bool
+	}{{"Pacote técnico", "Gera um ZIP com diagnóstico, versão, conexão e histórico recente. Não inclui arquivos pessoais.", "Gerar pacote", "support-package", true}, {"Relatório do computador", "Cria um relatório técnico em HTML que pode ser impresso ou enviado ao suporte.", "Gerar relatório", "report", false}, {"Atualizar diagnóstico", "Coleta novamente os dados locais e verifica a comunicação com a Central.", "Atualizar agora", "refresh-all", false}}
+	for i, it := range actions {
+		r := Rect{x + int32(i)*(cw+gap), y, cw, 210}
+		softCard(dc, r)
+		circle(dc, Rect{r.X + 20, r.Y + 18, 34, 34}, rgb(239, 245, 255))
+		text(dc, []string{"↥", "▤", "↻"}[i], Rect{r.X + 20, r.Y + 18, 34, 34}, a.fonts["body"], rgb(47, 124, 246), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, it.title, Rect{r.X + 66, r.Y + 18, r.W - 86, 28}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, it.desc, Rect{r.X + 20, r.Y + 68, r.W - 40, 76}, a.fonts["small"], rgb(105, 119, 140), DT_LEFT|DT_WORDBREAK)
+		b := Rect{r.X + 20, r.Y + r.H - 54, r.W - 40, 38}
+		button(dc, it.button, b, it.primary)
+		a.hits = append(a.hits, Hit{b, it.action, 0})
 	}
-	card(dc, Rect{x, y + 290, w, 230})
-	text(dc, "Proteção máxima", Rect{x + 24, y + 310, w - 48, 30}, a.fonts["h2"], rgb(34, 153, 83), DT_LEFT|DT_SINGLELINE)
-	txt := "O CoreTuner não apaga arquivos, não esvazia a Lixeira, não limpa o Registro, não desativa Defender ou Firewall e não fecha programas à força. O monitoramento coleta apenas informações técnicas necessárias."
-	text(dc, txt, Rect{x + 26, y + 354, w - 52, 100}, a.fonts["body"], rgb(65, 83, 111), DT_LEFT|DT_WORDBREAK)
-	text(dc, "Versão "+appVersion, Rect{x + 26, y + 475, 300, 24}, a.fonts["small"], rgb(103, 118, 142), DT_LEFT|DT_SINGLELINE)
+	privacy := Rect{x, y + 224, w, 190}
+	softCard(dc, privacy)
+	text(dc, "Privacidade do suporte", Rect{privacy.X + 20, privacy.Y + 15, 320, 26}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "O CoreControl envia apenas o que você decidir compartilhar. O pacote técnico usa dados de hardware, sistema, conectividade e o histórico gerado pelo próprio aplicativo.", Rect{privacy.X + 20, privacy.Y + 52, privacy.W - 40, 44}, a.fonts["body"], rgb(84, 99, 121), DT_LEFT|DT_WORDBREAK)
+	checks := []string{"Sem documentos pessoais", "Sem conversas ou áudio gravado", "Sem senhas ou token da sessão", "Arquivo gerado localmente"}
+	for i, item := range checks {
+		cx := privacy.X + 20 + int32(i%2)*(privacy.W/2)
+		cy := privacy.Y + 116 + int32(i/2)*34
+		circle(dc, Rect{cx, cy + 5, 9, 9}, rgb(42, 176, 91))
+		text(dc, item, Rect{cx + 20, cy, privacy.W/2 - 36, 24}, a.fonts["small"], rgb(72, 89, 112), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+	footer := Rect{x, y + 428, w, 88}
+	softCard(dc, footer)
+	text(dc, "Arquivos de suporte", Rect{footer.X + 20, footer.Y + 16, 250, 24}, a.fonts["body"], rgb(42, 55, 76), DT_LEFT|DT_SINGLELINE)
+	text(dc, "Os pacotes ficam na pasta de dados local do CoreControl.", Rect{footer.X + 20, footer.Y + 43, 420, 20}, a.fonts["small"], rgb(112, 125, 146), DT_LEFT|DT_SINGLELINE)
+	open := Rect{footer.X + footer.W - 214, footer.Y + 25, 194, 36}
+	button(dc, "Abrir pasta de suporte", open, false)
+	a.hits = append(a.hits, Hit{open, "open-support-folder", 0})
+	text(dc, "Versão "+appVersion, Rect{footer.X + footer.W - 330, footer.Y + 33, 100, 20}, a.fonts["small"], rgb(119, 131, 150), DT_RIGHT|DT_SINGLELINE)
 }

@@ -19,7 +19,7 @@ func (a *App) server() (string, error) {
 	raw := strings.TrimRight(strings.TrimSpace(getText(a.controls[idServer])), "/")
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return "", errors.New("Informe um endereço válido do CoreTuner Central")
+		return "", errors.New("Informe um endereço válido do CoreControl")
 	}
 	host := strings.ToLower(strings.Split(u.Host, ":")[0])
 	local := u.Scheme == "http" && (host == "127.0.0.1" || host == "localhost" || host == "::1")
@@ -33,7 +33,7 @@ func (a *App) server() (string, error) {
 func (a *App) openPasswordRecovery() {
 	server, err := a.server()
 	if err != nil {
-		message("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+		message("CoreControl", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
 	target := server + "/?forgot=1"
@@ -41,48 +41,68 @@ func (a *App) openPasswordRecovery() {
 }
 
 func (a *App) login() {
-	a.setBusy(true, "Entrando na empresa...")
-	defer a.setBusy(false, "")
 	server, err := a.server()
 	if err != nil {
-		message("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+		message("CoreControl", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
 	email := strings.TrimSpace(getText(a.controls[idEmail]))
 	pass := getText(a.controls[idPassword])
 	if email == "" || pass == "" {
-		message("CoreTuner", "Preencha e-mail e senha.", MB_OK|MB_ICONERROR)
+		message("Preencha seus dados", "Informe seu e-mail e sua senha.", MB_OK|MB_ICONERROR)
 		return
 	}
+	a.setBusy(true, "Entrando na empresa...")
 	var resp AuthResponse
-	if err = a.request("POST", server+"/api/auth/login", map[string]string{"email": email, "password": pass}, "", &resp); err != nil {
-		message("Falha no login", err.Error(), MB_OK|MB_ICONERROR)
+	err = a.request("POST", server+"/api/auth/login", map[string]string{"email": email, "password": pass}, "", &resp)
+	a.setBusy(false, "")
+	if err != nil {
+		message("Não foi possível entrar", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
 	a.applyAuth(resp)
 	a.addHistory("Login realizado", fmt.Sprintf("Empresa: %s", companyName(resp.Company)))
 }
 func (a *App) register() {
-	a.setBusy(true, "Criando empresa...")
-	defer a.setBusy(false, "")
+	p := map[string]string{
+		"company_name":          strings.TrimSpace(getText(a.controls[idCompany])),
+		"responsible_name":      strings.TrimSpace(getText(a.controls[idResponsible])),
+		"email":                 strings.TrimSpace(getText(a.controls[idRegEmail])),
+		"password":              getText(a.controls[idRegPassword]),
+		"password_confirmation": getText(a.controls[idRegConfirm]),
+	}
+	if p["company_name"] == "" || p["responsible_name"] == "" || p["email"] == "" || p["password"] == "" || p["password_confirmation"] == "" {
+		message("Preencha todos os campos", "Informe os dados da empresa, responsável, e-mail e senha.", MB_OK|MB_ICONERROR)
+		return
+	}
+	if !strings.Contains(p["email"], "@") || !strings.Contains(strings.TrimPrefix(p["email"], "@"), ".") {
+		message("E-mail inválido", "Informe um endereço de e-mail válido.", MB_OK|MB_ICONERROR)
+		return
+	}
+	if len([]rune(p["password"])) < 10 {
+		message("Senha muito curta", "Use uma senha com pelo menos 10 caracteres.", MB_OK|MB_ICONERROR)
+		return
+	}
+	if p["password"] != p["password_confirmation"] {
+		message("As senhas não coincidem", "Digite a mesma senha nos campos Senha e Confirmar senha.", MB_OK|MB_ICONERROR)
+		return
+	}
 	server, err := a.server()
 	if err != nil {
-		message("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+		message("CoreControl", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
-	p := map[string]string{"company_name": strings.TrimSpace(getText(a.controls[idCompany])), "responsible_name": strings.TrimSpace(getText(a.controls[idResponsible])), "email": strings.TrimSpace(getText(a.controls[idRegEmail])), "password": getText(a.controls[idRegPassword]), "password_confirmation": getText(a.controls[idRegConfirm])}
-	if p["company_name"] == "" || p["responsible_name"] == "" || p["email"] == "" {
-		message("CoreTuner", "Preencha todos os campos.", MB_OK|MB_ICONERROR)
-		return
-	}
+	a.setBusy(true, "Criando empresa...")
 	var resp AuthResponse
-	if err = a.request("POST", server+"/api/auth/register-company", p, "", &resp); err != nil {
+	err = a.request("POST", server+"/api/auth/register-company", p, "", &resp)
+	a.setBusy(false, "")
+	if err != nil {
 		message("Cadastro não concluído", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
 	a.applyAuth(resp)
 	a.addHistory("Empresa criada", companyName(resp.Company))
-	message("CoreTuner", "Empresa criada com sucesso.", MB_OK|MB_ICONINFORMATION)
+	message("CoreControl", "Empresa criada com sucesso.", MB_OK|MB_ICONINFORMATION)
 }
 func (a *App) applyAuth(resp AuthResponse) {
 	a.mu.Lock()
@@ -90,7 +110,7 @@ func (a *App) applyAuth(resp AuthResponse) {
 	a.user = resp.User
 	a.company = resp.Company
 	a.centralOK = true
-	a.statusText = "Conectado ao CoreTuner Central"
+	a.statusText = "Conectado ao CoreControl"
 	a.mu.Unlock()
 	a.hideAuth()
 	a.saveSession()
@@ -137,16 +157,12 @@ func (a *App) request(method, endpoint string, payload any, token string, out an
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("não foi possível conectar ao servidor: %w", err)
+		return errors.New("Não foi possível conectar ao CoreControl. Verifique se o servidor está disponível e tente novamente.")
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var ae APIError
-		if json.Unmarshal(b, &ae) == nil && ae.Detail != nil {
-			return fmt.Errorf("%v", ae.Detail)
-		}
-		return fmt.Errorf("servidor retornou HTTP %d", resp.StatusCode)
+		return errors.New(friendlyAPIError(b, resp.StatusCode))
 	}
 	if out != nil && len(b) > 0 {
 		if err = json.Unmarshal(b, out); err != nil {
@@ -155,6 +171,68 @@ func (a *App) request(method, endpoint string, payload any, token string, out an
 	}
 	return nil
 }
+func friendlyAPIError(body []byte, statusCode int) string {
+	var payload map[string]any
+	if json.Unmarshal(body, &payload) == nil {
+		detail := payload["detail"]
+		switch value := detail.(type) {
+		case string:
+			if strings.TrimSpace(value) != "" {
+				return value
+			}
+		case []any:
+			for _, raw := range value {
+				item, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				field := ""
+				if loc, ok := item["loc"].([]any); ok && len(loc) > 0 {
+					if name, ok := loc[len(loc)-1].(string); ok {
+						field = name
+					}
+				}
+				typeName, _ := item["type"].(string)
+				label := map[string]string{
+					"password":              "A senha",
+					"password_confirmation": "A confirmação da senha",
+					"email":                 "O e-mail",
+					"company_name":          "O nome da empresa",
+					"responsible_name":      "O nome do responsável",
+				}[field]
+				if label == "" {
+					label = "O campo informado"
+				}
+				if typeName == "string_too_short" {
+					minimum := 0
+					if ctx, ok := item["ctx"].(map[string]any); ok {
+						if n, ok := ctx["min_length"].(float64); ok {
+							minimum = int(n)
+						}
+					}
+					if minimum > 0 {
+						return fmt.Sprintf("%s deve ter pelo menos %d caracteres.", label, minimum)
+					}
+					return label + " é muito curto."
+				}
+				if typeName == "missing" {
+					return label + " é obrigatório."
+				}
+			}
+		}
+	}
+	switch statusCode {
+	case http.StatusUnauthorized:
+		return "E-mail ou senha inválidos."
+	case http.StatusConflict:
+		return "Já existe um cadastro com esses dados."
+	case http.StatusUnprocessableEntity:
+		return "Verifique os dados informados e tente novamente."
+	default:
+		return "Não foi possível concluir a solicitação. Tente novamente."
+	}
+}
+
 func (a *App) refreshCentralStatus() {
 	a.mu.RLock()
 	token, server := a.token, a.serverURL
@@ -175,7 +253,7 @@ func (a *App) refreshCentralStatus() {
 	a.centralOK = true
 	a.user = AuthUser{ID: me.ID, Name: me.Name, Email: me.Email, Role: me.Role, CompanyID: me.CompanyID}
 	a.company = me.Company
-	a.statusText = "Conectado ao CoreTuner Central"
+	a.statusText = "Conectado ao CoreControl"
 	a.mu.Unlock()
 	a.saveSession()
 	a.invalidate()

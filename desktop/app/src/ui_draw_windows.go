@@ -3,9 +3,17 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
+)
+
+const (
+	shellSidebarWidth int32 = 226
+	shellHeaderHeight int32 = 88
+	shellContentLeft  int32 = 248
+	shellContentTop   int32 = 104
 )
 
 func (a *App) invalidate() { procInvalidateRect.Call(uintptr(a.hwnd), 0, 0) }
@@ -33,6 +41,9 @@ func (a *App) draw(dc syscall.Handle, rc RECT) {
 		return
 	}
 	a.drawShell(dc, rc)
+	// Mantém sidebar e cabeçalho fixos enquanto páginas longas rolam por baixo.
+	saved, _, _ := procSaveDC.Call(uintptr(dc))
+	procIntersectClipRect.Call(uintptr(dc), uintptr(shellSidebarWidth), uintptr(shellHeaderHeight), uintptr(rc.Right), uintptr(rc.Bottom))
 	switch a.page {
 	case 0:
 		a.drawDashboard(dc)
@@ -53,7 +64,39 @@ func (a *App) draw(dc syscall.Handle, rc RECT) {
 	case 8:
 		a.drawSupport(dc)
 	}
+	procRestoreDC.Call(uintptr(dc), saved)
+	a.drawPageScrollbar(dc, rc)
 }
+func (a *App) drawPageScrollbar(dc syscall.Handle, rc RECT) {
+	maxScroll := a.maxPageScroll()
+	if maxScroll <= 0 {
+		return
+	}
+	trackTop := shellHeaderHeight + 12
+	trackBottom := rc.Bottom - 14
+	trackH := trackBottom - trackTop
+	if trackH <= 40 {
+		return
+	}
+	track := Rect{rc.Right - 8, trackTop, 3, trackH}
+	roundedBox(dc, track, rgb(235, 239, 244), rgb(235, 239, 244), 3)
+	contentHeight := a.pageContentHeight()
+	viewportHeight := a.height - shellContentTop - 18
+	thumbH := int32(float64(trackH) * float64(viewportHeight) / float64(contentHeight))
+	if thumbH < 42 {
+		thumbH = 42
+	}
+	if thumbH > trackH {
+		thumbH = trackH
+	}
+	travel := trackH - thumbH
+	thumbY := trackTop
+	if maxScroll > 0 && travel > 0 {
+		thumbY += int32(float64(travel) * float64(a.pageScrollY) / float64(maxScroll))
+	}
+	roundedBox(dc, Rect{rc.Right - 9, thumbY, 5, thumbH}, rgb(177, 189, 205), rgb(177, 189, 205), 5)
+}
+
 func fill(dc syscall.Handle, r Rect, c uintptr) {
 	b, _, _ := procCreateSolidBrush.Call(c)
 	rr := RECT{r.X, r.Y, r.X + r.W, r.Y + r.H}
@@ -112,20 +155,21 @@ func progress(dc syscall.Handle, r Rect, pct float64, color uintptr) {
 }
 func button(dc syscall.Handle, label string, r Rect, primary bool) {
 	c := rgb(255, 255, 255)
-	tc := rgb(0, 139, 158)
-	border := rgb(180, 210, 216)
+	tc := rgb(67, 82, 105)
+	border := rgb(220, 225, 232)
 	hovered := app != nil && app.isHovered(r)
 	if primary {
-		c = rgb(0, 151, 170)
+		c = rgb(47, 124, 246)
 		tc = rgb(255, 255, 255)
-		border = rgb(0, 151, 170)
+		border = rgb(47, 124, 246)
 		if hovered {
-			c = rgb(0, 132, 149)
+			c = rgb(38, 105, 219)
 			border = c
 		}
 	} else if hovered {
-		c = rgb(239, 249, 251)
-		border = rgb(0, 151, 170)
+		c = rgb(247, 250, 255)
+		border = rgb(171, 197, 239)
+		tc = rgb(47, 124, 246)
 	}
 	b, _, _ := procCreateSolidBrush.Call(c)
 	p, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
@@ -139,13 +183,35 @@ func button(dc syscall.Handle, label string, r Rect, primary bool) {
 	text(dc, label, r, app.fonts["body"], tc, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 }
 
+func max32(a, b int32) int32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func logoMark(dc syscall.Handle, r Rect) {
-	// Marca vetorial simples: um C azul com detalhe verde-água.
-	circle(dc, r, rgb(20, 113, 219))
-	inner := Rect{r.X + r.W/4, r.Y + r.H/4, r.W / 2, r.H / 2}
-	circle(dc, inner, rgb(255, 255, 255))
-	fill(dc, Rect{r.X + r.W/2, r.Y + r.H/5, r.W/2 + 2, r.H * 3 / 5}, rgb(255, 255, 255))
-	circle(dc, Rect{r.X + r.W*3/5, r.Y + r.H*3/5, r.W / 4, r.H / 4}, rgb(0, 165, 170))
+	// Símbolo CoreControl: anel segmentado com núcleo e haste central.
+	// O favicon e os executáveis usam o asset oficial; esta versão vetorial
+	// mantém a mesma leitura visual no desenho nativo da sidebar.
+	blue := rgb(19, 102, 246)
+	bg := rgb(255, 255, 255)
+	circle(dc, r, blue)
+	ring := max32(4, r.W/5)
+	inner := Rect{r.X + ring, r.Y + ring, r.W - ring*2, r.H - ring*2}
+	circle(dc, inner, bg)
+	gap := max32(3, r.W/10)
+	fill(dc, Rect{r.X + r.W/2 - gap/2, r.Y - 1, gap, ring + 3}, bg)
+	fill(dc, Rect{r.X + r.W/2 - gap/2, r.Y + r.H - ring - 2, gap, ring + 4}, bg)
+	fill(dc, Rect{r.X - 1, r.Y + r.H/2 - gap/2, ring + 3, gap}, bg)
+	fill(dc, Rect{r.X + r.W - ring - 2, r.Y + r.H/2 - gap/2, ring + 4, gap}, bg)
+	knob := max32(12, r.W*9/20)
+	kx := r.X + (r.W-knob)/2
+	ky := r.Y + (r.H-knob)/2 + 2
+	circle(dc, Rect{kx, ky, knob, knob}, blue)
+	stemW := max32(4, r.W/7)
+	stemX := r.X + (r.W-stemW)/2
+	fill(dc, Rect{stemX, r.Y + ring/2, stemW, ky - r.Y - ring/2 + 3}, blue)
 }
 
 func monitorIcon(dc syscall.Handle, r Rect, color uintptr) {
@@ -166,109 +232,242 @@ func statusPill(dc syscall.Handle, label string, r Rect, background, foreground 
 }
 
 func (a *App) drawAuth(dc syscall.Handle, rc RECT) {
-	fill(dc, Rect{0, 0, rc.Right, rc.Bottom}, rgb(249, 251, 254))
-	text(dc, "Core", Rect{55, 35, 100, 45}, a.fonts["brand"], rgb(10, 31, 62), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	text(dc, "Tuner", Rect{125, 35, 120, 45}, a.fonts["brand"], rgb(18, 101, 246), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	cx := rc.Right/2 - 280
-	card(dc, Rect{cx, 110, 560, 620})
+	fill(dc, Rect{0, 0, rc.Right, rc.Bottom}, rgb(234, 248, 250))
+
+	// Fundo suave e leve, inspirado na referência, sem interferir no formulário.
+	circle(dc, Rect{-140, 105, 520, 520}, rgb(242, 246, 250))
+	circle(dc, Rect{-75, rc.Bottom - 300, 260, 260}, rgb(205, 203, 248))
+	circle(dc, Rect{rc.Right - 255, -95, 300, 300}, rgb(204, 240, 245))
+
+	logoMark(dc, Rect{54, 35, 28, 28})
+	text(dc, "CoreControl", Rect{96, 28, 250, 40}, a.fonts["brand"], rgb(10, 31, 62), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+
+	layout := makeAuthLayout(rc.Right, rc.Bottom, a.loginMode)
+	shadow := Rect{layout.card.X, layout.card.Y + 8, layout.card.W, layout.card.H}
+	roundedBox(dc, shadow, rgb(202, 219, 226), rgb(202, 219, 226), 18)
+	roundedBox(dc, layout.card, rgb(255, 255, 255), rgb(226, 234, 240), 18)
+
+	logoMark(dc, layout.logo)
 	title := "Entrar na sua empresa"
-	sub := "Use a mesma conta do site para acessar os computadores."
+	sub := "Use a mesma conta do site para acessar seus computadores."
+	labels := []string{"E-mail", "Senha"}
 	if a.loginMode == "register" {
 		title = "Criar uma empresa"
-		sub = "A empresa será criada no CoreTuner Central."
-	}
-	text(dc, title, Rect{cx + 40, 145, 480, 45}, a.fonts["title"], rgb(11, 31, 60), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	text(dc, sub, Rect{cx + 40, 190, 480, 45}, a.fonts["body"], rgb(93, 112, 140), DT_CENTER|DT_WORDBREAK)
-	labels := []string{"Servidor CoreTuner", "E-mail", "Senha"}
-	ys := []int32{285, 355, 425}
-	if a.loginMode == "register" {
+		sub = "Cadastre sua empresa e comece a usar o CoreControl."
 		labels = []string{"Nome da empresa", "Responsável", "E-mail", "Senha", "Confirmar senha"}
-		ys = []int32{285, 347, 409, 471, 533}
 	}
-	for i, l := range labels {
-		text(dc, l, Rect{cx + 40, ys[i] - 24, 480, 20}, a.fonts["small"], rgb(55, 73, 102), DT_LEFT|DT_SINGLELINE)
+	text(dc, title, layout.title, a.fonts["h1"], rgb(11, 31, 60), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	text(dc, sub, layout.subtitle, a.fonts["small"], rgb(93, 112, 140), DT_CENTER|DT_WORDBREAK)
+	for i, label := range labels {
+		text(dc, label, layout.labels[i], a.fonts["small"], rgb(55, 73, 102), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 	}
+
 	a.mu.RLock()
 	st, busy := a.statusText, a.busy
 	a.mu.RUnlock()
 	if busy {
-		text(dc, st, Rect{cx + 40, 680, 480, 24}, a.fonts["small"], rgb(18, 101, 246), DT_CENTER|DT_SINGLELINE)
+		text(dc, st, layout.status, a.fonts["small"], rgb(38, 113, 208), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 	}
-	text(dc, "Segurança: o CoreTuner não acessa documentos, conversas ou senhas.", Rect{cx + 45, 695, 470, 34}, a.fonts["small"], rgb(37, 153, 87), DT_CENTER|DT_WORDBREAK)
+	text(dc, "Privacidade protegida: o CoreControl não acessa documentos, conversas ou senhas.", layout.security, a.fonts["small"], rgb(37, 153, 87), DT_CENTER|DT_VCENTER|DT_WORDBREAK)
 }
 
-var menuLabels = []string{"Painel inicial", "Diagnóstico", "Testes", "Otimizações", "Programas", "Relatórios", "Histórico", "Configurações", "Suporte"}
-var menuIcons = []string{"⌂", "◈", "✓", "⌁", "▦", "▤", "↻", "⚙", "?"}
+var menuLabels = []string{"Painel inicial", "Diagnóstico", "Testes", "Otimizações", "Atividade", "Relatórios", "Histórico", "Configurações", "Suporte"}
+
+func pageSubtitle(page int) string {
+	switch page {
+	case 0:
+		return "Visão geral do seu sistema"
+	case 1:
+		return "Hardware, sistema e conectividade"
+	case 2:
+		return "Validações rápidas deste computador"
+	case 3:
+		return "Perfis seguros de desempenho"
+	case 4:
+		return "Aplicativos, janelas e tempo em uso"
+	case 5:
+		return "Relatórios técnicos e comparativos"
+	case 6:
+		return "Atividades realizadas pelo CoreControl"
+	case 7:
+		return "Preferências e conexão com a Central"
+	case 8:
+		return "Diagnóstico e suporte técnico"
+	default:
+		return ""
+	}
+}
+
+func userInitials(name string) string {
+	parts := strings.Fields(strings.TrimSpace(name))
+	if len(parts) == 0 {
+		return "CC"
+	}
+	if len(parts) == 1 {
+		r := []rune(parts[0])
+		if len(r) >= 2 {
+			return strings.ToUpper(string(r[:2]))
+		}
+		return strings.ToUpper(string(r[:1]))
+	}
+	return strings.ToUpper(string([]rune(parts[0])[0]) + string([]rune(parts[len(parts)-1])[0]))
+}
+
+func drawSidebarIcon(dc syscall.Handle, index int, r Rect, color uintptr) {
+	cx := r.X + r.W/2
+	cy := r.Y + r.H/2
+	switch index {
+	case 0: // casa
+		line(dc, r.X+3, cy, cx, r.Y+4, color)
+		line(dc, cx, r.Y+4, r.X+r.W-3, cy, color)
+		line(dc, r.X+5, cy-1, r.X+5, r.Y+r.H-4, color)
+		line(dc, r.X+r.W-5, cy-1, r.X+r.W-5, r.Y+r.H-4, color)
+		line(dc, r.X+5, r.Y+r.H-4, r.X+r.W-5, r.Y+r.H-4, color)
+	case 1: // pulso
+		line(dc, r.X+2, cy, r.X+6, cy, color)
+		line(dc, r.X+6, cy, r.X+9, cy-6, color)
+		line(dc, r.X+9, cy-6, r.X+13, cy+7, color)
+		line(dc, r.X+13, cy+7, r.X+17, cy-3, color)
+		line(dc, r.X+17, cy-3, r.X+r.W-2, cy-3, color)
+	case 2: // checklist
+		roundedBox(dc, Rect{r.X + 4, r.Y + 3, r.W - 8, r.H - 6}, rgb(255, 255, 255), color, 4)
+		line(dc, r.X+8, cy, r.X+11, cy+3, color)
+		line(dc, r.X+11, cy+3, r.X+16, cy-4, color)
+	case 3: // raio
+		line(dc, cx+2, r.Y+2, r.X+7, cy+2, color)
+		line(dc, r.X+7, cy+2, cx-1, cy+2, color)
+		line(dc, cx-1, cy+2, cx-3, r.Y+r.H-2, color)
+		line(dc, cx-3, r.Y+r.H-2, r.X+r.W-5, cy-2, color)
+		line(dc, r.X+r.W-5, cy-2, cx+2, cy-2, color)
+	case 4: // grade
+		for yy := int32(0); yy < 2; yy++ {
+			for xx := int32(0); xx < 2; xx++ {
+				roundedBox(dc, Rect{r.X + 3 + xx*9, r.Y + 3 + yy*9, 6, 6}, rgb(255, 255, 255), color, 2)
+			}
+		}
+	case 5: // documento
+		roundedBox(dc, Rect{r.X + 5, r.Y + 2, r.W - 10, r.H - 4}, rgb(255, 255, 255), color, 3)
+		line(dc, r.X+8, r.Y+8, r.X+r.W-8, r.Y+8, color)
+		line(dc, r.X+8, r.Y+12, r.X+r.W-8, r.Y+12, color)
+		line(dc, r.X+8, r.Y+16, r.X+r.W-10, r.Y+16, color)
+	case 6: // histórico
+		circle(dc, Rect{r.X + 3, r.Y + 3, r.W - 6, r.H - 6}, color)
+		circle(dc, Rect{r.X + 5, r.Y + 5, r.W - 10, r.H - 10}, rgb(255, 255, 255))
+		line(dc, cx, cy, cx, r.Y+7, color)
+		line(dc, cx, cy, r.X+7, cy, color)
+	case 7: // configurações simplificadas
+		circle(dc, Rect{cx - 5, cy - 5, 10, 10}, color)
+		circle(dc, Rect{cx - 2, cy - 2, 4, 4}, rgb(255, 255, 255))
+		line(dc, cx, r.Y+2, cx, r.Y+6, color)
+		line(dc, cx, r.Y+r.H-6, cx, r.Y+r.H-2, color)
+		line(dc, r.X+2, cy, r.X+6, cy, color)
+		line(dc, r.X+r.W-6, cy, r.X+r.W-2, cy, color)
+	case 8:
+		circle(dc, Rect{r.X + 3, r.Y + 3, r.W - 6, r.H - 6}, color)
+		circle(dc, Rect{r.X + 5, r.Y + 5, r.W - 10, r.H - 10}, rgb(255, 255, 255))
+		text(dc, "?", r, app.fonts["small"], color, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	}
+}
 
 func (a *App) drawShell(dc syscall.Handle, rc RECT) {
-	side := int32(212)
+	side := shellSidebarWidth
 	fill(dc, Rect{0, 0, side, rc.Bottom}, rgb(255, 255, 255))
-	line(dc, side, 0, side, rc.Bottom, rgb(227, 233, 240))
+	line(dc, side, 0, side, rc.Bottom, rgb(232, 235, 240))
 
-	logoMark(dc, Rect{24, 22, 38, 38})
-	text(dc, "CoreTuner", Rect{72, 20, 125, 42}, a.fonts["brand"], rgb(10, 31, 62), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	logoMark(dc, Rect{20, 24, 34, 34})
+	text(dc, "CoreControl", Rect{64, 19, side - 68, 44}, a.fonts["brand"], rgb(17, 31, 55), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 
-	y := int32(92)
+	y := int32(94)
 	for i, label := range menuLabels {
-		r := Rect{14, y + int32(i*48), 184, 40}
+		r := Rect{14, y + int32(i*44), side - 28, 38}
 		selected := a.page == i
 		if selected {
-			roundedBox(dc, r, rgb(232, 247, 249), rgb(232, 247, 249), 10)
-			fill(dc, Rect{r.X, r.Y + 8, 3, r.H - 16}, rgb(0, 151, 170))
+			roundedBox(dc, r, rgb(237, 245, 255), rgb(237, 245, 255), 9)
 		} else if a.isHovered(r) {
-			roundedBox(dc, r, rgb(244, 249, 251), rgb(244, 249, 251), 10)
+			roundedBox(dc, r, rgb(247, 249, 252), rgb(247, 249, 252), 9)
 		}
-		iconColor := choose(selected, rgb(0, 139, 158), rgb(91, 107, 130))
-		text(dc, menuIcons[i], Rect{r.X + 14, r.Y, 28, r.H}, a.fonts["body"], iconColor, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-		text(dc, label, Rect{r.X + 50, r.Y, r.W - 58, r.H}, a.fonts["body"], choose(selected, rgb(0, 116, 133), rgb(29, 47, 72)), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		iconColor := choose(selected, rgb(47, 124, 246), rgb(111, 128, 155))
+		drawSidebarIcon(dc, i, Rect{r.X + 10, r.Y + 9, 20, 20}, iconColor)
+		text(dc, label, Rect{r.X + 42, r.Y, r.W - 50, r.H}, a.fonts["body"], choose(selected, rgb(47, 124, 246), rgb(47, 62, 87)), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 		a.hits = append(a.hits, Hit{r, "page", i})
 	}
 
 	a.mu.RLock()
 	company := companyName(a.company)
 	user := a.user.Name
-	a.mu.RUnlock()
-	profileCard := Rect{18, rc.Bottom - 126, side - 36, 72}
-	roundedBox(dc, profileCard, rgb(250, 252, 254), rgb(226, 233, 240), 12)
-	initials := "CT"
-	if strings.TrimSpace(company) != "" {
-		parts := strings.Fields(company)
-		if len(parts) == 1 {
-			r := []rune(parts[0])
-			if len(r) >= 2 {
-				initials = strings.ToUpper(string(r[:2]))
-			} else if len(r) == 1 {
-				initials = strings.ToUpper(string(r))
-			}
-		} else {
-			initials = strings.ToUpper(string([]rune(parts[0])[0]) + string([]rune(parts[len(parts)-1])[0]))
-		}
-	}
-	circle(dc, Rect{profileCard.X + 12, profileCard.Y + 15, 40, 40}, rgb(0, 151, 170))
-	text(dc, initials, Rect{profileCard.X + 12, profileCard.Y + 15, 40, 40}, a.fonts["small"], rgb(255, 255, 255), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	text(dc, company, Rect{profileCard.X + 62, profileCard.Y + 12, profileCard.W - 72, 24}, a.fonts["body"], rgb(17, 38, 70), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-	text(dc, user, Rect{profileCard.X + 62, profileCard.Y + 37, profileCard.W - 72, 20}, a.fonts["small"], rgb(98, 113, 137), DT_LEFT|DT_END_ELLIPSIS|DT_SINGLELINE)
-
-	logoutRect := Rect{24, rc.Bottom - 42, 100, 26}
-	if a.isHovered(logoutRect) {
-		roundedBox(dc, Rect{logoutRect.X - 8, logoutRect.Y - 4, logoutRect.W + 16, logoutRect.H + 8}, rgb(255, 245, 245), rgb(255, 245, 245), 8)
-	}
-	text(dc, "↪  Sair", logoutRect, a.fonts["small"], rgb(176, 55, 55), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	a.hits = append(a.hits, Hit{logoutRect, "logout", 0})
-
-	fill(dc, Rect{side, 0, rc.Right - side, 78}, rgb(255, 255, 255))
-	line(dc, side, 78, rc.Right, 78, rgb(227, 233, 240))
-	text(dc, menuLabels[a.page], Rect{side + 30, 16, 400, 42}, a.fonts["title"], rgb(9, 28, 56), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-
-	a.mu.RLock()
 	sys := a.sys
 	a.mu.RUnlock()
-	circle(dc, Rect{side + 405, 34, 8, 8}, rgb(31, 171, 102))
-	text(dc, "Atualizado agora", Rect{side + 420, 22, 150, 32}, a.fonts["small"], rgb(91, 106, 130), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
-	if !sys.Updated.IsZero() {
-		text(dc, sys.Updated.Format("15:04:05"), Rect{rc.Right - 110, 23, 82, 30}, a.fonts["small"], rgb(101, 116, 140), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
+
+	if rc.Bottom >= 720 {
+		deviceY := rc.Bottom - 216
+		device := Rect{14, deviceY, side - 28, 108}
+		roundedBox(dc, device, rgb(250, 251, 253), rgb(232, 235, 240), 10)
+		roundedBox(dc, Rect{device.X + 12, device.Y + 14, 38, 32}, rgb(240, 246, 255), rgb(226, 233, 243), 7)
+		monitorIcon(dc, Rect{device.X + 20, device.Y + 20, 22, 20}, rgb(47, 124, 246))
+		text(dc, nz(sys.Hostname, "Este computador"), Rect{device.X + 58, device.Y + 12, device.W - 68, 22}, a.fonts["small"], rgb(35, 48, 69), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, nz(sys.OS, "Windows"), Rect{device.X + 58, device.Y + 34, device.W - 68, 18}, a.fonts["small"], rgb(111, 124, 145), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, nz(sys.CPUName, "Processador"), Rect{device.X + 12, device.Y + 61, device.W - 24, 18}, a.fonts["small"], rgb(86, 101, 124), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, strings.TrimSpace(nz(formatRAMDisk(sys), "Informações do sistema")), Rect{device.X + 12, device.Y + 82, device.W - 24, 18}, a.fonts["small"], rgb(86, 101, 124), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+
+		profile := Rect{14, rc.Bottom - 98, side - 28, 58}
+		roundedBox(dc, profile, rgb(255, 255, 255), rgb(232, 235, 240), 10)
+		circle(dc, Rect{profile.X + 12, profile.Y + 11, 36, 36}, rgb(47, 124, 246))
+		text(dc, userInitials(user), Rect{profile.X + 12, profile.Y + 11, 36, 36}, a.fonts["small"], rgb(255, 255, 255), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, nz(company, "CoreControl"), Rect{profile.X + 57, profile.Y + 9, profile.W - 68, 21}, a.fonts["small"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, nz(user, "Usuário"), Rect{profile.X + 57, profile.Y + 29, profile.W - 68, 18}, a.fonts["small"], rgb(111, 124, 145), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+
+	logoutRect := Rect{20, rc.Bottom - 32, 86, 22}
+	if a.isHovered(logoutRect) {
+		roundedBox(dc, Rect{logoutRect.X - 6, logoutRect.Y - 3, logoutRect.W + 12, logoutRect.H + 6}, rgb(255, 246, 246), rgb(255, 246, 246), 7)
+	}
+	text(dc, "↪  Sair", logoutRect, a.fonts["small"], rgb(194, 70, 70), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	a.hits = append(a.hits, Hit{logoutRect, "logout", 0})
+
+	fill(dc, Rect{side, 0, rc.Right - side, shellHeaderHeight}, rgb(255, 255, 255))
+	line(dc, side, shellHeaderHeight, rc.Right, shellHeaderHeight, rgb(232, 235, 240))
+	text(dc, menuLabels[a.page], Rect{side + 32, 14, 350, 34}, a.fonts["title"], rgb(23, 33, 50), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, pageSubtitle(a.page), Rect{side + 32, 48, 360, 22}, a.fonts["small"], rgb(112, 124, 145), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+
+	statusX := side + 392
+	circle(dc, Rect{statusX, 31, 7, 7}, rgb(39, 179, 99))
+	text(dc, "Online", Rect{statusX + 14, 22, 60, 24}, a.fonts["small"], rgb(39, 179, 99), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "↻  Atualizado agora", Rect{statusX + 78, 22, 130, 24}, a.fonts["small"], rgb(113, 126, 148), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+
+	profileW := int32(205)
+	profileX := rc.Right - profileW - 24
+	if profileX > statusX+220 {
+		circle(dc, Rect{profileX, 23, 40, 40}, rgb(238, 244, 255))
+		text(dc, userInitials(user), Rect{profileX, 23, 40, 40}, a.fonts["small"], rgb(47, 124, 246), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		text(dc, nz(user, "Usuário"), Rect{profileX + 50, 19, profileW - 50, 22}, a.fonts["body"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, nz(company, "Conta local"), Rect{profileX + 50, 42, profileW - 50, 18}, a.fonts["small"], rgb(114, 126, 147), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
 	}
 }
+
+func formatRAMDisk(s SystemInfo) string {
+	ram := ""
+	disk := ""
+	if s.TotalRAMGB > 0 {
+		ram = strings.TrimSpace(formatOneDecimal(s.TotalRAMGB)) + " GB RAM"
+	}
+	if s.DiskTotalGB > 0 {
+		disk = strings.TrimSpace(formatNoDecimal(s.DiskTotalGB)) + " GB " + nz(s.DiskType, "disco")
+	}
+	if ram != "" && disk != "" {
+		return ram + " • " + disk
+	}
+	return ram + disk
+}
+
+func formatOneDecimal(v float64) string {
+	s := strings.TrimRight(strings.TrimRight(strconv.FormatFloat(v, 'f', 1, 64), "0"), ".")
+	return s
+}
+
+func formatNoDecimal(v float64) string {
+	return strconv.FormatFloat(v, 'f', 0, 64)
+}
+
 func choose(cond bool, a, b uintptr) uintptr {
 	if cond {
 		return a

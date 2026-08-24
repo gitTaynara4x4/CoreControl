@@ -40,7 +40,7 @@ func configuredDataDir() string {
 
 func appWindowTitle() string {
 	if isDevMode() {
-		return "CoreTuner DEV — Diagnóstico e gestão segura"
+		return "CoreControl DEV — Diagnóstico e gestão segura"
 	}
-	return "CoreTuner — Diagnóstico e gestão segura"
+	return "CoreControl — Diagnóstico e gestão segura"
 }

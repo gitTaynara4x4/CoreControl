@@ -38,6 +38,7 @@ const (
 	WM_TIMER            = 0x0113
 	WM_MOUSEMOVE        = 0x0200
 	WM_LBUTTONUP        = 0x0202
+	WM_MOUSEWHEEL       = 0x020A
 	WM_SETFONT          = 0x0030
 	WM_APP              = 0x8000
 	WM_APP_REFRESH      = WM_APP + 1
@@ -196,6 +197,10 @@ type App struct {
 	company                         *Company
 	sys                             SystemInfo
 	processes                       []ProcessInfo
+	activityApps                    []ActivityApp
+	activitySessions                []ActivitySession
+	activityCurrent                 *ActivitySession
+	activityLastSave                time.Time
 	history                         []HistoryItem
 	profile                         int
 	statusText                      string
@@ -204,6 +209,7 @@ type App struct {
 	mouseX, mouseY                  int32
 	hoverRect                       Rect
 	hoverActive                     bool
+	pageScrollY                     int32
 	optimizationActive              int
 	optimizationAppliedAt           time.Time
 	optimizationNote                string
@@ -258,6 +264,9 @@ var (
 	procEllipse                = gdi32.NewProc("Ellipse")
 	procMoveToEx               = gdi32.NewProc("MoveToEx")
 	procLineTo                 = gdi32.NewProc("LineTo")
+	procSaveDC                 = gdi32.NewProc("SaveDC")
+	procRestoreDC              = gdi32.NewProc("RestoreDC")
+	procIntersectClipRect      = gdi32.NewProc("IntersectClipRect")
 	procCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	procCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
 	procBitBlt                 = gdi32.NewProc("BitBlt")
@@ -295,6 +304,7 @@ func runGUI() {
 	app.createFonts()
 	app.buildLogin()
 	app.loadHistory()
+	app.loadActivity()
 	app.loadSession()
 	_ = ensureOptimizationDirectories()
 	app.refreshOptimizationSummary()
@@ -303,6 +313,7 @@ func runGUI() {
 	procSetTimer.Call(h, 1, 2500, 0)
 	procSetTimer.Call(h, 2, 30000, 0)
 	go app.refreshLocal(true)
+	go app.refreshActivity()
 	var msg MSG
 	for {
 		r, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
@@ -323,6 +334,7 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			app.width = int32(lParam & 0xffff)
 			app.height = int32((lParam >> 16) & 0xffff)
 			app.layoutLogin()
+			app.clampPageScroll()
 			app.invalidate()
 		}
 		return 0
@@ -354,6 +366,12 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			app.click(signedLow(lParam), signedHigh(lParam))
 		}
 		return 0
+	case WM_MOUSEWHEEL:
+		if app != nil && app.token != "" {
+			delta := int16((wParam >> 16) & 0xffff)
+			app.mouseWheel(delta)
+		}
+		return 0
 	case WM_COMMAND:
 		if app != nil {
 			app.command(loword(wParam))
@@ -363,8 +381,10 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		if app != nil {
 			if wParam == 1 {
 				go app.refreshLocal(false)
+				go app.refreshActivity()
 			} else if wParam == 2 {
 				go app.refreshLocal(true)
+				go app.refreshActivity()
 				if app.token != "" {
 					go app.refreshCentralStatus()
 				}
@@ -377,12 +397,15 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case WM_CLOSE:
-		if app != nil && message("CoreTuner", "Deseja fechar o CoreTuner?", MB_YESNO|MB_ICONQUESTION) != IDYES {
+		if app != nil && message("CoreControl", "Deseja fechar o CoreControl?", MB_YESNO|MB_ICONQUESTION) != IDYES {
 			return 0
 		}
 		procDestroyWindow.Call(hwnd)
 		return 0
 	case WM_DESTROY:
+		if app != nil {
+			app.saveActivityState()
+		}
 		procKillTimer.Call(hwnd, 1)
 		procKillTimer.Call(hwnd, 2)
 		procPostQuitMessage.Call(0)

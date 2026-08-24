@@ -13,7 +13,7 @@ import (
 
 const optimizationStateVersion = 1
 
-// AnimationSnapshot stores only Windows settings that CoreTuner is allowed to
+// AnimationSnapshot stores only Windows settings that CoreControl is allowed to
 // change. Each value is captured before the first optimization and restored
 // exactly when the user chooses "Restaurar Original".
 type AnimationSnapshot struct {
@@ -72,7 +72,7 @@ func optimizationProfileName(profile int) string {
 	case 4:
 		return "Alto Desempenho"
 	case 5:
-		return "Restaurar Original"
+		return "Desativar otimização"
 	default:
 		return ""
 	}
@@ -182,20 +182,20 @@ func optimizationProfileExplanation(profile int) OptimizationProfileExplanation 
 				"Dá prioridade moderada aos aplicativos de atendimento compatíveis que já estiverem abertos.",
 				"Na tomada, ativa Alto desempenho; na bateria ou sem confirmação de energia, usa Equilibrado.",
 			},
-			Result: "Na prática: busca maior resposta e pode consumir mais energia. Se Alto desempenho não existir neste PC, o plano atual é preservado e o CoreTuner avisa.",
+			Result: "Na prática: busca maior resposta e pode consumir mais energia. Se Alto desempenho não existir neste PC, o plano atual é preservado e o CoreControl avisa.",
 		}
 	case 5:
 		return OptimizationProfileExplanation{
-			Name:    "Restaurar Original",
-			Short:   "Desfaz as mudanças do CoreTuner e volta ao estado salvo.",
-			Summary: "Usa o backup criado antes da primeira otimização para devolver as configurações anteriores.",
+			Name:    "Desativar otimização",
+			Short:   "Remove o perfil ativo e volta ao estado anterior do Windows.",
+			Summary: "Usa o backup criado antes da primeira otimização para desativar o modo atual e devolver as configurações anteriores.",
 			Actions: []string{
 				"Restaura as animações originais do Windows.",
 				"Restaura o plano de energia que estava ativo antes da otimização.",
 				"Restaura a prioridade dos aplicativos compatíveis que ainda estiverem abertos.",
 				"Só arquiva o backup depois que a restauração termina sem falhas.",
 			},
-			Result: "Na prática: o computador volta ao estado salvo antes da primeira otimização. Se algo falhar, o backup é mantido para tentar novamente.",
+			Result: "Na prática: nenhum perfil do CoreControl fica ativo. O computador volta ao estado salvo antes da primeira otimização; se algo falhar, o backup é mantido para tentar novamente.",
 		}
 	default:
 		return OptimizationProfileExplanation{}
@@ -204,9 +204,9 @@ func optimizationProfileExplanation(profile int) OptimizationProfileExplanation 
 
 func optimizationConfirmation(plan OptimizationPlan) string {
 	if plan.Profile == 5 {
-		return "O CoreTuner restaurará exatamente as configurações salvas antes da primeira otimização.\n\nNenhum arquivo será apagado e nenhum programa será fechado à força.\n\nDeseja continuar?"
+		return "O CoreControl vai desativar o perfil atual e restaurar as configurações salvas antes da primeira otimização.\n\nNenhum arquivo será apagado e nenhum programa será fechado à força.\n\nDeseja desativar a otimização?"
 	}
-	lines := []string{"O CoreTuner criará ou preservará um backup automático antes de alterar o Windows."}
+	lines := []string{"O CoreControl criará ou preservará um backup automático antes de alterar o Windows."}
 	if plan.ClientAreaAnimations != nil || plan.MinimizeWindows != nil {
 		lines = append(lines, "• Reduzir animações do Windows")
 	}

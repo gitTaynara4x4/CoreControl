@@ -91,33 +91,155 @@ func (a *App) buildLogin() {
 	a.layoutLogin()
 	a.showLogin("login")
 }
+
+type authLayout struct {
+	card      Rect
+	logo      Rect
+	title     Rect
+	subtitle  Rect
+	labels    []Rect
+	fields    []Rect
+	primary   Rect
+	secondary Rect
+	forgot    Rect
+	status    Rect
+	security  Rect
+}
+
+func makeAuthLayout(width, height int32, mode string) authLayout {
+	margin := int32(28)
+
+	// O card acompanha o tamanho da janela, mas mantém limites confortáveis.
+	// Em monitores grandes ele não fica minúsculo; em janelas menores não estoura.
+	cardW := width * 31 / 100
+	if cardW < 460 {
+		cardW = 460
+	}
+	if cardW > 530 {
+		cardW = 530
+	}
+	cardH := int32(570)
+	if mode == "register" {
+		cardW = width * 34 / 100
+		if cardW < 500 {
+			cardW = 500
+		}
+		if cardW > 570 {
+			cardW = 570
+		}
+		cardH = 680
+	}
+
+	if maxW := width - margin*2; maxW < cardW {
+		cardW = maxW
+	}
+	if maxH := height - margin*2; maxH < cardH {
+		cardH = maxH
+	}
+	if cardW < 340 {
+		cardW = 340
+	}
+	if cardH < 500 && mode == "login" {
+		cardH = 500
+	}
+	if cardH < 600 && mode == "register" {
+		cardH = 600
+	}
+
+	cardX := (width - cardW) / 2
+	cardY := (height - cardH) / 2
+	if cardX < margin {
+		cardX = margin
+	}
+	if cardY < margin {
+		cardY = margin
+	}
+
+	contentPad := int32(48)
+	if cardW < 430 {
+		contentPad = 32
+	}
+	contentX := cardX + contentPad
+	contentW := cardW - contentPad*2
+
+	l := authLayout{
+		card:     Rect{cardX, cardY, cardW, cardH},
+		logo:     Rect{cardX + cardW/2 - 24, cardY + 28, 48, 48},
+		title:    Rect{cardX + 30, cardY + 88, cardW - 60, 38},
+		subtitle: Rect{cardX + 42, cardY + 124, cardW - 84, 40},
+	}
+
+	if mode == "register" {
+		fieldStart := cardY + 174
+		for i := int32(0); i < 5; i++ {
+			y := fieldStart + i*68
+			l.labels = append(l.labels, Rect{contentX, y, contentW, 18})
+			l.fields = append(l.fields, Rect{contentX, y + 23, contentW, 40})
+		}
+		l.primary = Rect{contentX, cardY + cardH - 144, contentW, 46}
+		l.secondary = Rect{contentX, cardY + cardH - 88, contentW, 38}
+		l.status = Rect{contentX, cardY + cardH - 46, contentW, 18}
+		l.security = Rect{contentX, cardY + cardH - 30, contentW, 22}
+		return l
+	}
+
+	fieldStart := cardY + 184
+	for i := int32(0); i < 2; i++ {
+		y := fieldStart + i*88
+		l.labels = append(l.labels, Rect{contentX, y, contentW, 18})
+		l.fields = append(l.fields, Rect{contentX, y + 24, contentW, 40})
+	}
+	l.primary = Rect{contentX, cardY + 368, contentW, 46}
+	l.secondary = Rect{contentX, cardY + 426, contentW, 40}
+	l.forgot = Rect{contentX + contentW/2 - 115, cardY + 480, 230, 30}
+	l.status = Rect{contentX, cardY + cardH - 62, contentW, 18}
+	l.security = Rect{contentX, cardY + cardH - 40, contentW, 30}
+	return l
+}
+
 func (a *App) layoutLogin() {
 	if a == nil {
 		return
 	}
-	cx := a.width/2 - 240
-	if cx < 20 {
-		cx = 20
+	if a.token != "" {
+		show(a.controls[idServer], a.page == 7)
+		if a.page == 7 {
+			x, y := contentOrigin()
+			w := a.width - x - 28
+			r := Rect{x + 20, y + 76, w - 240, 38}
+			user32.NewProc("SetWindowPos").Call(uintptr(a.controls[idServer]), 0, uintptr(r.X), uintptr(r.Y), uintptr(r.W), uintptr(r.H), 0x0004)
+		}
+		return
 	}
-	top := 220
-	w := int32(480)
-	setpos := func(id int, x, y, w, h int32) {
-		user32.NewProc("SetWindowPos").Call(uintptr(a.controls[id]), 0, uintptr(x), uintptr(y), uintptr(w), uintptr(h), 0x0004)
+	layout := makeAuthLayout(a.width, a.height, a.loginMode)
+	setpos := func(id int, r Rect) {
+		h := a.controls[id]
+		if h == 0 {
+			return
+		}
+		user32.NewProc("SetWindowPos").Call(uintptr(h), 0, uintptr(r.X), uintptr(r.Y), uintptr(r.W), uintptr(r.H), 0x0004)
 	}
-	setpos(idServer, cx, int32(top), w, 34)
-	setpos(idEmail, cx, int32(top+70), w, 34)
-	setpos(idPassword, cx, int32(top+140), w, 34)
-	setpos(idLogin, cx, int32(top+200), 230, 42)
-	setpos(idShowRegister, cx+250, int32(top+200), 230, 42)
-	setpos(idForgotPassword, cx, int32(top+255), w, 36)
-	ys := []int{top, top + 62, top + 124, top + 186, top + 248}
-	ids := []int{idCompany, idResponsible, idRegEmail, idRegPassword, idRegConfirm}
-	for i, id := range ids {
-		setpos(id, cx, int32(ys[i]), w, 34)
+
+	// O servidor continua configurado e funcional, mas fica fora da tela de login.
+	show(a.controls[idServer], false)
+
+	if a.loginMode == "register" {
+		ids := []int{idCompany, idResponsible, idRegEmail, idRegPassword, idRegConfirm}
+		for i, id := range ids {
+			setpos(id, layout.fields[i])
+		}
+		setpos(idRegister, layout.primary)
+		setpos(idShowLogin, layout.secondary)
+		return
 	}
-	setpos(idRegister, cx, int32(top+315), 250, 42)
-	setpos(idShowLogin, cx+270, int32(top+315), 210, 42)
+
+	setpos(idEmail, layout.fields[0])
+	setpos(idPassword, layout.fields[1])
+	setpos(idLogin, layout.primary)
+	setpos(idShowRegister, layout.secondary)
+	setpos(idForgotPassword, layout.forgot)
 }
+
 func (a *App) showLogin(mode string) {
 	a.loginMode = mode
 	for _, h := range a.loginControls {
@@ -126,6 +248,8 @@ func (a *App) showLogin(mode string) {
 	for _, h := range a.registerControls {
 		show(h, mode == "register" && a.token == "")
 	}
+	show(a.controls[idServer], false)
+	a.layoutLogin()
 	a.invalidate()
 }
 func (a *App) hideAuth() {
