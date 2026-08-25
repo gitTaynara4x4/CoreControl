@@ -37,6 +37,7 @@ const (
 	WM_COMMAND          = 0x0111
 	WM_TIMER            = 0x0113
 	WM_MOUSEMOVE        = 0x0200
+	WM_LBUTTONDOWN      = 0x0201
 	WM_LBUTTONUP        = 0x0202
 	WM_MOUSEWHEEL       = 0x020A
 	WM_SETFONT          = 0x0030
@@ -165,6 +166,7 @@ type ProcessInfo struct {
 	Name      string
 	PID       int
 	ParentPID int
+	ExePath   string
 	MemoryMB  float64
 	CPU       float64
 }
@@ -200,7 +202,9 @@ type App struct {
 	activityApps                    []ActivityApp
 	activitySessions                []ActivitySession
 	activityCurrent                 *ActivitySession
+	browserTabs                     []BrowserTab
 	activityLastSave                time.Time
+	activityExpanded                map[string]bool
 	history                         []HistoryItem
 	profile                         int
 	statusText                      string
@@ -210,6 +214,8 @@ type App struct {
 	hoverRect                       Rect
 	hoverActive                     bool
 	pageScrollY                     int32
+	scrollDragging                  bool
+	scrollDragOffset                int32
 	optimizationActive              int
 	optimizationAppliedAt           time.Time
 	optimizationNote                string
@@ -247,6 +253,8 @@ var (
 	procDestroyWindow          = user32.NewProc("DestroyWindow")
 	procLoadCursor             = user32.NewProc("LoadCursorW")
 	procSetCursor              = user32.NewProc("SetCursor")
+	procSetCapture             = user32.NewProc("SetCapture")
+	procReleaseCapture         = user32.NewProc("ReleaseCapture")
 	procGetDlgCtrlID           = user32.NewProc("GetDlgCtrlID")
 	procGetDC                  = user32.NewProc("GetDC")
 	procReleaseDC              = user32.NewProc("ReleaseDC")
@@ -361,8 +369,18 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 				return 1
 			}
 		}
+	case WM_LBUTTONDOWN:
+		if app != nil && app.token != "" {
+			if app.mouseDown(signedLow(lParam), signedHigh(lParam)) {
+				return 0
+			}
+		}
+		return 0
 	case WM_LBUTTONUP:
 		if app != nil && app.token != "" {
+			if app.mouseUp(signedLow(lParam), signedHigh(lParam)) {
+				return 0
+			}
 			app.click(signedLow(lParam), signedHigh(lParam))
 		}
 		return 0
@@ -379,12 +397,23 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		return 0
 	case WM_TIMER:
 		if app != nil {
+			// Na página Atividade, um único ciclo atualiza métricas + processos.
+			// Isso evita duas listas concorrentes e elimina o pisca/recarregamento visual.
+			page := app.page
 			if wParam == 1 {
-				go app.refreshLocal(false)
-				go app.refreshActivity()
+				if page == 4 {
+					go app.refreshActivity()
+				} else {
+					go app.refreshLocal(false)
+					go app.refreshActivity()
+				}
 			} else if wParam == 2 {
-				go app.refreshLocal(true)
-				go app.refreshActivity()
+				if page == 4 {
+					go app.refreshActivity()
+				} else {
+					go app.refreshLocal(true)
+					go app.refreshActivity()
+				}
 				if app.token != "" {
 					go app.refreshCentralStatus()
 				}

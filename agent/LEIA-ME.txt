@@ -1,5 +1,12 @@
-CORETUNER AGENT 0.4.11
+CORECONTROL AGENT 0.5.0
 
-Agente Windows somente leitura. Coleta informações técnicas usando APIs nativas do Windows, sem abrir PowerShell ou janela de console.
+O agente Windows coleta telemetria técnica em modo somente leitura e, quando autorizado pelo painel, também processa uma fila restrita de operações de atualização.
 
-O executável oficial fica em app/downloads/CoreTunerAgent.exe e é instalado automaticamente pelo CoreTunerSetup.exe.
+Nesta versão o agente aceita somente comandos conhecidos pelo CoreControl:
+- verificar Windows Update e drivers pelo mecanismo oficial do Windows;
+- verificar aplicativos pelo Windows Package Manager (winget), quando disponível;
+- instalar somente as atualizações selecionadas ou permitidas por uma política.
+
+O agente NÃO aceita PowerShell, CMD ou comandos arbitrários enviados pelo navegador. A consulta/instalação do Windows Update usa um script interno fixo, não editável pelo usuário, executado de forma não interativa. O CoreControl não força reinicialização automática nesta versão.
+
+O executável oficial fica em app/downloads/CoreControlAgent.exe e é instalado/atualizado ao executar novamente o CoreControlSetup.exe.

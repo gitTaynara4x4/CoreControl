@@ -103,7 +103,16 @@ func (a *App) loadActivity() {
 }
 
 func (a *App) refreshActivity() {
+	a.mu.RLock()
+	baseSys := a.sys
+	page := a.page
+	a.mu.RUnlock()
 	apps, processes := collectActivitySnapshot()
+	browserTabs := loadBrowserTabs()
+	var dynamicSys SystemInfo
+	if page == 4 && baseSys.Hostname != "" {
+		dynamicSys = collectSystemDynamic(baseSys)
+	}
 	now := time.Now()
 	var focused *ActivityApp
 	for i := range apps {
@@ -166,10 +175,11 @@ func (a *App) refreshActivity() {
 		apps[i].ActiveSeconds = totals[strings.ToLower(apps[i].Name)]
 	}
 	a.activityApps = apps
-	if len(processes) > 15 {
-		processes = processes[:15]
-	}
+	a.browserTabs = browserTabs
 	a.processes = processes
+	if page == 4 && dynamicSys.Hostname != "" {
+		a.sys = dynamicSys
+	}
 	shouldSave := changed || a.activityLastSave.IsZero() || now.Sub(a.activityLastSave) >= 30*time.Second
 	if shouldSave {
 		a.activityLastSave = now

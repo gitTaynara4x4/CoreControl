@@ -6,8 +6,8 @@ $setupSource = Join-Path $PSScriptRoot 'setup\src'
 $iconPatchSource = Join-Path $PSScriptRoot 'tools\iconpatch'
 $downloadDir = Join-Path $root 'app\downloads'
 $publicUrl = if ($env:CORETUNER_PUBLIC_URL) { $env:CORETUNER_PUBLIC_URL } else { 'http://127.0.0.1:8002' }
-$iconSource = Join-Path $PSScriptRoot 'assets\coretuner.ico'
-$setupLogoSource = Join-Path $PSScriptRoot 'assets\coretuner-logo.bmp'
+$iconSource = Join-Path $PSScriptRoot 'assets\corecontrol.ico'
+$setupLogoSource = Join-Path $PSScriptRoot 'assets\corecontrol-logo.bmp'
 if (-not (Test-Path $iconSource)) {
     throw "Ícone oficial não encontrado em $iconSource"
 }
@@ -27,27 +27,32 @@ $env:CGO_ENABLED = '0'
 Push-Location $agentSource
 go test ./...
 go vet ./...
-go build -trimpath -ldflags '-H windowsgui -s -w' -o (Join-Path $downloadDir 'CoreTunerAgent.exe') .
+go build -trimpath -ldflags '-H windowsgui -s -w' -o (Join-Path $downloadDir 'CoreControlAgent.exe') .
 Pop-Location
 
 Push-Location $appSource
 go test ./...
 go vet ./...
-go build -trimpath -ldflags "-H windowsgui -s -w -X main.defaultServerURL=$publicUrl" -o (Join-Path $downloadDir 'CoreTuner.exe') .
+go build -trimpath -ldflags "-H windowsgui -s -w -X main.defaultServerURL=$publicUrl" -o (Join-Path $downloadDir 'CoreControl.exe') .
 Pop-Location
 
 Push-Location $setupSource
 go test ./...
 go vet ./...
-go build -trimpath -ldflags "-H windowsgui -s -w -X main.defaultServerURL=$publicUrl" -o (Join-Path $downloadDir 'CoreTunerSetup.exe') .
+go build -trimpath -ldflags "-H windowsgui -s -w -X main.defaultServerURL=$publicUrl" -o (Join-Path $downloadDir 'CoreControlSetup.exe') .
 Pop-Location
 
 Push-Location $iconPatchSource
 go test ./...
-go run . -exe (Join-Path $downloadDir 'CoreTunerAgent.exe') -ico $iconSource
-go run . -exe (Join-Path $downloadDir 'CoreTuner.exe') -ico $iconSource
-go run . -exe (Join-Path $downloadDir 'CoreTunerSetup.exe') -ico $iconSource
+go run . -exe (Join-Path $downloadDir 'CoreControlAgent.exe') -ico $iconSource
+go run . -exe (Join-Path $downloadDir 'CoreControl.exe') -ico $iconSource
+go run . -exe (Join-Path $downloadDir 'CoreControlSetup.exe') -ico $iconSource
+
+# Mantém aliases legados no servidor para setups CoreTuner já distribuídos.
+Copy-Item -Force (Join-Path $downloadDir 'CoreControlAgent.exe') (Join-Path $downloadDir 'CoreTunerAgent.exe')
+Copy-Item -Force (Join-Path $downloadDir 'CoreControl.exe') (Join-Path $downloadDir 'CoreTuner.exe')
+Copy-Item -Force (Join-Path $downloadDir 'CoreControlSetup.exe') (Join-Path $downloadDir 'CoreTunerSetup.exe')
 Pop-Location
 
-Write-Host 'CoreTunerSetup.exe, CoreTuner.exe e CoreTunerAgent.exe gerados em app\downloads.' -ForegroundColor Green
+Write-Host 'CoreControlSetup.exe, CoreControl.exe e CoreControlAgent.exe gerados em app\downloads (com aliases legados).' -ForegroundColor Green
 Write-Host 'Esta compilação não usa PowerShell para coletar diagnóstico.' -ForegroundColor Green

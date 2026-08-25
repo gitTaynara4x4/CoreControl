@@ -1,0 +1,27 @@
+<h2>Editar usuário</h2>
+<p>Altere acesso, empresa, perfil ou defina uma nova senha.</p>
+<form id="userEditForm" class="stack">
+  <label>Nome<input id="editUserName" required minlength="2" maxlength="120"></label>
+  <label>E-mail<input id="editUserEmail" type="email" required></label>
+  <label>Nova senha <small style="font-weight:400;color:var(--muted)">(deixe em branco para manter)</small><input id="editUserPassword" type="password" minlength="10"></label>
+  <label>Perfil
+    <select id="editUserRole">
+      <option value="viewer">Visualização</option>
+      <option value="technician">Técnico</option>
+      <option value="company_admin">Administrador da empresa</option>
+      <option value="platform_admin">Administrador da plataforma</option>
+      <option value="global_admin">Administrador Global</option>
+    </select>
+  </label>
+  <label id="editUserCompanyField">Empresa<select id="editUserCompany"></select></label>
+  <label>Status
+    <select id="editUserActive">
+      <option value="true">Ativo</option>
+      <option value="false">Bloqueado</option>
+    </select>
+  </label>
+  <div class="modal-actions">
+    <button type="button" class="btn" id="cancelModal">Cancelar</button>
+    <button type="submit" class="btn primary">Salvar alterações</button>
+  </div>
+</form>

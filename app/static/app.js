@@ -23,7 +23,7 @@
       }
     } catch (error) {
       document.body.innerHTML = `<div class="card empty">${CT.esc(error.message)}</div>`;
-      console.error('[CoreTuner] Falha ao iniciar o painel:', error);
+      console.error('[CoreControl] Falha ao iniciar o painel:', error);
     }
   };
 

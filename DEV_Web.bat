@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title CoreTuner WEB DEV - 127.0.0.1:8001
+title CoreControl WEB DEV - 127.0.0.1:8001
 
 echo ==========================================
-echo          CoreTuner - WEB DEV
+echo          CoreControl - WEB DEV
 echo ==========================================
 echo.
 echo Interface: http://127.0.0.1:8001
@@ -50,7 +50,7 @@ goto :eof
 
 :error
 echo.
-echo Nao foi possivel iniciar o CoreTuner WEB DEV.
+echo Nao foi possivel iniciar o CoreControl WEB DEV.
 echo Confira o erro acima.
 pause
 exit /b 1

@@ -30,7 +30,7 @@
 
     /*
      * O MeshCentral consome e remove "gotonode" depois do login por token.
-     * O CoreTuner envia também "ctnode", que é um parâmetro próprio e fica
+     * O CoreControl envia também "ctnode", que é um parâmetro próprio e fica
      * preservado no redirecionamento. O sessionStorage é uma proteção extra
      * caso outra versão do MeshCentral também remova esse parâmetro da URL.
      */
@@ -64,7 +64,7 @@
     var dispositivoSelecionado = null;
 
     function registrar(mensagem, erro) {
-        var prefixo = '[CoreTuner Remote v7] ';
+        var prefixo = '[CoreControl Remote v7] ';
         if (erro) {
             console.error(prefixo + mensagem, erro);
         } else {

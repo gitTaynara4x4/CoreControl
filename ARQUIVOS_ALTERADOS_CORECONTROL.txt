@@ -1,0 +1,24 @@
+CORECONTROL — RENOMEAÇÃO DA MARCA
+
+Este pacote contém somente os arquivos alterados na mudança de CoreTuner/CoreTuner Central para CoreControl.
+
+Inclui:
+- Central web e login com a marca CoreControl;
+- site público com a marca CoreControl;
+- aplicativo Windows e instalador com a marca CoreControl;
+- CoreControl.exe, CoreControlAgent.exe e CoreControlSetup.exe recompilados;
+- aliases CoreTuner*.exe atualizados para compatibilidade com instalações antigas;
+- testes atualizados e validados (39 aprovados).
+
+IMPORTANTE:
+- o arquivo .env real não foi incluído neste patch, para não sobrescrever suas credenciais locais;
+- variáveis CORETUNER_* e alguns caminhos técnicos legados permanecem de propósito para compatibilidade.
+
+Identidade visual CoreControl adicionada:
+- app/static/corecontrol-logo.png
+- app/static/corecontrol-mark.png
+- app/public/logo.png
+- app/public/logo-mark.png
+- desktop/assets/corecontrol-logo.png
+- desktop/assets/corecontrol-logo.bmp
+- desktop/assets/corecontrol.ico

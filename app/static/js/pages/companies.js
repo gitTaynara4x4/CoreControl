@@ -12,7 +12,7 @@
       : '<div class="empty">Nenhuma empresa cadastrada.</div>';
     CT.$('#newCompanyBtn').classList.toggle(
       'hidden',
-      CT.state.user.role !== 'platform_admin',
+      !CT.isGlobalAdmin(),
     );
     CT.bindCommonActions();
   });
@@ -23,10 +23,13 @@
     await CT.mountPage('company');
 
     CT.$('#pageTitle').textContent = company.name;
+    const activeDevices = company.devices.filter((device) => device.active !== false);
+    const disabledDevices = company.devices.filter((device) => device.active === false);
     CT.$('#companyStats').innerHTML = [
       CT.stat('Computadores', company.devices.length, 'Total vinculado'),
-      CT.stat('Online', company.devices.filter((device) => device.online).length, 'Comunicando', 'var(--green)'),
-      CT.stat('Offline', company.devices.filter((device) => !device.online).length, 'Sem comunicação', 'var(--red)'),
+      CT.stat('Online', activeDevices.filter((device) => device.online).length, 'Comunicando', 'var(--green)'),
+      CT.stat('Offline', activeDevices.filter((device) => !device.online).length, 'Sem comunicação', 'var(--red)'),
+      CT.stat('Desativados', disabledDevices.length, 'Fora de operação'),
       CT.stat('Alertas', company.devices.reduce((sum, device) => sum + device.alerts_open, 0), 'Ativos', 'var(--amber)'),
     ].join('');
 
@@ -36,6 +39,17 @@
 
     CT.$('#backCompanies').onclick = () => CT.navigate('companies');
     CT.$('#enrollBtn').onclick = () => CT.createEnrollmentToken(company.id, company.name);
+    const editCompanyBtn = CT.$('#editCompanyBtn');
+    if (CT.isGlobalAdmin()) {
+      editCompanyBtn.classList.remove('hidden');
+      editCompanyBtn.onclick = () => CT.openCompanyEditModal(company);
+    }
+
+    const deleteCompanyBtn = CT.$('#deleteCompanyBtn');
+    if (CT.canDestroyCompanies()) {
+      deleteCompanyBtn.classList.remove('hidden');
+      deleteCompanyBtn.onclick = () => CT.openCompanyDeleteModal(company);
+    }
     CT.bindDeviceRows();
   });
 })();

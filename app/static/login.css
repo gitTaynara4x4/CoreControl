@@ -1,4 +1,4 @@
-/* CoreTuner Login — painel esquerdo preservado + acesso compacto e clean. */
+/* CoreControl Login — painel esquerdo preservado + acesso compacto e clean. */
 #loginMount{min-height:100vh;background:#fff}
 .ct-auth{
   min-height:100vh;
@@ -10,7 +10,7 @@
 }
 .ct-auth button,.ct-auth input,.ct-auth select,.ct-auth textarea{font-family:"Inter",sans-serif}
 
-/* Painel esquerdo: identidade CoreTuner preservada */
+/* Painel esquerdo: identidade CoreControl preservada */
 .ct-auth-hero{
   position:relative;
   overflow:hidden;
@@ -26,8 +26,8 @@
   padding:58px 0 46px 50px;
   display:flex;flex-direction:column;
 }
-.ct-auth-brand{display:inline-flex;width:max-content;color:#fff;text-decoration:none}
-.ct-auth-brand img.ct-auth-brand-image{width:188px;height:46px;object-fit:contain;object-position:left center;display:block}
+.ct-auth-brand{display:inline-flex;align-items:center;width:max-content;color:#fff;text-decoration:none}
+.ct-auth-brand img.ct-auth-brand-full{width:210px;max-width:100%;height:auto;object-fit:contain;display:block}
 .ct-auth-copy{margin-top:108px}
 .ct-auth-eyebrow{display:block;margin-bottom:22px;color:#3180ff;font-size:11px;line-height:1;font-weight:700;letter-spacing:.05em}
 .ct-auth-copy h1{margin:0;max-width:500px;color:#fff;font-size:42px;line-height:1.11;letter-spacing:-.045em;font-weight:750}
@@ -127,7 +127,7 @@
   .ct-auth{display:block;background:#fff}
   .ct-auth-hero{min-height:auto}
   .ct-auth-hero-inner{min-height:auto;padding:30px 28px 34px}
-  .ct-auth-brand img.ct-auth-brand-image{width:165px;height:40px}
+  .ct-auth-brand img.ct-auth-brand-full{width:188px}
   .ct-auth-copy{margin-top:44px}.ct-auth-copy h1{font-size:34px;line-height:1.06}.ct-auth-copy p{margin-top:20px;font-size:12.5px}.ct-auth-desktop-break{display:none}
   .ct-auth-features{width:100%;max-width:100%;margin-top:42px;grid-template-columns:repeat(3,max-content);gap:24px}
   .ct-auth-orb-top{right:-215px;top:-135px}.ct-auth-orb-bottom{display:none}

@@ -30,11 +30,20 @@ func (a *App) hitAt(x, y int32) *Hit {
 
 func (a *App) mouseMove(x, y int32) {
 	a.mouseX, a.mouseY = x, y
+	if a.scrollDragging {
+		a.dragPageScrollbar(y)
+		a.setPointerCursor(true)
+		return
+	}
+	_, thumb, hasScrollbar := a.pageScrollbarGeometry()
+	overScrollbar := hasScrollbar && (thumb.contains(x, y) || x >= a.width-18)
 	h := a.hitAt(x, y)
-	active := h != nil
+	active := h != nil || overScrollbar
 	var hoverRect Rect
-	if active {
+	if h != nil {
 		hoverRect = h.Rect
+	} else if overScrollbar {
+		hoverRect = thumb
 	}
 	changed := active != a.hoverActive || (active && hoverRect != a.hoverRect)
 	a.hoverActive = active
@@ -163,6 +172,19 @@ func (a *App) action(action string, value int) {
 		go a.refreshLocal(false)
 	case "refresh-activity":
 		go a.refreshActivity()
+	case "toggle-activity-group":
+		a.mu.Lock()
+		groups := buildActivityGroups(a.activityApps, a.processes)
+		if value >= 0 && value < len(groups) {
+			if a.activityExpanded == nil {
+				a.activityExpanded = map[string]bool{}
+			}
+			key := strings.ToLower(strings.TrimSpace(groups[value].Name))
+			a.activityExpanded[key] = !a.activityExpanded[key]
+		}
+		a.mu.Unlock()
+		a.clampPageScroll()
+		a.invalidate()
 	case "refresh-central":
 		go a.refreshCentralStatus()
 	case "refresh-all":
@@ -291,8 +313,27 @@ func (a *App) pageContentHeight() int32 {
 		a.mu.RLock()
 		apps := append([]ActivityApp(nil), a.activityApps...)
 		processes := append([]ProcessInfo(nil), a.processes...)
+		browserTabs := append([]BrowserTab(nil), a.browserTabs...)
+		expanded := make(map[string]bool, len(a.activityExpanded))
+		for k, v := range a.activityExpanded {
+			expanded[k] = v
+		}
 		a.mu.RUnlock()
-		rows := len(buildActivityGroups(apps, processes))
+		groups := buildActivityGroups(apps, processes)
+		rowH := int32(40)
+		childH := int32(38)
+		groupGap := int32(5)
+		expandedGap := int32(6)
+		rowsHeight := int32(len(groups)) * (rowH + groupGap)
+		for _, g := range groups {
+			key := strings.ToLower(strings.TrimSpace(g.Name))
+			if expanded[key] {
+				childrenCount := len(activityChildrenForGroup(g.Name, apps, processes, browserTabs))
+				if childrenCount > 0 {
+					rowsHeight += expandedGap*2 + int32(childrenCount)*childH
+				}
+			}
+		}
 		panelW := a.width - shellContentLeft - 28
 		headOffset := int32(126)
 		minPanelH := int32(520)
@@ -300,7 +341,7 @@ func (a *App) pageContentHeight() int32 {
 			headOffset = 166
 			minPanelH = 560
 		}
-		panelH := headOffset + 54 + int32(rows)*34
+		panelH := headOffset + 54 + rowsHeight
 		if panelH < minPanelH {
 			panelH = minPanelH
 		}
@@ -344,6 +385,99 @@ func (a *App) clampPageScroll() {
 	if a.pageScrollY > maxScroll {
 		a.pageScrollY = maxScroll
 	}
+}
+
+func (a *App) pageScrollbarGeometry() (Rect, Rect, bool) {
+	if a == nil {
+		return Rect{}, Rect{}, false
+	}
+	maxScroll := a.maxPageScroll()
+	if maxScroll <= 0 {
+		return Rect{}, Rect{}, false
+	}
+	trackTop := shellHeaderHeight + 12
+	trackBottom := a.height - 14
+	trackH := trackBottom - trackTop
+	if trackH <= 60 {
+		return Rect{}, Rect{}, false
+	}
+	// 16 px de área clicável; visual continua fino.
+	track := Rect{a.width - 18, trackTop, 16, trackH}
+	contentHeight := a.pageContentHeight()
+	viewportHeight := a.height - shellContentTop - 18
+	if viewportHeight < 120 {
+		viewportHeight = 120
+	}
+	thumbH := int32(float64(trackH) * float64(viewportHeight) / float64(contentHeight))
+	if thumbH < 44 {
+		thumbH = 44
+	}
+	if thumbH > trackH {
+		thumbH = trackH
+	}
+	travel := trackH - thumbH
+	thumbY := trackTop
+	if travel > 0 {
+		thumbY += int32(float64(travel) * float64(a.pageScrollY) / float64(maxScroll))
+	}
+	thumb := Rect{track.X, thumbY, track.W, thumbH}
+	return track, thumb, true
+}
+
+func (a *App) mouseDown(x, y int32) bool {
+	track, thumb, ok := a.pageScrollbarGeometry()
+	if !ok || !track.contains(x, y) {
+		return false
+	}
+	if thumb.contains(x, y) {
+		a.scrollDragging = true
+		a.scrollDragOffset = y - thumb.Y
+		procSetCapture.Call(uintptr(a.hwnd))
+	} else {
+		// Clique na trilha: leva o thumb para perto do ponto clicado.
+		a.scrollDragging = true
+		a.scrollDragOffset = thumb.H / 2
+		procSetCapture.Call(uintptr(a.hwnd))
+		a.dragPageScrollbar(y)
+	}
+	a.hoverActive = false
+	a.invalidate()
+	return true
+}
+
+func (a *App) mouseUp(x, y int32) bool {
+	if !a.scrollDragging {
+		return false
+	}
+	a.scrollDragging = false
+	procReleaseCapture.Call()
+	a.mouseX, a.mouseY = x, y
+	a.invalidate()
+	return true
+}
+
+func (a *App) dragPageScrollbar(mouseY int32) {
+	track, thumb, ok := a.pageScrollbarGeometry()
+	if !ok {
+		return
+	}
+	travel := track.H - thumb.H
+	maxScroll := a.maxPageScroll()
+	if travel <= 0 || maxScroll <= 0 {
+		a.pageScrollY = 0
+		return
+	}
+	thumbY := mouseY - a.scrollDragOffset
+	if thumbY < track.Y {
+		thumbY = track.Y
+	}
+	maxY := track.Y + travel
+	if thumbY > maxY {
+		thumbY = maxY
+	}
+	a.pageScrollY = int32(float64(thumbY-track.Y) * float64(maxScroll) / float64(travel))
+	a.clampPageScroll()
+	a.invalidate()
 }
 
 func (a *App) mouseWheel(delta int16) {

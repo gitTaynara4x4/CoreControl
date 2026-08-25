@@ -158,3 +158,61 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(120), nullable=False)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class AgentCommand(Base):
+    __tablename__ = "agent_commands"
+    __table_args__ = (Index("ix_agent_commands_device_status_created", "device_id", "status", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), nullable=False, index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False, index=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    command_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class DeviceUpdateState(Base):
+    __tablename__ = "device_update_states"
+
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), primary_key=True)
+    last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_install_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    windows_pending: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    driver_pending: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    app_pending: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    critical_pending: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reboot_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    inventory_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class UpdatePolicy(Base):
+    __tablename__ = "update_policies"
+    __table_args__ = (Index("ix_update_policies_company_active", "company_id", "active"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    auto_scan: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    auto_install: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    include_windows: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    include_drivers: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    include_apps: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    scan_interval_hours: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
+    allowed_days: Mapped[str] = mapped_column(String(40), default="0,1,2,3,4", nullable=False)
+    start_hour: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    end_hour: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(80), default="America/Sao_Paulo", nullable=False)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_auto_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

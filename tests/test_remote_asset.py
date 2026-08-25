@@ -30,7 +30,7 @@ def test_remote_asset_only_runs_for_coretuner_sessions():
 
     assert "obterParametro('coretuner') === '1'" in script
     assert "window.__coreTunerRemoteAutoStart" in script
-    assert "CoreTuner Remote v7" in script
+    assert "CoreControl Remote v7" in script
 
 
 def test_remote_asset_retries_stuck_desktop_connections():

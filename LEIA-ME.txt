@@ -1,12 +1,12 @@
-CORETUNER CENTRAL COMPLETO — v0.4.11
+CORECONTROL COMPLETO — v0.4.11
 
 Projeto completo com:
 - backend FastAPI;
 - banco SQLite local ou PostgreSQL em produção;
 - site público e painel multiempresa;
-- CoreTunerSetup.exe;
-- CoreTuner.exe;
-- CoreTunerAgent.exe;
+- CoreControlSetup.exe;
+- CoreControl.exe;
+- CoreControlAgent.exe;
 - integração automática com MeshCentral;
 - recuperação de senha por e-mail;
 - testes automatizados.

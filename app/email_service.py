@@ -44,7 +44,7 @@ def send_password_reset_email(*, recipient_name: str, recipient_email: str, rese
     expires_minutes = settings.password_reset_minutes
 
     message = EmailMessage(policy=SMTP)
-    message["Subject"] = "CoreTuner - link para criar nova senha"
+    message["Subject"] = "CoreControl - link para criar nova senha"
     # Mantém o remetente exatamente igual à conta autenticada no SMTP.
     message["From"] = settings.smtp_sender
     message["To"] = recipient
@@ -56,13 +56,13 @@ def send_password_reset_email(*, recipient_name: str, recipient_email: str, rese
     message["X-Auto-Response-Suppress"] = "All"
     message.set_content(
         f"Olá, {display_name}.\n\n"
-        "Recebemos uma solicitação para criar uma nova senha da sua conta CoreTuner.\n\n"
+        "Recebemos uma solicitação para criar uma nova senha da sua conta CoreControl.\n\n"
         f"Abra este endereço em até {expires_minutes} minutos:\n"
         f"{reset_url}\n\n"
         "O link funciona uma única vez.\n\n"
         "Caso você não tenha solicitado esta alteração, ignore esta mensagem. "
         "Sua senha atual continuará funcionando.\n\n"
-        "Equipe CoreTuner\n"
+        "Equipe CoreControl\n"
     )
 
     try:

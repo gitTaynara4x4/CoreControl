@@ -17,7 +17,7 @@ from .schemas import DownloadUnlockRequest
 from .security import create_download_token, get_session_payload
 
 router = APIRouter(prefix="/api/public", tags=["public"])
-DOWNLOAD_FILENAME = "CoreTunerSetup.exe"
+DOWNLOAD_FILENAME = "CoreControlSetup.exe"
 Db = Annotated[Session, Depends(get_db)]
 
 
@@ -127,7 +127,7 @@ def create_ticket(payload: DownloadUnlockRequest, request: Request, db: Db):
             company_id=user.company_id,
             actor_user_id=user.id,
             action="download.setup.unlock",
-            details=f"CoreTunerSetup liberado para {user.email}",
+            details=f"CoreControl Setup liberado para {user.email}",
         )
     )
     db.commit()

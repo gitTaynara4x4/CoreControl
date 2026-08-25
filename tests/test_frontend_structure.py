@@ -9,12 +9,17 @@ EXPECTED_PAGES = {
     "login.html": ["loginView", "loginForm", "registerCompanyForm"],
     "overview.html": ["overviewStats", "overviewAttention", "overviewCompanies"],
     "companies.html": ["companiesGrid", "newCompanyBtn"],
-    "company.html": ["companyStats", "companyDevicesArea", "enrollBtn"],
+    "company.html": ["companyStats", "companyDevicesArea", "enrollBtn", "deleteCompanyBtn"],
     "devices.html": ["devicesCount", "deviceSearch", "deviceTableArea"],
     "device.html": ["deviceMetrics", "telemetryChart", "remoteAccessBtn"],
     "alerts.html": ["alertsArea"],
     "remote.html": ["remoteStats", "remoteDevicesArea"],
     "users.html": ["usersArea", "newUserBtn"],
+    "updates.html": ["updatesView", "updatesCheckBtn"],
+    "scripts.html": ["scriptsView", "scriptNewBtn"],
+    "network.html": ["networkView", "networkTestBtn"],
+    "reports.html": ["reportsView"],
+    "settings.html": ["settingsView"],
 }
 
 
@@ -30,6 +35,11 @@ EXPECTED_SCRIPTS = [
     "js/pages/alerts.js",
     "js/pages/remote.js",
     "js/pages/users.js",
+    "js/pages/updates.js",
+    "js/pages/scripts.js",
+    "js/pages/network.js",
+    "js/pages/reports.js",
+    "js/pages/settings.js",
     "app.js",
 ]
 
@@ -68,6 +78,11 @@ def test_page_javascript_is_split_and_registered_in_router():
         "alerts": "js/pages/alerts.js",
         "remote": "js/pages/remote.js",
         "users": "js/pages/users.js",
+        "updates": "js/pages/updates.js",
+        "scripts": "js/pages/scripts.js",
+        "network": "js/pages/network.js",
+        "reports": "js/pages/reports.js",
+        "settings": "js/pages/settings.js",
     }
     for page_name, relative_path in registrations.items():
         script = (STATIC / relative_path).read_text(encoding="utf-8")
@@ -78,13 +93,13 @@ def test_remote_v7_and_windows_icon_assets_were_preserved():
     remote_script = (ROOT / "app" / "remote_assets" / "meshcentral-custom.js").read_text(
         encoding="utf-8"
     )
-    assert "CoreTuner Remote v7" in remote_script
+    assert "CoreControl Remote v7" in remote_script
     assert "obterParametro('ctnode')" in remote_script
 
     assert (ROOT / "desktop" / "assets" / "coretuner.ico").is_file()
     assert (ROOT / "desktop" / "setup" / "src" / "coretuner.ico").is_file()
     assert (ROOT / "desktop" / "app" / "src" / "coretuner.ico").is_file()
-    assert (ROOT / "app" / "downloads" / "CoreTunerSetup.exe").stat().st_size > 5_000_000
+    assert (ROOT / "app" / "downloads" / "CoreControlSetup.exe").stat().st_size > 5_000_000
 
 
 def test_login_mount_is_removed_from_layout_after_authentication():
@@ -93,8 +108,18 @@ def test_login_mount_is_removed_from_layout_after_authentication():
     assert "CT.$('#loginMount').classList.remove('hidden')" in auth
 
 
-def test_frontend_cache_version_v2_is_consistent():
+def test_frontend_cache_version_updates_v1_is_consistent():
     index = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
     core = (ROOT / "app/static/js/core.js").read_text(encoding="utf-8")
-    assert "20260727-frontend-pages-v2" in index
-    assert "CT.VERSION = '20260727-frontend-pages-v2'" in core
+    assert "20260822-updates-v1" in index
+    assert "CT.VERSION = '20260822-updates-v1'" in core
+
+
+def test_company_destroy_modal_is_split_and_requires_confirmation():
+    modal = (STATIC / "components/modals/company-delete.html").read_text(encoding="utf-8")
+    companies_js = (STATIC / "js/pages/companies.js").read_text(encoding="utf-8")
+    modals_js = (STATIC / "js/modals.js").read_text(encoding="utf-8")
+    assert 'id="companyDeleteForm"' in modal
+    assert 'id="deleteCompanyConfirmation"' in modal
+    assert "CT.canDestroyCompanies()" in companies_js
+    assert "method: 'DELETE'" in modals_js

@@ -9,6 +9,11 @@
     devices: ['Computadores', 'Veja saúde, uso e alertas de todas as máquinas autorizadas.'],
     alerts: ['Alertas', 'Priorize o que exige atenção técnica.'],
     remote: ['Acesso remoto', 'Acesse computadores autorizados com registro da solicitação.'],
+    updates: ['Atualizações', 'Windows, drivers, aplicativos e políticas de atualização.'],
+    scripts: ['Scripts', 'Automatize diagnósticos e tarefas administrativas com rastreabilidade.'],
+    network: ['Rede', 'Acompanhe conectividade e execute diagnósticos de rede.'],
+    reports: ['Relatórios', 'Consolide inventário, monitoramento, operações e auditoria.'],
+    settings: ['Configurações', 'Defina regras, segurança, integrações e comportamento da plataforma.'],
     users: ['Usuários e permissões', 'Controle quem pode visualizar ou administrar cada empresa.'],
     company: ['Detalhes da empresa', 'Computadores, situação e instalação de novos agentes.'],
     device: ['Detalhes do computador', 'Diagnóstico técnico e histórico de telemetria.'],
@@ -19,17 +24,16 @@
     CT.$('#userRole').textContent = CT.roleName(CT.state.user.role);
     CT.$('#userInitial').textContent = (CT.state.user.name || 'A').slice(0, 1).toUpperCase();
 
+    const isAdmin = ['global_admin', 'platform_admin', 'company_admin'].includes(CT.state.user.role);
     const usersButton = CT.$('[data-page="users"]');
-    usersButton.classList.toggle(
-      'hidden',
-      !['platform_admin', 'company_admin'].includes(CT.state.user.role),
-    );
+    if (usersButton) usersButton.classList.toggle('hidden', !isAdmin);
+    CT.$$('.admin-nav').forEach((button) => button.classList.toggle('hidden', !isAdmin));
   };
 
   CT.startRefresh = function startRefresh() {
     clearInterval(CT.state.refreshTimer);
     CT.state.refreshTimer = setInterval(() => {
-      if (['overview', 'devices', 'alerts', 'remote'].includes(CT.state.page)) {
+      if (['overview', 'devices', 'alerts', 'remote', 'network', 'updates'].includes(CT.state.page)) {
         CT.renderCurrent(false);
       }
     }, 15000);
@@ -44,7 +48,7 @@
       button.classList.toggle('active', button.dataset.page === page);
     });
 
-    const [title, subtitle] = CT.pageMeta[page] || ['CoreTuner Central', ''];
+    const [title, subtitle] = CT.pageMeta[page] || ['CoreControl', ''];
     CT.$('#pageTitle').textContent = title;
     CT.$('#pageSubtitle').textContent = subtitle;
     await CT.renderCurrent(true);
@@ -84,6 +88,11 @@
     });
 
     CT.$('#refreshBtn').addEventListener('click', () => CT.renderCurrent(true));
+    window.addEventListener('corecontrol:themechange', () => {
+      if (CT.state.user && !CT.$('#appView').classList.contains('hidden')) {
+        CT.renderCurrent(false);
+      }
+    });
     CT.$('#mainNav').addEventListener('click', (event) => {
       const button = event.target.closest('[data-page]');
       if (button) CT.navigate(button.dataset.page);

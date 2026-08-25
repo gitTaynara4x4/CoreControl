@@ -3,7 +3,7 @@
 
   const CT = window.CoreTuner = window.CoreTuner || {};
 
-  CT.VERSION = '20260727-frontend-pages-v2';
+  CT.VERSION = '20260822-updates-v1';
   CT.state = {
     user: null,
     page: 'overview',
@@ -44,11 +44,20 @@
 
   CT.roleName = function roleName(role) {
     return ({
+      global_admin: 'Administrador Global',
       platform_admin: 'Administrador da plataforma',
       company_admin: 'Administrador da empresa',
       technician: 'Técnico',
       viewer: 'Visualização',
     })[role] || role;
+  };
+
+  CT.isGlobalAdmin = function isGlobalAdmin(user = CT.state.user) {
+    return ['global_admin', 'platform_admin'].includes(user?.role);
+  };
+
+  CT.canDestroyCompanies = function canDestroyCompanies(user = CT.state.user) {
+    return user?.role === 'global_admin';
   };
 
   CT.healthClass = function healthClass(score) {

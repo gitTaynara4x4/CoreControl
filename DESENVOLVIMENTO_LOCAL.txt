@@ -1,7 +1,7 @@
 CORETUNER - DESENVOLVIMENTO LOCAL WEB
 ======================================
 
-A interface do CoreTuner nao precisa ser instalada durante o desenvolvimento.
+A interface do CoreControl nao precisa ser instalada durante o desenvolvimento.
 
 COMO ABRIR
 ----------
@@ -17,8 +17,8 @@ COMO ABRIR
 
 IMPORTANTE
 ----------
-- Nao precisa abrir CoreTuner.exe.
-- Nao precisa instalar/desinstalar CoreTunerSetup.exe.
+- Nao precisa abrir CoreControl.exe.
+- Nao precisa instalar/desinstalar CoreControlSetup.exe.
 - O desktop/agent antigo permanece no projeto somente como referencia e motor nativo.
 - O empacotamento em aplicativo fica para o final, depois que interface e funcoes estiverem prontas.
 - Em modo DEV a raiz / abre o painel diretamente.

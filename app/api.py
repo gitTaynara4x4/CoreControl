@@ -9,14 +9,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .alerts import evaluate_telemetry_alerts
 from .config import settings
 from .db import get_db
-from .models import Alert, AuditLog, Company, Device, EnrollmentToken, Telemetry, User
+from .models import AgentCommand, Alert, AuditLog, Company, Device, DeviceUpdateState, EnrollmentToken, PasswordResetToken, Telemetry, UpdatePolicy, User
 from .meshcentral import (
     MeshCentralCommandError,
     MeshCentralTokenError,
@@ -26,13 +26,18 @@ from .meshcentral import (
 )
 from .schemas import (
     CompanyCreate,
+    CompanyDestroyRequest,
     CompanyRegistrationRequest,
+    CompanyUpdate,
     DeviceInstallRequest,
+    DeviceUpdate,
     EnrollmentRequest,
     LoginRequest,
     TelemetryRequest,
     UserCreate,
+    UserUpdate,
 )
+from .update_service import maybe_enqueue_update_policy
 from .security import (
     create_session_token,
     get_session_payload,
@@ -48,6 +53,9 @@ Db = Annotated[Session, Depends(get_db)]
 
 COMPONENT_DIR = Path(__file__).resolve().parent / "downloads"
 DESKTOP_COMPONENTS = {
+    "CoreControl.exe": "application/vnd.microsoft.portable-executable",
+    "CoreControlAgent.exe": "application/vnd.microsoft.portable-executable",
+    # Aliases legados mantidos para instaladores CoreTuner já distribuídos.
     "CoreTuner.exe": "application/vnd.microsoft.portable-executable",
     "CoreTunerAgent.exe": "application/vnd.microsoft.portable-executable",
 }
@@ -94,13 +102,20 @@ def current_user(request: Request, db: Db) -> User:
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
+def is_global_admin(user: User) -> bool:
+    return user.role in {"global_admin", "platform_admin"}
+
+
 def require_roles(user: User, *roles: str) -> None:
+    # O Administrador Global herda todas as permissões administrativas da plataforma.
+    if user.role == "global_admin":
+        return
     if user.role not in roles:
         raise HTTPException(status_code=403, detail="Acesso não autorizado")
 
 
 def assert_company_access(user: User, company_id: int) -> None:
-    if user.role == "platform_admin":
+    if is_global_admin(user):
         return
     if user.company_id != company_id:
         raise HTTPException(status_code=403, detail="Empresa não permitida")
@@ -192,6 +207,8 @@ def remote_state(device: Device, sample: Telemetry | None) -> dict:
 def serialize_sample(sample: Telemetry | None) -> dict | None:
     if not sample:
         return None
+    extra = sample_extra(sample)
+    activity = extra.get("activity") if isinstance(extra.get("activity"), dict) else None
     return {
         "recorded_at": iso(sample.recorded_at),
         "cpu_percent": sample.cpu_percent,
@@ -207,9 +224,10 @@ def serialize_sample(sample: Telemetry | None) -> dict | None:
         "network_name": sample.network_name,
         "defender_active": sample.defender_active,
         "firewall_active": sample.firewall_active,
-        "remote_agent_installed": bool(sample_extra(sample).get("remote_agent_installed")),
-        "remote_agent_running": bool(sample_extra(sample).get("remote_agent_running")),
-        "remote_service_name": sample_extra(sample).get("remote_service_name"),
+        "remote_agent_installed": bool(extra.get("remote_agent_installed")),
+        "remote_agent_running": bool(extra.get("remote_agent_running")),
+        "remote_service_name": extra.get("remote_service_name"),
+        "activity": activity,
     }
 
 
@@ -222,6 +240,7 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
     return {
         "id": device.id,
         "company_id": device.company_id,
+        "company_name": device.company.name if device.company else None,
         "device_uid": device.device_uid,
         "name": device.name,
         "hostname": device.hostname,
@@ -234,6 +253,7 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "os_version": device.os_version,
         "agent_version": device.agent_version,
         "profile": device.profile,
+        "active": device.active,
         "first_seen": iso(device.first_seen),
         "last_seen": iso(device.last_seen),
         "online": online,
@@ -267,7 +287,7 @@ def sync_company_remote_devices(
         matched = meshcentral_client.match_device(local, remote_devices)
         if matched is None:
             # Um banco/grupo novo do MeshCentral gera IDs de nó novos. Não
-            # mantenha o ID antigo no CoreTuner, pois ele faria a Central abrir
+            # mantenha o ID antigo no CoreControl, pois ele faria a Central abrir
             # uma sessão para um nó que já não existe nesse grupo.
             local.mesh_node_id = None
             continue
@@ -305,7 +325,7 @@ def prepare_remote_install(db: Session, company: Company, device: Device) -> tup
     if not meshcentral_client.provisioning_configured:
         return None, (
             "A automação remota não está completa. Configure CORETUNER_REMOTE_ADMIN_USER "
-            "e reimplante o CoreTuner com o MeshCtrl."
+            "e reimplante o CoreControl com o MeshCtrl."
         )
     try:
         prepared = meshcentral_client.prepare_company_agent(company)
@@ -536,16 +556,16 @@ def me(user: CurrentUser, db: Db):
 
 @router.get("/dashboard/summary")
 def dashboard_summary(user: CurrentUser, db: Db):
-    company_filter = [] if user.role == "platform_admin" else [Device.company_id == user.company_id]
+    company_filter = [] if is_global_admin(user) else [Device.company_id == user.company_id]
     devices = list(db.scalars(select(Device).where(Device.active.is_(True), *company_filter)).all())
     sync_offline_alerts(db, devices)
     companies_stmt = select(Company).where(Company.active.is_(True))
-    if user.role != "platform_admin":
+    if not is_global_admin(user):
         companies_stmt = companies_stmt.where(Company.id == user.company_id)
     companies = list(db.scalars(companies_stmt.order_by(Company.name)).all())
     online = sum(1 for device in devices if device_online(device))
     alert_stmt = select(func.count(Alert.id)).where(Alert.status.in_(["open", "acknowledged"]))
-    if user.role != "platform_admin":
+    if not is_global_admin(user):
         alert_stmt = alert_stmt.where(Alert.company_id == user.company_id)
     open_alerts = int(db.scalar(alert_stmt) or 0)
     return {
@@ -559,14 +579,17 @@ def dashboard_summary(user: CurrentUser, db: Db):
 
 @router.get("/companies")
 def list_companies(user: CurrentUser, db: Db):
-    stmt = select(Company).where(Company.active.is_(True)).order_by(Company.name)
-    if user.role != "platform_admin":
-        stmt = stmt.where(Company.id == user.company_id)
+    stmt = select(Company).order_by(Company.name)
+    if not is_global_admin(user):
+        stmt = stmt.where(Company.id == user.company_id, Company.active.is_(True))
     companies = list(db.scalars(stmt).all())
     result = []
     for company in companies:
-        devices = list(db.scalars(select(Device).where(Device.company_id == company.id, Device.active.is_(True))).all())
-        online = sum(1 for d in devices if device_online(d))
+        devices_stmt = select(Device).where(Device.company_id == company.id)
+        if not is_global_admin(user):
+            devices_stmt = devices_stmt.where(Device.active.is_(True))
+        devices = list(db.scalars(devices_stmt).all())
+        online = sum(1 for d in devices if d.active and device_online(d))
         alerts = db.scalar(
             select(func.count(Alert.id)).where(
                 Alert.company_id == company.id, Alert.status.in_(["open", "acknowledged"])
@@ -594,16 +617,155 @@ def create_company(payload: CompanyCreate, user: CurrentUser, db: Db):
     return serialize_company(company)
 
 
+@router.patch("/companies/{company_id}")
+def update_company(company_id: int, payload: CompanyUpdate, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin")
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    changes = payload.model_dump(exclude_unset=True)
+    before = {"name": company.name, "active": company.active}
+    if "name" in changes:
+        company.name = changes["name"].strip()
+    if "active" in changes:
+        company.active = bool(changes["active"])
+
+    db.add(
+        AuditLog(
+            company_id=company.id,
+            actor_user_id=user.id,
+            action="company.update",
+            details=json.dumps({"before": before, "after": {"name": company.name, "active": company.active}}, ensure_ascii=False),
+        )
+    )
+    db.commit()
+    db.refresh(company)
+    return serialize_company(company)
+
+
+@router.delete("/companies/{company_id}")
+def destroy_company(company_id: int, payload: CompanyDestroyRequest, user: CurrentUser, db: Db):
+    if user.role != "global_admin":
+        raise HTTPException(status_code=403, detail="Somente o Administrador Global pode excluir uma empresa definitivamente")
+
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    expected = f"EXCLUIR {company.name}"
+    confirmation = " ".join(payload.confirmation.strip().split())
+    if confirmation.casefold() != expected.casefold():
+        raise HTTPException(
+            status_code=400,
+            detail=f'Digite exatamente "{expected}" para confirmar a exclusão definitiva',
+        )
+
+    company_name = company.name
+    mesh_group_id = company.mesh_group_id
+    device_ids = list(db.scalars(select(Device.id).where(Device.company_id == company_id)).all())
+    company_user_ids = list(db.scalars(select(User.id).where(User.company_id == company_id)).all())
+
+    if user.id in company_user_ids:
+        raise HTTPException(status_code=400, detail="O Administrador Global não pode excluir a empresa à qual está vinculado")
+
+    counts = {
+        "devices": len(device_ids),
+        "users": len(company_user_ids),
+        "alerts": int(db.scalar(select(func.count(Alert.id)).where(Alert.company_id == company_id)) or 0),
+        "enrollment_tokens": int(
+            db.scalar(select(func.count(EnrollmentToken.id)).where(EnrollmentToken.company_id == company_id)) or 0
+        ),
+    }
+
+    remote_cleanup = {"attempted": False, "removed": False, "warning": None}
+    if mesh_group_id:
+        if meshcentral_client.provisioning_configured:
+            remote_cleanup["attempted"] = True
+            try:
+                meshcentral_client.remove_company_group(mesh_group_id)
+                remote_cleanup["removed"] = True
+            except MeshCentralCommandError:
+                remote_cleanup["warning"] = (
+                    "A empresa foi removida do CoreControl, mas o grupo do acesso remoto não pôde ser excluído automaticamente."
+                )
+        else:
+            remote_cleanup["warning"] = (
+                "A empresa possuía um grupo de acesso remoto, mas a integração administrativa não está disponível para removê-lo."
+            )
+
+    # Apaga primeiro os registros que possuem chaves estrangeiras para usuários,
+    # computadores ou empresa. Tudo ocorre na mesma transação: se qualquer etapa
+    # falhar, nenhuma exclusão parcial é confirmada.
+    audit_filters = [AuditLog.company_id == company_id]
+    if device_ids:
+        audit_filters.append(AuditLog.device_id.in_(device_ids))
+    if company_user_ids:
+        audit_filters.append(AuditLog.actor_user_id.in_(company_user_ids))
+        db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id.in_(company_user_ids)))
+    db.execute(delete(AuditLog).where(or_(*audit_filters)))
+    db.execute(delete(EnrollmentToken).where(EnrollmentToken.company_id == company_id))
+    db.execute(delete(Alert).where(Alert.company_id == company_id))
+    db.execute(delete(UpdatePolicy).where(UpdatePolicy.company_id == company_id))
+    if device_ids:
+        db.execute(delete(AgentCommand).where(AgentCommand.device_id.in_(device_ids)))
+        db.execute(delete(DeviceUpdateState).where(DeviceUpdateState.device_id.in_(device_ids)))
+        db.execute(delete(Telemetry).where(Telemetry.device_id.in_(device_ids)))
+    db.execute(delete(Device).where(Device.company_id == company_id))
+    db.execute(delete(User).where(User.company_id == company_id))
+    db.execute(delete(Company).where(Company.id == company_id))
+
+    db.add(
+        AuditLog(
+            company_id=None,
+            actor_user_id=user.id,
+            action="company.destroy",
+            details=json.dumps(
+                {
+                    "company_id": company_id,
+                    "company_name": company_name,
+                    "mesh_group_id": mesh_group_id,
+                    "deleted": counts,
+                    "remote_cleanup": remote_cleanup,
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A empresa possui vínculos que impediram a exclusão definitiva",
+        ) from exc
+
+    return {
+        "ok": True,
+        "company_id": company_id,
+        "company_name": company_name,
+        "deleted": counts,
+        "remote_cleanup": remote_cleanup,
+    }
+
+
 @router.get("/companies/{company_id}")
 def get_company(company_id: int, user: CurrentUser, db: Db):
     assert_company_access(user, company_id)
     company = db.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    devices = list(db.scalars(select(Device).where(Device.company_id == company_id, Device.active.is_(True))).all())
-    sync_offline_alerts(db, devices)
+    devices_stmt = select(Device).where(Device.company_id == company_id)
+    if not is_global_admin(user):
+        devices_stmt = devices_stmt.where(Device.active.is_(True))
+    devices = list(db.scalars(devices_stmt.order_by(Device.name)).all())
+    active_devices = [device for device in devices if device.active]
+    sync_offline_alerts(db, active_devices)
+    users_total = int(db.scalar(select(func.count(User.id)).where(User.company_id == company_id)) or 0)
     return {
         **serialize_company(company),
+        "users_total": users_total,
         "devices": [serialize_device(db, d) for d in devices],
     }
 
@@ -638,15 +800,16 @@ def create_enrollment_token(company_id: int, user: CurrentUser, db: Db):
 
 @router.get("/devices")
 def list_devices(user: CurrentUser, db: Db, company_id: int | None = None):
-    stmt = select(Device).where(Device.active.is_(True))
-    if user.role == "platform_admin":
+    stmt = select(Device)
+    if is_global_admin(user):
         if company_id is not None:
             stmt = stmt.where(Device.company_id == company_id)
     else:
-        stmt = stmt.where(Device.company_id == user.company_id)
+        stmt = stmt.where(Device.company_id == user.company_id, Device.active.is_(True))
     devices = list(db.scalars(stmt.order_by(Device.name)).all())
-    sync_offline_alerts(db, devices)
-    refresh_remote_for_devices(db, devices)
+    active_devices = [device for device in devices if device.active]
+    sync_offline_alerts(db, active_devices)
+    refresh_remote_for_devices(db, active_devices)
     return [serialize_device(db, d) for d in devices]
 
 
@@ -666,6 +829,69 @@ def get_device(device_id: int, user: CurrentUser, db: Db):
     result["history"] = [serialize_sample(sample) for sample in reversed(samples)]
     result["company_name"] = db.get(Company, device.company_id).name
     return result
+
+
+@router.patch("/devices/{device_id}")
+def update_device(device_id: int, payload: DeviceUpdate, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin")
+    device = db.get(Device, device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+
+    changes = payload.model_dump(exclude_unset=True)
+    before = {
+        "company_id": device.company_id,
+        "name": device.name,
+        "hostname": device.hostname,
+        "sector": device.sector,
+        "location": device.location,
+        "manufacturer": device.manufacturer,
+        "model": device.model,
+        "serial_number": device.serial_number,
+        "profile": device.profile,
+        "active": device.active,
+    }
+
+    if "company_id" in changes:
+        if not is_global_admin(user):
+            raise HTTPException(status_code=403, detail="Somente administradores globais podem mover computadores entre empresas")
+        target_company_id = changes["company_id"]
+        if target_company_id is None:
+            raise HTTPException(status_code=400, detail="Selecione uma empresa")
+        target_company = db.get(Company, target_company_id)
+        if not target_company:
+            raise HTTPException(status_code=404, detail="Empresa de destino não encontrada")
+        device.company_id = target_company_id
+
+    for field in ("name", "hostname", "sector", "location", "manufacturer", "model", "serial_number", "profile"):
+        if field in changes:
+            value = changes[field]
+            if isinstance(value, str):
+                value = value.strip() or None
+            if field in {"name", "hostname"} and not value:
+                raise HTTPException(status_code=400, detail=f"{field} não pode ficar vazio")
+            setattr(device, field, value)
+    if "active" in changes:
+        device.active = bool(changes["active"])
+
+    after = {key: getattr(device, key) for key in before}
+    db.add(
+        AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action="device.update",
+            details=json.dumps({"before": before, "after": after}, ensure_ascii=False),
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Este computador já está vinculado à empresa selecionada") from exc
+    db.refresh(device)
+    return serialize_device(db, device)
 
 
 @router.get("/devices/{device_id}/remote-status")
@@ -719,7 +945,7 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
     if not state["mesh_connected"] or not device.mesh_node_id:
         raise HTTPException(
             status_code=409,
-            detail="O computador ainda não apareceu online no MeshCentral. Reinstale pelo CoreTuner Setup atualizado.",
+            detail="O computador ainda não apareceu online no MeshCentral. Reinstale pelo CoreControl Setup atualizado.",
         )
 
     try:
@@ -769,7 +995,7 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
 @router.get("/alerts")
 def list_alerts(user: CurrentUser, db: Db, status_filter: str = "active"):
     stmt = select(Alert).order_by(desc(Alert.opened_at))
-    if user.role != "platform_admin":
+    if not is_global_admin(user):
         stmt = stmt.where(Alert.company_id == user.company_id)
     if status_filter == "active":
         stmt = stmt.where(Alert.status.in_(["open", "acknowledged"]))
@@ -822,7 +1048,7 @@ def acknowledge_alert(alert_id: int, user: CurrentUser, db: Db):
 def list_users(user: CurrentUser, db: Db):
     require_roles(user, "platform_admin", "company_admin")
     stmt = select(User).order_by(User.name)
-    if user.role != "platform_admin":
+    if not is_global_admin(user):
         stmt = stmt.where(User.company_id == user.company_id)
     users = list(db.scalars(stmt).all())
     return [
@@ -844,7 +1070,7 @@ def create_user(payload: UserCreate, user: CurrentUser, db: Db):
     valid_roles = {"platform_admin", "company_admin", "technician", "viewer"}
     if payload.role not in valid_roles:
         raise HTTPException(status_code=400, detail="Perfil inválido")
-    if user.role != "platform_admin":
+    if not is_global_admin(user):
         if payload.company_id not in (None, user.company_id):
             raise HTTPException(status_code=403, detail="Empresa não permitida")
         if payload.role == "platform_admin":
@@ -852,6 +1078,11 @@ def create_user(payload: UserCreate, user: CurrentUser, db: Db):
         company_id = user.company_id
     else:
         company_id = None if payload.role == "platform_admin" else payload.company_id
+        if payload.role != "platform_admin":
+            if company_id is None:
+                raise HTTPException(status_code=400, detail="Selecione a empresa do usuário")
+            if not db.get(Company, company_id):
+                raise HTTPException(status_code=404, detail="Empresa não encontrada")
     if db.scalar(select(User.id).where(func.lower(User.email) == payload.email.lower())):
         raise HTTPException(status_code=409, detail="E-mail já cadastrado")
     new_user = User(
@@ -875,11 +1106,114 @@ def create_user(payload: UserCreate, user: CurrentUser, db: Db):
     return {"id": new_user.id, "name": new_user.name, "email": new_user.email, "role": new_user.role}
 
 
+@router.patch("/users/{user_id}")
+def update_user(user_id: int, payload: UserUpdate, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin")
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    if not is_global_admin(user) and target.company_id != user.company_id:
+        raise HTTPException(status_code=403, detail="Usuário não pertence à sua empresa")
+
+    changes = payload.model_dump(exclude_unset=True)
+    valid_roles = {"global_admin", "platform_admin", "company_admin", "technician", "viewer"}
+    before = {
+        "name": target.name,
+        "email": target.email,
+        "role": target.role,
+        "company_id": target.company_id,
+        "active": target.active,
+    }
+
+    is_primary_global_admin = target.email.lower() == settings.global_admin_email
+    if is_primary_global_admin and user.id != target.id and user.role != "global_admin":
+        raise HTTPException(status_code=403, detail="Somente o Administrador Global pode alterar esta conta")
+    if is_primary_global_admin:
+        if changes.get("active") is False:
+            raise HTTPException(status_code=400, detail="O Administrador Global não pode ser bloqueado")
+        if "role" in changes and changes["role"] != "global_admin":
+            raise HTTPException(status_code=400, detail="O Administrador Global deve manter acesso global")
+        if "company_id" in changes and changes["company_id"] is not None:
+            raise HTTPException(status_code=400, detail="O Administrador Global não pode ser vinculado a uma empresa")
+        if "email" in changes and str(changes["email"]).lower().strip() != settings.global_admin_email:
+            raise HTTPException(status_code=400, detail="O e-mail do Administrador Global é definido na configuração do servidor")
+
+    if target.id == user.id:
+        if changes.get("active") is False:
+            raise HTTPException(status_code=400, detail="Você não pode bloquear o próprio acesso")
+        if "role" in changes and changes["role"] != target.role:
+            raise HTTPException(status_code=400, detail="Você não pode alterar o próprio perfil")
+        if "company_id" in changes and changes["company_id"] != target.company_id:
+            raise HTTPException(status_code=400, detail="Você não pode alterar a própria empresa")
+
+    if "name" in changes:
+        target.name = changes["name"].strip()
+    if "email" in changes:
+        new_email = str(changes["email"]).lower().strip()
+        duplicate = db.scalar(select(User.id).where(func.lower(User.email) == new_email, User.id != target.id))
+        if duplicate:
+            raise HTTPException(status_code=409, detail="E-mail já cadastrado")
+        target.email = new_email
+    if "password" in changes and changes["password"]:
+        target.password_hash = hash_password(changes["password"])
+    if "role" in changes:
+        new_role = changes["role"]
+        if new_role not in valid_roles:
+            raise HTTPException(status_code=400, detail="Perfil inválido")
+        if new_role == "global_admin" and target.role != "global_admin":
+            raise HTTPException(status_code=403, detail="O perfil Administrador Global é reservado à conta proprietária")
+        if not is_global_admin(user) and new_role in {"platform_admin", "global_admin"}:
+            raise HTTPException(status_code=403, detail="Perfil não permitido")
+        target.role = new_role
+    if "company_id" in changes:
+        if not is_global_admin(user):
+            if changes["company_id"] not in (None, user.company_id):
+                raise HTTPException(status_code=403, detail="Empresa não permitida")
+            target.company_id = user.company_id
+        else:
+            target.company_id = changes["company_id"]
+    if target.role in {"platform_admin", "global_admin"}:
+        target.company_id = None
+    elif target.company_id is None:
+        raise HTTPException(status_code=400, detail="Usuários da empresa precisam estar vinculados a uma empresa")
+    elif not db.get(Company, target.company_id):
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    if "active" in changes:
+        target.active = bool(changes["active"])
+
+    after = {
+        "name": target.name,
+        "email": target.email,
+        "role": target.role,
+        "company_id": target.company_id,
+        "active": target.active,
+    }
+    db.add(
+        AuditLog(
+            company_id=target.company_id,
+            actor_user_id=user.id,
+            action="user.update",
+            details=json.dumps({"user_id": target.id, "before": before, "after": after}, ensure_ascii=False),
+        )
+    )
+    db.commit()
+    db.refresh(target)
+    return {
+        "id": target.id,
+        "name": target.name,
+        "email": target.email,
+        "role": target.role,
+        "company_id": target.company_id,
+        "active": target.active,
+    }
+
+
 @router.post("/devices/install", status_code=201)
 def install_device(payload: DeviceInstallRequest, user: CurrentUser, db: Db):
     require_roles(user, "platform_admin", "company_admin", "technician")
 
-    if user.role == "platform_admin":
+    if is_global_admin(user):
         if payload.company_id is None:
             raise HTTPException(status_code=400, detail="Selecione a empresa para instalar este computador")
         company_id = payload.company_id
@@ -1063,6 +1397,9 @@ def agent_telemetry(
     device.last_seen = now
     if payload.profile:
         device.profile = payload.profile
+    agent_version = str((payload.extra or {}).get("agent_version") or "").strip()
+    if agent_version:
+        device.agent_version = agent_version[:40]
     sample = Telemetry(
         device_id=device.id,
         recorded_at=now,
@@ -1084,5 +1421,6 @@ def agent_telemetry(
     db.add(sample)
     db.flush()
     evaluate_telemetry_alerts(db, device, sample)
+    maybe_enqueue_update_policy(db, device, now)
     db.commit()
     return {"ok": True, "server_time": now.isoformat(), "next_interval_seconds": 30}

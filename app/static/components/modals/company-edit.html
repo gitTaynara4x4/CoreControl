@@ -1,0 +1,15 @@
+<h2>Editar empresa</h2>
+<p>O Administrador Global pode alterar os dados administrativos da empresa sem perder o histórico.</p>
+<form id="companyEditForm" class="stack">
+  <label>Nome da empresa<input id="editCompanyName" required minlength="2" maxlength="160"></label>
+  <label>Status
+    <select id="editCompanyActive">
+      <option value="true">Ativa</option>
+      <option value="false">Desativada</option>
+    </select>
+  </label>
+  <div class="modal-actions">
+    <button type="button" class="btn" id="cancelModal">Cancelar</button>
+    <button type="submit" class="btn primary">Salvar alterações</button>
+  </div>
+</form>

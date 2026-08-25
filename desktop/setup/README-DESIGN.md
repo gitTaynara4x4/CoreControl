@@ -1,6 +1,6 @@
-# Design do instalador CoreTuner
+# Design do instalador CoreControl
 
-A tela nativa do `CoreTunerSetup.exe` foi separada para facilitar futuras alterações visuais sem tocar na lógica de instalação.
+A tela nativa do `CoreControlSetup.exe` foi separada para facilitar futuras alterações visuais sem tocar na lógica de instalação.
 
 ## Onde alterar
 
@@ -14,10 +14,10 @@ A tela nativa do `CoreTunerSetup.exe` foi separada para facilitar futuras altera
   - Botões primários: `idLoginButton`, `idRegisterButton`, `idInstall`.
   - Botões secundários e recuperação de senha também são desenhados aqui.
 
-- `../assets/coretuner-logo.png`
+- `../assets/corecontrol-logo.png`
   - Arquivo visual da logo completa para edição.
 
-- `../assets/coretuner-logo.bmp`
+- `../assets/corecontrol-logo.bmp`
   - Arquivo incorporado no instalador durante a compilação.
 
 ## Recompilar
@@ -31,5 +31,5 @@ Na pasta `desktop`, execute:
 O executável atualizado será criado em:
 
 ```text
-app/downloads/CoreTunerSetup.exe
+app/downloads/CoreControlSetup.exe
 ```

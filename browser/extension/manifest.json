@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "CoreControl - Atividade do Navegador",
+  "version": "0.1.0",
+  "description": "Integra o navegador ao CoreControl para mostrar abas abertas e qual página está em uso.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn/u4NJa9XqZ0cFRSOsUX4mePWyZHlddzg9OedyHvHvyiJw7sXZyLL+00nTuQykx4X86603dOpBGjKEtUR7Qb/D+nOCfPybi8448jT+xF9qaNaJAG6mm4nO03x4kqJ/u5dBrNObgEckjNt50CAKd3y9PAgRGofD9HBbuaMr/u8Q+dwzI9U61/JNAPtzD8ol46llxEeMK6JiFK7SUD5Ph3QBNog1zOdRhMH/xyjRF0AGf6UkQjzWRMBR3wbuaeeRZK+PkigvWUv2V4SKfVEmHQpp0LmnkFSXyQi16GW2J1uDNhutiFMSfvxy8T2DlrpHeGaGKDAcPVhNZ+/OsV+Ag3BwIDAQAB",
+  "permissions": ["tabs", "nativeMessaging", "alarms", "storage"],
+  "background": {"service_worker": "background.js"},
+  "action": {
+    "default_title": "CoreControl",
+    "default_popup": "popup.html"
+  }
+}

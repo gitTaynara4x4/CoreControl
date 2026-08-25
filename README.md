@@ -1,4 +1,4 @@
-# CoreTuner Central 0.4.11
+# CoreControl 0.4.11
 
 Projeto completo com site público, cadastro e login de empresas, painel multiempresa, aplicativo Windows, instalador, agente de telemetria e acesso remoto automático por empresa via MeshCentral.
 
@@ -13,7 +13,7 @@ O agente remoto é baixado dinamicamente do MeshCentral para o grupo exato da em
 
 ## Executar localmente
 
-No Windows, execute `Iniciar_CoreTuner_Local.bat`. O script:
+No Windows, execute `Iniciar_CoreControl_Local.bat`. O script:
 
 1. cria `.env` a partir de `.env.example`, quando necessário;
 2. cria `.venv`;
@@ -47,9 +47,9 @@ Senhas, chave do MeshCentral e credenciais SMTP devem ficar somente nas variáve
 
 ## Executáveis
 
-- `app/downloads/CoreTunerSetup.exe`: login, cadastro e instalação.
-- `app/downloads/CoreTuner.exe`: aplicativo local focado somente no computador em uso.
-- `app/downloads/CoreTunerAgent.exe`: telemetria silenciosa.
+- `app/downloads/CoreControlSetup.exe`: login, cadastro e instalação.
+- `app/downloads/CoreControl.exe`: aplicativo local focado somente no computador em uso.
+- `app/downloads/CoreControlAgent.exe`: telemetria silenciosa.
 
 Os três executáveis foram recompilados para Windows x64 com o domínio de produção `https://apps-coretuner.9ywrah.easypanel.host` embutido no Setup e no aplicativo.
 

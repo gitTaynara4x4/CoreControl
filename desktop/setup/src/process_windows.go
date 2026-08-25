@@ -98,8 +98,8 @@ func hiddenCommand(name string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// stopExistingAgent encerra apenas processos chamados CoreTunerAgent.exe instalados
-// em uma pasta do CoreTuner. Isso permite atualizar o binário sem usar taskkill,
+// stopExistingAgent encerra apenas o agente CoreControl/CoreTuner instalado
+// na pasta conhecida do produto. Isso permite atualizar o binário sem usar taskkill,
 // PowerShell ou abrir qualquer janela de console.
 func stopExistingAgent(expectedPath string) {
 	snapshot, _, _ := setupCreateSnapshot.Call(th32csSnapProcessSetup, 0)
@@ -117,7 +117,7 @@ func stopExistingAgent(expectedPath string) {
 	stopped := false
 	for {
 		name := strings.ToLower(string(unicodeutf16.Decode(trimSetupUTF16(entry.ExeFile[:]))))
-		if name == "coretuneragent.exe" {
+		if name == "corecontrolagent.exe" || name == "coretuneragent.exe" {
 			handle, _, _ := setupOpenProcess.Call(
 				processQueryLimitedSetup|processTerminateSetup,
 				0,

@@ -1,13 +1,33 @@
 <section class="page page-device">
-  <div class="toolbar" style="margin-bottom:16px">
+  <div class="toolbar" style="margin-bottom:12px">
     <button class="btn" id="backDevices">← Computadores</button>
     <span id="deviceOnlineStatus" class="status"></span>
     <span id="deviceHealthStatus" class="health"></span>
+    <span style="flex:1"></span>
+    <button class="btn hidden" id="editDeviceBtn">Editar computador</button>
   </div>
 
   <div id="deviceMetrics" class="grid detail-grid"></div>
 
-  <div class="grid split" style="margin-top:18px">
+  <div class="card activity-card" style="margin-top:12px">
+    <div class="card-header">
+      <div><h2>Atividade</h2><p>Aplicativo em foco, janelas visíveis e tempo de uso. Sem captura de teclas ou senhas.</p></div>
+      <button class="btn" id="activityRefreshBtn">Atualizar aplicativos</button>
+    </div>
+    <div id="activityCurrent" class="activity-current"></div>
+    <div class="activity-layout">
+      <div>
+        <div class="activity-subhead"><strong>Aplicativos abertos</strong><span id="activitySnapshotStatus">Aguardando consulta</span></div>
+        <div id="activityAppsArea" class="activity-apps-area"></div>
+      </div>
+      <div>
+        <div class="activity-subhead"><strong>Atividade recente</strong><span>Últimas mudanças de janela</span></div>
+        <div id="activityTimeline" class="activity-timeline"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid split" style="margin-top:12px">
     <div class="card">
       <div class="card-header"><div><h2>Histórico recente</h2><p id="deviceHistoryCount">Amostras recebidas.</p></div></div>
       <canvas id="telemetryChart" class="chart"></canvas>
@@ -19,7 +39,7 @@
     </div>
   </div>
 
-  <div class="grid split" style="margin-top:18px">
+  <div class="grid split" style="margin-top:12px">
     <div class="card">
       <div class="card-header"><div><h2>Proteções e capacidade</h2><p>Coleta técnica, sem acesso a arquivos do cliente.</p></div></div>
       <div id="deviceProtection" class="info-list"></div>

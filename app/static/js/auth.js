@@ -77,7 +77,7 @@
     const supportLink = CT.$('#centralSupportLink');
     if (supportLink) {
       supportLink.addEventListener('click', () => {
-        CT.toast('Entre em contato com o suporte responsável pelo seu CoreTuner.');
+        CT.toast('Entre em contato com o suporte responsável pelo seu CoreControl.');
       });
     }
 
@@ -113,7 +113,7 @@
         CT.toast(error.message, true);
       } finally {
         button.disabled = false;
-        if (label) label.textContent = 'Entrar no CoreTuner';
+        if (label) label.textContent = 'Entrar no CoreControl';
       }
     });
 

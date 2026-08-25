@@ -1,19 +1,18 @@
-# Aplicativos Windows do CoreTuner
+# Aplicativos Windows do CoreControl
 
 O projeto possui três executáveis separados:
 
-- `CoreTunerSetup.exe`: login/cadastro, vínculo da máquina e instalação.
-- `CoreTuner.exe`: aplicativo local com diagnóstico, testes, perfis, programas, relatórios deste computador e suporte.
-- `CoreTunerAgent.exe`: agente silencioso que envia telemetria ao Central.
+- `CoreControlSetup.exe`: login/cadastro, vínculo da máquina e instalação.
+- `CoreControl.exe`: aplicativo local com diagnóstico, testes, perfis, programas, relatórios deste computador e suporte.
+- `CoreControlAgent.exe`: agente silencioso que envia telemetria ao Central.
 
 O aplicativo local não exibe a lista de outros computadores da empresa. Visão geral, quantidade de máquinas, online/offline, alertas e administração permanecem no painel web, conforme as permissões da conta.
 
 O Setup mostra somente a empresa vinculada, o usuário conectado e os dados necessários para identificar a máquina. Ele não apresenta quantidade de computadores da empresa.
 
-O Setup instala os arquivos em `C:\Program Files\CoreTuner` e grava:
+O Setup instala os executáveis em `%LOCALAPPDATA%\Programs\CoreControl`.
 
-- Dados do aplicativo e sessão: `%LOCALAPPDATA%\CoreTuner`
-- Credencial protegida do Agent: `C:\ProgramData\CoreTuner\Agent`
+Por compatibilidade com instalações anteriores, os dados locais ainda usam a pasta técnica legada `%LOCALAPPDATA%\CoreTuner`; isso evita perder sessão, backup e configuração durante a troca de marca.
 
 ## Interação
 

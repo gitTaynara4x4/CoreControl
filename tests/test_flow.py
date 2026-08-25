@@ -7,6 +7,8 @@ os.environ["CORETUNER_DATA_DIR"] = _tmp.name
 os.environ["CORETUNER_SECRET_KEY"] = "test-secret-key-with-enough-length"
 os.environ["CORETUNER_ADMIN_EMAIL"] = "admin@test.example.com"
 os.environ["CORETUNER_ADMIN_PASSWORD"] = "TestPassword123!"
+os.environ["CORECONTROL_GLOBAL_ADMIN_EMAIL"] = "global@test.example.com"
+os.environ["CORECONTROL_GLOBAL_ADMIN_PASSWORD_HASH"] = "pbkdf2_sha256$310000$YCmI7xMMracfxRlNkhBrCQ==$IQNDwsLqyqNIQSZBFwJmDbS4eKOKTL5suO23x6cW7PA="
 os.environ["CORETUNER_ENV"] = "development"
 os.environ["CORETUNER_DOWNLOAD_PASSWORD"] = "test-download-password"
 os.environ["CORETUNER_DOWNLOAD_MAX_ATTEMPTS"] = "20"
@@ -72,6 +74,131 @@ def test_company_self_registration_login_and_isolation():
         assert login.status_code == 200, login.text
         assert login.json()["company"]["id"] == company_a_id
 
+
+
+def test_global_admin_sees_edits_and_can_destroy_companies():
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/auth/login",
+            json={"email": "global@test.example.com", "password": "SuperAdminTest123!"},
+        )
+        assert login.status_code == 200, login.text
+        assert login.json()["user"]["role"] == "global_admin"
+        assert login.json()["user"]["company_id"] is None
+
+        company_a = client.post("/api/companies", json={"name": "Global Empresa A"})
+        company_b = client.post("/api/companies", json={"name": "Global Empresa B"})
+        assert company_a.status_code == 201, company_a.text
+        assert company_b.status_code == 201, company_b.text
+        company_a_id = company_a.json()["id"]
+        company_b_id = company_b.json()["id"]
+
+        renamed = client.patch(
+            f"/api/companies/{company_a_id}",
+            json={"name": "Global Empresa A Editada", "active": True},
+        )
+        assert renamed.status_code == 200, renamed.text
+        assert renamed.json()["name"] == "Global Empresa A Editada"
+
+        installed = client.post(
+            "/api/devices/install",
+            json={
+                "company_id": company_a_id,
+                "device_uid": "global-device-001",
+                "name": "PC ADM 01",
+                "hostname": "PC-ADM-01",
+                "sector": "Administrativo",
+                "install_remote": False,
+            },
+        )
+        assert installed.status_code == 201, installed.text
+        device_id = installed.json()["device_id"]
+
+        moved = client.patch(
+            f"/api/devices/{device_id}",
+            json={
+                "company_id": company_b_id,
+                "name": "PC ADM 01 Editado",
+                "sector": "Financeiro",
+                "active": True,
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["company_id"] == company_b_id
+        assert moved.json()["company_name"] == "Global Empresa B"
+        assert moved.json()["sector"] == "Financeiro"
+
+        created_user = client.post(
+            "/api/users",
+            json={
+                "name": "Gestor Global",
+                "email": "gestor-global@example.com",
+                "password": "CompanyPassword123!",
+                "role": "company_admin",
+                "company_id": company_b_id,
+            },
+        )
+        assert created_user.status_code == 201, created_user.text
+
+        updated_user = client.patch(
+            f"/api/users/{created_user.json()['id']}",
+            json={"name": "Gestor Editado", "active": False},
+        )
+        assert updated_user.status_code == 200, updated_user.text
+        assert updated_user.json()["name"] == "Gestor Editado"
+        assert updated_user.json()["active"] is False
+
+        companies = client.get("/api/companies")
+        assert companies.status_code == 200
+        company_ids = {item["id"] for item in companies.json()}
+        assert company_a_id in company_ids
+        assert company_b_id in company_ids
+
+        company_detail = client.get(f"/api/companies/{company_b_id}")
+        assert company_detail.status_code == 200
+        assert any(item["id"] == device_id for item in company_detail.json()["devices"])
+
+        devices = client.get("/api/devices")
+        assert devices.status_code == 200
+        selected = next(item for item in devices.json() if item["id"] == device_id)
+        assert selected["company_name"] == "Global Empresa B"
+
+        wrong_confirmation = client.request(
+            "DELETE",
+            f"/api/companies/{company_b_id}",
+            json={"confirmation": "EXCLUIR empresa errada"},
+        )
+        assert wrong_confirmation.status_code == 400
+
+        destroyed = client.request(
+            "DELETE",
+            f"/api/companies/{company_b_id}",
+            json={"confirmation": "EXCLUIR Global Empresa B"},
+        )
+        assert destroyed.status_code == 200, destroyed.text
+        assert destroyed.json()["deleted"]["devices"] == 1
+        assert destroyed.json()["deleted"]["users"] == 1
+
+        missing_company = client.get(f"/api/companies/{company_b_id}")
+        assert missing_company.status_code == 404
+        remaining_devices = client.get("/api/devices")
+        assert all(item["id"] != device_id for item in remaining_devices.json())
+
+        platform_login = client.post(
+            "/api/auth/logout"
+        )
+        assert platform_login.status_code == 200
+        admin_login = client.post(
+            "/api/auth/login",
+            json={"email": "admin@test.example.com", "password": "TestPassword123!"},
+        )
+        assert admin_login.status_code == 200, admin_login.text
+        forbidden_destroy = client.request(
+            "DELETE",
+            f"/api/companies/{company_a_id}",
+            json={"confirmation": "EXCLUIR Global Empresa A Editada"},
+        )
+        assert forbidden_destroy.status_code == 403
 
 def test_setup_directly_registers_current_device_and_agent_sends_telemetry():
     with TestClient(app) as client:
@@ -165,8 +292,8 @@ def test_download_requires_company_login_and_password():
 
         manifest = client.get("/api/desktop/manifest")
         assert manifest.status_code == 200, manifest.text
-        assert "CoreTuner.exe" in manifest.json()["files"]
-        assert "CoreTunerAgent.exe" in manifest.json()["files"]
+        assert "CoreControl.exe" in manifest.json()["files"]
+        assert "CoreControlAgent.exe" in manifest.json()["files"]
         assert "CoreTunerRemoteAgent.exe" not in manifest.json()["files"]
 
         wrong = client.post("/api/public/download-ticket", json={"password": "0000"})
@@ -177,8 +304,8 @@ def test_download_requires_company_login_and_password():
         )
         assert unlocked.status_code == 200, unlocked.text
         payload = unlocked.json()
-        assert payload["filename"] == "CoreTunerSetup.exe"
-        assert payload["download_url"].startswith("/downloads/CoreTunerSetup.exe?token=")
+        assert payload["filename"] == "CoreControlSetup.exe"
+        assert payload["download_url"].startswith("/downloads/CoreControlSetup.exe?token=")
 
         download = client.get(payload["download_url"])
         assert download.status_code == 200
@@ -299,7 +426,7 @@ def test_site_central_and_health_are_served():
         landing = client.get("/")
         assert landing.status_code == 200
         assert "Criar empresa" in landing.text
-        assert "CoreTuner Setup" in landing.text
+        assert "CoreControl Setup" in landing.text
 
         central = client.get("/central")
         assert central.status_code == 200
@@ -312,8 +439,142 @@ def test_site_central_and_health_are_served():
         site_js = client.get("/site/site.js")
         assert site_js.status_code == 200
         assert "register-company" in site_js.text
-        assert "CoreTunerSetup.exe" in site_js.text
+        assert "CoreControlSetup.exe" in site_js.text
 
         health = client.get("/health")
         assert health.status_code == 200
         assert health.json()["version"] == "0.4.11"
+
+
+def test_updates_queue_agent_scan_inventory_install_and_policy():
+    with TestClient(app) as client:
+        auth = register_company(client, "updates")
+        token = auth["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        install = client.post(
+            "/api/devices/install",
+            headers=headers,
+            json={
+                "device_uid": "machine-updates-001",
+                "name": "PC UPDATE 01",
+                "hostname": "PC-UPDATE-01",
+                "agent_version": "0.5.0",
+                "install_remote": False,
+            },
+        )
+        assert install.status_code == 201, install.text
+        device_id = install.json()["device_id"]
+        agent_secret = install.json()["agent_secret"]
+        agent_headers = {"Authorization": f"Bearer {agent_secret}"}
+
+        queued = client.post(
+            "/api/updates/check",
+            headers=headers,
+            json={"device_ids": [device_id]},
+        )
+        assert queued.status_code == 200, queued.text
+        assert queued.json()["queued"] == 1
+
+        command = client.get(
+            "/api/agent/commands/next",
+            headers=agent_headers,
+            params={"device_uid": "machine-updates-001"},
+        )
+        assert command.status_code == 200, command.text
+        scan_command = command.json()["command"]
+        assert scan_command["type"] == "updates.scan"
+
+        scan_result = client.post(
+            f"/api/agent/commands/{scan_command['id']}/result",
+            headers=agent_headers,
+            json={
+                "device_uid": "machine-updates-001",
+                "ok": True,
+                "result": {
+                    "windows": [
+                        {"id": "win-guid-1", "title": "Atualização cumulativa", "kb": "5030001", "severity": "Critical"}
+                    ],
+                    "drivers": [
+                        {"id": "drv-guid-1", "title": "Driver de vídeo"}
+                    ],
+                    "apps": [
+                        {"id": "Vendor.App", "title": "Aplicativo", "current_version": "1.0", "available_version": "1.1"}
+                    ],
+                    "reboot_required": False,
+                    "warnings": [],
+                },
+            },
+        )
+        assert scan_result.status_code == 200, scan_result.text
+
+        detail = client.get(f"/api/updates/devices/{device_id}", headers=headers)
+        assert detail.status_code == 200, detail.text
+        data = detail.json()
+        assert data["windows_pending"] == 1
+        assert data["driver_pending"] == 1
+        assert data["app_pending"] == 1
+        assert data["critical_pending"] == 1
+        keys = {item["key"] for item in data["items"]}
+        assert keys == {"windows:win-guid-1", "driver:drv-guid-1", "app:Vendor.App"}
+
+        install_queue = client.post(
+            "/api/updates/install",
+            headers=headers,
+            json={"device_id": device_id, "item_keys": ["windows:win-guid-1", "app:Vendor.App"]},
+        )
+        assert install_queue.status_code == 200, install_queue.text
+
+        install_command_response = client.get(
+            "/api/agent/commands/next",
+            headers=agent_headers,
+            params={"device_uid": "machine-updates-001"},
+        )
+        install_command = install_command_response.json()["command"]
+        assert install_command["type"] == "updates.install"
+        assert install_command["payload"]["windows_ids"] == ["win-guid-1"]
+        assert install_command["payload"]["app_ids"] == ["Vendor.App"]
+        assert install_command["payload"]["driver_ids"] == []
+
+        completed = client.post(
+            f"/api/agent/commands/{install_command['id']}/result",
+            headers=agent_headers,
+            json={
+                "device_uid": "machine-updates-001",
+                "ok": True,
+                "result": {"installed": [], "failed": [], "reboot_required": True, "warnings": []},
+            },
+        )
+        assert completed.status_code == 200, completed.text
+
+        rescan = client.get(
+            "/api/agent/commands/next",
+            headers=agent_headers,
+            params={"device_uid": "machine-updates-001"},
+        )
+        assert rescan.status_code == 200
+        assert rescan.json()["command"]["type"] == "updates.scan"
+
+        company_id = auth["company"]["id"]
+        policy = client.post(
+            "/api/updates/policies",
+            headers=headers,
+            json={
+                "name": "Janela noturna",
+                "auto_scan": True,
+                "auto_install": False,
+                "include_windows": True,
+                "include_drivers": False,
+                "include_apps": False,
+                "scan_interval_hours": 24,
+                "allowed_days": [0, 1, 2, 3, 4],
+                "start_hour": 1,
+                "end_hour": 5,
+                "timezone": "America/Sao_Paulo",
+            },
+        )
+        assert policy.status_code == 201, policy.text
+        assert policy.json()["company_id"] == company_id
+        policies = client.get("/api/updates/policies", headers=headers)
+        assert policies.status_code == 200
+        assert any(item["name"] == "Janela noturna" for item in policies.json())

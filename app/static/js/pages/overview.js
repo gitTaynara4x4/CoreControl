@@ -28,19 +28,19 @@
 
     CT.$('#overviewAttention').innerHTML = attention.length
       ? CT.deviceTable(attention)
-      : '<div class="empty">Nenhum computador exige atenção agora.</div>';
+      : '<div class="empty"><strong>Tudo certo por aqui</strong><span>Nenhum computador exige atenção agora.</span></div>';
 
     CT.$('#overviewAlerts').innerHTML = alerts.length
       ? alerts.slice(0, 6).map(CT.alertRow).join('')
-      : '<div class="empty">Nenhum alerta ativo.</div>';
+      : '<div class="empty"><strong>Sem alertas ativos</strong><span>Não há eventos técnicos pendentes neste momento.</span></div>';
 
     CT.$('#overviewCompanies').innerHTML = companies.length
       ? companies.map(CT.companyCard).join('')
-      : '<div class="empty">Cadastre a primeira empresa para começar.</div>';
+      : '<div class="empty"><strong>Nenhuma empresa cadastrada</strong><span>Cadastre a primeira empresa para começar.</span></div>';
 
     CT.$('#newCompanyBtn').classList.toggle(
       'hidden',
-      CT.state.user.role !== 'platform_admin',
+      !CT.isGlobalAdmin(),
     );
     CT.bindCommonActions();
   });

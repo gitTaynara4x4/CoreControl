@@ -1,0 +1,16 @@
+IDENTIDADE VISUAL — CORECONTROL
+
+Aplicado nesta atualização:
+- Logo horizontal CoreControl no site público.
+- Símbolo CoreControl no favicon, login e Central web.
+- Novo favicon/ícone nos executáveis Windows.
+- Logo completa incorporada no instalador.
+- Símbolo vetorial interno do aplicativo Windows atualizado para a nova marca.
+- Arquivos técnicos CoreTuner mantidos somente quando necessários para compatibilidade com instalações anteriores.
+
+Validação realizada no projeto completo:
+- 39 testes Python aprovados.
+- CoreControl.exe compilado para Windows x64.
+- CoreControlAgent.exe compilado para Windows x64.
+- CoreControlSetup.exe compilado para Windows x64.
+- Novo ícone incorporado aos três executáveis.

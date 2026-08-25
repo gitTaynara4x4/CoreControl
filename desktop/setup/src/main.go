@@ -41,6 +41,7 @@ const (
 	ES_PASSWORD         = 0x0020
 	BS_PUSHBUTTON       = 0x00000000
 	BS_DEFPUSHBUTTON    = 0x00000001
+	SS_CENTER           = 0x00000001
 	SW_SHOW             = 5
 	SW_HIDE             = 0
 	SW_SHOWNORMAL       = 1
@@ -310,7 +311,7 @@ func runGUI() {
 	wc := WNDCLASSEX{CbSize: uint32(unsafe.Sizeof(WNDCLASSEX{})), LpfnWndProc: syscall.NewCallback(wndProc), HInstance: syscall.Handle(hinst), HIcon: largeIcon, HCursor: syscall.Handle(arrowCursor), HbrBackground: themeWindowBrush, LpszClassName: className, HIconSm: smallIcon}
 	procRegisterClassEx.Call(uintptr(unsafe.Pointer(&wc)))
 	windowStyle := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX)
-	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(utf16("CoreTuner — Instalação segura"))), windowStyle, 180, 40, 720, 850, 0, 0, hinst, 0)
+	h, _, _ := procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(className)), uintptr(unsafe.Pointer(utf16("CoreControl — Instalação segura"))), windowStyle, 180, 40, 720, 850, 0, 0, hinst, 0)
 	if h == 0 {
 		return
 	}
@@ -402,12 +403,13 @@ func (a *App) add(id int, h syscall.Handle, group *[]syscall.Handle) syscall.Han
 func buildUI() {
 	a := app
 
-	_, a.logoBitmap = createCoreTunerLogo(a.hwnd, 155, 18, 390, 94)
+	brand := createControl("STATIC", "CoreControl", WS_CHILD|WS_VISIBLE|SS_CENTER, 155, 42, 390, 48, a.hwnd, 0)
+	applyFont(brand, a.titleFont)
 	a.title = createControl("STATIC", "", WS_CHILD, 0, 0, 1, 1, a.hwnd, 0)
 	a.subtitle = createControl("STATIC", "Instalação segura e monitoramento inteligente", WS_CHILD|WS_VISIBLE, 70, 116, 560, 26, a.hwnd, 0)
 	applyFont(a.subtitle, a.smallFont)
 
-	serverLabel := createControl("STATIC", "Servidor do CoreTuner", WS_CHILD|WS_VISIBLE, 70, 154, 220, 22, a.hwnd, 0)
+	serverLabel := createControl("STATIC", "Servidor do CoreControl", WS_CHILD|WS_VISIBLE, 70, 154, 220, 22, a.hwnd, 0)
 	applyFont(serverLabel, a.smallFont)
 	a.add(idServer, createControl("EDIT", a.serverURL, WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 70, 180, 560, 38, a.hwnd, idServer), nil)
 
@@ -429,7 +431,7 @@ func buildUI() {
 	a.loginGroup = append(a.loginGroup, l3)
 	a.add(idLoginPassword, createControl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, 80, 464, 540, 42, a.hwnd, idLoginPassword), &a.loginGroup)
 
-	a.add(idLoginButton, createControl("BUTTON", "Entrar no CoreTuner", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 536, 540, 50, a.hwnd, idLoginButton), &a.loginGroup)
+	a.add(idLoginButton, createControl("BUTTON", "Entrar no CoreControl", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 536, 540, 50, a.hwnd, idLoginButton), &a.loginGroup)
 	a.add(idShowRegister, createControl("BUTTON", "Criar uma empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 80, 606, 260, 46, a.hwnd, idShowRegister), &a.loginGroup)
 	a.add(idForgotPassword, createControl("BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 360, 606, 260, 46, a.hwnd, idForgotPassword), &a.loginGroup)
 	applyFont(a.controls[idLoginButton], a.buttonFont)
@@ -590,7 +592,7 @@ func (a *App) server() (string, error) {
 	raw := strings.TrimRight(strings.TrimSpace(getText(a.controls[idServer])), "/")
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return "", errors.New("Informe um endereço válido do CoreTuner Central")
+		return "", errors.New("Informe um endereço válido do CoreControl")
 	}
 	host := strings.ToLower(strings.Split(parsed.Host, ":")[0])
 	localHTTP := parsed.Scheme == "http" && (host == "127.0.0.1" || host == "localhost" || host == "::1")
@@ -605,17 +607,17 @@ func (a *App) server() (string, error) {
 func (a *App) login() {
 	server, err := a.server()
 	if err != nil {
-		message("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+		message("CoreControl", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
 	email := strings.TrimSpace(getText(a.controls[idLoginEmail]))
 	password := getText(a.controls[idLoginPassword])
 	if email == "" || password == "" {
-		message("CoreTuner", "Preencha e-mail e senha.", MB_OK|MB_ICONERROR)
+		message("CoreControl", "Preencha e-mail e senha.", MB_OK|MB_ICONERROR)
 		return
 	}
 	enable(a.controls[idLoginButton], false)
-	setText(a.subtitle, "Conectando ao CoreTuner Central...")
+	setText(a.subtitle, "Conectando ao CoreControl...")
 	var resp AuthResponse
 	err = a.request("POST", server+"/api/auth/login", map[string]string{"email": email, "password": password}, "", &resp)
 	enable(a.controls[idLoginButton], true)
@@ -630,7 +632,7 @@ func (a *App) login() {
 func (a *App) register() {
 	server, err := a.server()
 	if err != nil {
-		message("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+		message("CoreControl", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
 	payload := map[string]string{
@@ -641,7 +643,7 @@ func (a *App) register() {
 		"password_confirmation": getText(a.controls[idRegisterConfirm]),
 	}
 	if payload["company_name"] == "" || payload["responsible_name"] == "" || payload["email"] == "" {
-		message("CoreTuner", "Preencha todos os campos.", MB_OK|MB_ICONERROR)
+		message("CoreControl", "Preencha todos os campos.", MB_OK|MB_ICONERROR)
 		return
 	}
 	enable(a.controls[idRegisterButton], false)
@@ -655,7 +657,7 @@ func (a *App) register() {
 		return
 	}
 	a.applyAuth(resp)
-	message("CoreTuner", "Empresa criada com sucesso. Agora você pode instalar este computador.", MB_OK|MB_ICONINFORMATION)
+	message("CoreControl", "Empresa criada com sucesso. Agora você pode instalar este computador.", MB_OK|MB_ICONINFORMATION)
 }
 
 func (a *App) applyAuth(resp AuthResponse) {
@@ -697,7 +699,7 @@ func (a *App) installCurrent() {
 	}
 	name := strings.TrimSpace(getText(a.controls[idDeviceName]))
 	if name == "" {
-		message("CoreTuner", "Informe o nome deste computador.", MB_OK|MB_ICONERROR)
+		message("CoreControl", "Informe o nome deste computador.", MB_OK|MB_ICONERROR)
 		return
 	}
 	setText(a.status, "Coletando identificação do computador...")
@@ -721,8 +723,8 @@ func (a *App) installCurrent() {
 		"os_name": machine.OSName, "os_version": machine.OSVersion, "agent_version": appVersion,
 	}
 	installRemote := message(
-		"Acesso remoto CoreTuner",
-		"Deseja instalar também o acesso remoto para suporte técnico?\n\nO CoreTuner criará e vinculará automaticamente este computador à empresa correta no servidor remoto. Se existir um Mesh Agent antigo ou ligado a outro servidor, ele será substituído após a autorização do Windows.\n\nTécnicos autorizados poderão controlar a tela somente durante um atendimento.",
+		"Acesso remoto CoreControl",
+		"Deseja instalar também o acesso remoto para suporte técnico?\n\nO CoreControl criará e vinculará automaticamente este computador à empresa correta no servidor remoto. Se existir um Mesh Agent antigo ou ligado a outro servidor, ele será substituído após a autorização do Windows.\n\nTécnicos autorizados poderão controlar a tela somente durante um atendimento.",
 		MB_YESNO|MB_ICONQUESTION,
 	) == IDYES
 	payload["install_remote"] = installRemote
@@ -739,12 +741,12 @@ func (a *App) installCurrent() {
 		message("Instalação não concluída", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
-	setText(a.status, "CoreTuner instalado e conectado com sucesso.")
+	setText(a.status, "CoreControl instalado e conectado com sucesso.")
 	notice := strings.TrimSpace(a.installNotice)
 	if notice == "" {
 		notice = "Acesso remoto não foi solicitado nesta instalação."
 	}
-	message("CoreTuner instalado", fmt.Sprintf("Empresa: %s\nComputador: %s\n\nO agente de diagnóstico já está enviando informações técnicas.\n%s", resp.CompanyName, name, notice), MB_OK|MB_ICONINFORMATION)
+	message("CoreControl instalado", fmt.Sprintf("Empresa: %s\nComputador: %s\n\nO agente de diagnóstico já está enviando informações técnicas.\n%s", resp.CompanyName, name, notice), MB_OK|MB_ICONINFORMATION)
 	procDestroyWindow.Call(uintptr(a.hwnd))
 }
 
@@ -755,7 +757,8 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 		home, _ := os.UserHomeDir()
 		localAppData = filepath.Join(home, "AppData", "Local")
 	}
-	installDir := filepath.Join(localAppData, "Programs", "CoreTuner")
+	installDir := filepath.Join(localAppData, "Programs", "CoreControl")
+	legacyInstallDir := filepath.Join(localAppData, "Programs", "CoreTuner")
 	agentDataDir := filepath.Join(localAppData, "CoreTuner", "Agent")
 	userDataDir := configDir()
 	if err := os.MkdirAll(installDir, 0755); err != nil {
@@ -768,35 +771,48 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 		return fmt.Errorf("não foi possível criar a pasta do aplicativo: %w", err)
 	}
 
-	setText(a.status, "Baixando componentes oficiais do CoreTuner...")
+	setText(a.status, "Baixando componentes oficiais do CoreControl...")
 	var manifest ComponentManifest
 	if err := a.request("GET", a.serverURL+"/api/desktop/manifest", nil, a.token, &manifest); err != nil {
 		return fmt.Errorf("não foi possível obter os componentes oficiais: %w", err)
 	}
-	coreInfo, ok := manifest.Files["CoreTuner.exe"]
+	coreInfo, ok := manifest.Files["CoreControl.exe"]
 	if !ok {
-		return errors.New("o servidor não forneceu o CoreTuner.exe")
+		coreInfo, ok = manifest.Files["CoreTuner.exe"]
 	}
-	agentInfo, ok := manifest.Files["CoreTunerAgent.exe"]
 	if !ok {
-		return errors.New("o servidor não forneceu o CoreTunerAgent.exe")
+		return errors.New("o servidor não forneceu o CoreControl.exe")
+	}
+	agentInfo, ok := manifest.Files["CoreControlAgent.exe"]
+	if !ok {
+		agentInfo, ok = manifest.Files["CoreTunerAgent.exe"]
+	}
+	if !ok {
+		return errors.New("o servidor não forneceu o CoreControlAgent.exe")
 	}
 
 	coreBytes, err := a.downloadComponent(coreInfo)
 	if err != nil {
-		return fmt.Errorf("falha ao baixar CoreTuner.exe: %w", err)
+		return fmt.Errorf("falha ao baixar CoreControl.exe: %w", err)
 	}
 	agentBytes, err := a.downloadComponent(agentInfo)
 	if err != nil {
-		return fmt.Errorf("falha ao baixar CoreTunerAgent.exe: %w", err)
+		return fmt.Errorf("falha ao baixar CoreControlAgent.exe: %w", err)
 	}
 
-	agentPath := filepath.Join(installDir, "CoreTunerAgent.exe")
-	corePath := filepath.Join(installDir, "CoreTuner.exe")
-	// Encerra somente agentes antigos instalados pelo CoreTuner, sem PowerShell e sem janela.
+	agentPath := filepath.Join(installDir, "CoreControlAgent.exe")
+	corePath := filepath.Join(installDir, "CoreControl.exe")
+	legacyAgentPath := filepath.Join(legacyInstallDir, "CoreTunerAgent.exe")
+	legacyCorePath := filepath.Join(legacyInstallDir, "CoreTuner.exe")
+	// Encerra a versão atual e qualquer agente legado antes de substituir os componentes.
 	stopExistingAgent(agentPath)
+	stopExistingAgent(legacyAgentPath)
+	_ = os.Remove(agentPath)
+	_ = os.Remove(legacyAgentPath)
+	_ = os.Remove(legacyCorePath)
 	// Remove a inicialização anterior antes de substituir os componentes.
 	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreTunerAgent", "/f").Run()
+	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlAgent", "/f").Run()
 	time.Sleep(300 * time.Millisecond)
 	if err := writeAtomic(agentPath, agentBytes, 0755); err != nil {
 		return fmt.Errorf("não foi possível instalar o agente: %w", err)
@@ -831,7 +847,7 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 	}
 
 	runCommand := fmt.Sprintf(`"%s" -config "%s"`, agentPath, configPath)
-	if out, err := hiddenCommand("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreTunerAgent", "/t", "REG_SZ", "/d", runCommand, "/f").CombinedOutput(); err != nil {
+	if out, err := hiddenCommand("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlAgent", "/t", "REG_SZ", "/d", runCommand, "/f").CombinedOutput(); err != nil {
 		return fmt.Errorf("não foi possível configurar a inicialização do agente: %s", strings.TrimSpace(string(out)))
 	}
 	cmd := hiddenCommand(agentPath, "-config", configPath)
@@ -844,16 +860,16 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 			if reason == "" {
 				reason = "o servidor não forneceu o agente remoto da empresa"
 			}
-			a.installNotice = "O CoreTuner foi instalado, mas o acesso remoto não foi concluído: " + reason
+			a.installNotice = "O CoreControl foi instalado, mas o acesso remoto não foi concluído: " + reason
 		} else if err := a.installRemoteAgent(*resp.RemoteAgent, resp.DeviceID); err != nil {
-			a.installNotice = "O CoreTuner foi instalado, mas o acesso remoto não foi concluído: " + err.Error()
+			a.installNotice = "O CoreControl foi instalado, mas o acesso remoto não foi concluído: " + err.Error()
 		} else {
 			a.installNotice = "Acesso remoto instalado, vinculado à empresa correta e confirmado online."
 		}
 	}
 
 	if err := exec.Command(corePath).Start(); err != nil {
-		return fmt.Errorf("o CoreTuner foi instalado, mas não foi possível abrir o painel: %w", err)
+		return fmt.Errorf("o CoreControl foi instalado, mas não foi possível abrir o painel: %w", err)
 	}
 	return nil
 }
@@ -1018,7 +1034,7 @@ func procMessageBoxSimple(title, text string, flags uintptr) int {
 func (a *App) openPasswordRecovery() {
 	server, err := a.server()
 	if err != nil {
-		procMessageBoxSimple("CoreTuner", err.Error(), MB_OK|MB_ICONERROR)
+		procMessageBoxSimple("CoreControl", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}
 	target := server + "/?forgot=1"

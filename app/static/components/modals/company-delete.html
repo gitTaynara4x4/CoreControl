@@ -1,0 +1,20 @@
+<div class="danger-modal-head">
+  <span class="danger-modal-icon" aria-hidden="true">!</span>
+  <div>
+    <h2>Excluir empresa definitivamente</h2>
+    <p>Esta ação remove a empresa e os dados vinculados do CoreControl. Não pode ser desfeita.</p>
+  </div>
+</div>
+<div class="danger-summary">
+  <strong id="deleteCompanyName">Empresa</strong>
+  <span id="deleteCompanyImpact">0 computadores e 0 usuários vinculados.</span>
+</div>
+<form id="companyDeleteForm" class="stack">
+  <label>Para confirmar, digite <strong id="deleteCompanyPhrase"></strong>
+    <input id="deleteCompanyConfirmation" autocomplete="off" spellcheck="false" required>
+  </label>
+  <div class="modal-actions">
+    <button type="button" class="btn" id="cancelModal">Cancelar</button>
+    <button type="submit" class="btn danger" id="confirmDeleteCompanyBtn" disabled>Excluir definitivamente</button>
+  </div>
+</form>

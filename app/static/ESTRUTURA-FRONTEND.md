@@ -1,4 +1,4 @@
-# Estrutura do frontend do CoreTuner Central
+# Estrutura do frontend do CoreControl
 
 O painel continua sendo uma aplicação de página única, mas cada tela agora possui seu próprio HTML e seu próprio JavaScript. As APIs, rotas, autenticação, acesso remoto V7 e banco de dados não foram alterados.
 

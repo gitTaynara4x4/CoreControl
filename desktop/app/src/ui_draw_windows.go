@@ -41,7 +41,7 @@ func (a *App) draw(dc syscall.Handle, rc RECT) {
 		return
 	}
 	a.drawShell(dc, rc)
-	// Mantém sidebar e cabeçalho fixos enquanto páginas longas rolam por baixo.
+	// Sidebar e cabeçalho ficam fixos enquanto páginas longas rolam por baixo.
 	saved, _, _ := procSaveDC.Call(uintptr(dc))
 	procIntersectClipRect.Call(uintptr(dc), uintptr(shellSidebarWidth), uintptr(shellHeaderHeight), uintptr(rc.Right), uintptr(rc.Bottom))
 	switch a.page {
@@ -65,38 +65,25 @@ func (a *App) draw(dc syscall.Handle, rc RECT) {
 		a.drawSupport(dc)
 	}
 	procRestoreDC.Call(uintptr(dc), saved)
-	a.drawPageScrollbar(dc, rc)
-}
-func (a *App) drawPageScrollbar(dc syscall.Handle, rc RECT) {
-	maxScroll := a.maxPageScroll()
-	if maxScroll <= 0 {
-		return
-	}
-	trackTop := shellHeaderHeight + 12
-	trackBottom := rc.Bottom - 14
-	trackH := trackBottom - trackTop
-	if trackH <= 40 {
-		return
-	}
-	track := Rect{rc.Right - 8, trackTop, 3, trackH}
-	roundedBox(dc, track, rgb(235, 239, 244), rgb(235, 239, 244), 3)
-	contentHeight := a.pageContentHeight()
-	viewportHeight := a.height - shellContentTop - 18
-	thumbH := int32(float64(trackH) * float64(viewportHeight) / float64(contentHeight))
-	if thumbH < 42 {
-		thumbH = 42
-	}
-	if thumbH > trackH {
-		thumbH = trackH
-	}
-	travel := trackH - thumbH
-	thumbY := trackTop
-	if maxScroll > 0 && travel > 0 {
-		thumbY += int32(float64(travel) * float64(a.pageScrollY) / float64(maxScroll))
-	}
-	roundedBox(dc, Rect{rc.Right - 9, thumbY, 5, thumbH}, rgb(177, 189, 205), rgb(177, 189, 205), 5)
+	a.drawPageScrollbar(dc)
 }
 
+func (a *App) drawPageScrollbar(dc syscall.Handle) {
+	track, thumb, ok := a.pageScrollbarGeometry()
+	if !ok {
+		return
+	}
+	// Área visual discreta, mas a área clicável é maior (calculada em pageScrollbarGeometry).
+	trackVisual := Rect{track.X + track.W/2 - 2, track.Y, 4, track.H}
+	thumbVisual := Rect{track.X + track.W/2 - 4, thumb.Y, 8, thumb.H}
+	trackColor := rgb(232, 237, 244)
+	thumbColor := rgb(166, 180, 199)
+	if a.scrollDragging || thumb.contains(a.mouseX, a.mouseY) {
+		thumbColor = rgb(121, 142, 171)
+	}
+	roundedBox(dc, trackVisual, trackColor, trackColor, 4)
+	roundedBox(dc, thumbVisual, thumbColor, thumbColor, 8)
+}
 func fill(dc syscall.Handle, r Rect, c uintptr) {
 	b, _, _ := procCreateSolidBrush.Call(c)
 	rr := RECT{r.X, r.Y, r.X + r.W, r.Y + r.H}
@@ -271,7 +258,7 @@ func (a *App) drawAuth(dc syscall.Handle, rc RECT) {
 	text(dc, "Privacidade protegida: o CoreControl não acessa documentos, conversas ou senhas.", layout.security, a.fonts["small"], rgb(37, 153, 87), DT_CENTER|DT_VCENTER|DT_WORDBREAK)
 }
 
-var menuLabels = []string{"Painel inicial", "Diagnóstico", "Testes", "Otimizações", "Atividade", "Relatórios", "Histórico", "Configurações", "Suporte"}
+var menuLabels = []string{"Painel inicial", "Diagnóstico", "Testes", "Otimizações", "Programas", "Relatórios", "Histórico", "Configurações", "Suporte"}
 
 func pageSubtitle(page int) string {
 	switch page {
@@ -284,7 +271,7 @@ func pageSubtitle(page int) string {
 	case 3:
 		return "Perfis seguros de desempenho"
 	case 4:
-		return "Aplicativos, janelas e tempo em uso"
+		return "Processos e consumo em tempo real"
 	case 5:
 		return "Relatórios técnicos e comparativos"
 	case 6:

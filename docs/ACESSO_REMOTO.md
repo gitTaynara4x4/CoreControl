@@ -1,4 +1,4 @@
-# CoreTuner Remote — instalação automática por empresa
+# CoreControl Remote — instalação automática por empresa
 
 ## Fluxo
 
@@ -12,7 +12,7 @@
 
 ## Compatibilidade do ID do grupo
 
-O CoreTuner aceita:
+O CoreControl aceita:
 
 - 32 bytes / 64 caracteres hexadecimais, para instalações antigas;
 - 48 bytes / 96 caracteres hexadecimais, para o MeshCentral atual;
@@ -56,7 +56,7 @@ A chave nunca deve ser gravada no GitHub, enviada ao navegador ou incorporada ao
 
 ## Conexão automática dentro da Central
 
-O CoreTuner adiciona `coretuner=1` à URL temporária do MeshCentral. Esse marcador impede que a automação rode em acessos administrativos comuns.
+O CoreControl adiciona `coretuner=1` à URL temporária do MeshCentral. Esse marcador impede que a automação rode em acessos administrativos comuns.
 
 A versão V4 não considera a página pronta apenas porque o botão `Conectar` apareceu. Ela aguarda o WebSocket de controle ficar no estado conectado, solicita um novo `authcookie` ao MeshCentral e só então inicia o fluxo oficial `connectDesktop(null, 3)`. Isso evita abrir o relay cedo demais e ficar preso em `Desconectar / Desconectado`.
 
@@ -68,11 +68,11 @@ curl -fsSL \
   -o /opt/meshcentral/meshcentral/public/scripts/custom.js
 
 node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
-grep "CoreTuner Remote v4" /opt/meshcentral/meshcentral/public/scripts/custom.js | head
+grep "CoreControl Remote v4" /opt/meshcentral/meshcentral/public/scripts/custom.js | head
 ```
 
 Também existe o instalador `tools/install_meshcentral_custom.sh`, que tenta primeiro o endereço interno e usa o público como alternativa.
 
-Não é necessário reinstalar o CoreTuner Setup nem o Mesh Agent nos computadores.
+Não é necessário reinstalar o CoreControl Setup nem o Mesh Agent nos computadores.
 
 O arquivo gravado diretamente dentro do contêiner pode ser perdido em uma recriação do serviço `coretuner-remote`. Para produção, mantenha `/opt/meshcentral/meshcentral/public/scripts/custom.js` em volume persistente ou em uma imagem personalizada do MeshCentral.

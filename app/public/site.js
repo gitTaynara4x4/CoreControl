@@ -60,7 +60,7 @@
   function updateAccountButtons() {
     const text = currentUser
       ? (currentUser.company?.name || currentUser.name || 'Minha empresa')
-      : 'Entrar ou criar empresa';
+      : 'Entrar';
     if (accountButton) accountButton.textContent = text;
     if (mobileAccountButton) mobileAccountButton.textContent = text;
   }
@@ -125,8 +125,8 @@
     message.textContent = 'Acesso liberado. Caso o navegador não inicie automaticamente, use o botão abaixo.';
     manualDownloadLink = document.createElement('a');
     manualDownloadLink.className = 'btn btn-primary btn-full';
-    manualDownloadLink.textContent = 'Baixar CoreTunerSetup.exe';
-    manualDownloadLink.setAttribute('download', 'CoreTunerSetup.exe');
+    manualDownloadLink.textContent = 'Baixar instalador do CoreControl';
+    manualDownloadLink.setAttribute('download', 'CoreControlSetup.exe');
     manualDownloadBox.append(message, manualDownloadLink);
     downloadForm.insertAdjacentElement('afterend', manualDownloadBox);
   }
@@ -161,7 +161,7 @@
   }
 
   function startDownload(downloadUrl, filename) {
-    const safeFilename = filename || 'CoreTunerSetup.exe';
+    const safeFilename = filename || 'CoreControlSetup.exe';
     manualDownloadLink.href = downloadUrl;
     manualDownloadLink.setAttribute('download', safeFilename);
     manualDownloadLink.textContent = `Baixar ${safeFilename}`;
@@ -337,6 +337,14 @@
   });
 
   document.querySelectorAll('.js-download').forEach(button => button.addEventListener('click', openDownloadModal));
+  document.querySelectorAll('.js-register-download').forEach(button => button.addEventListener('click', () => {
+    if (currentUser) {
+      openDownloadModal();
+      return;
+    }
+    pendingDownload = true;
+    openAuthModal('register');
+  }));
   loginTab.addEventListener('click', () => setAuthMode('login'));
   registerTab.addEventListener('click', () => setAuthMode('register'));
   forgotPasswordButton.addEventListener('click', () => {
@@ -381,6 +389,37 @@
     mobileNav.classList.remove('open');
     menuButton.setAttribute('aria-expanded', 'false');
   }));
+
+  // Calculadora comercial: deixa o visitante usar os próprios números, sem inventar ROI.
+  const lossFields = [
+    document.getElementById('lossPeople'),
+    document.getElementById('lossHourly'),
+    document.getElementById('lossHours'),
+    document.getElementById('lossEvents')
+  ];
+  const lossMonthly = document.getElementById('lossMonthly');
+  const lossYearly = document.getElementById('lossYearly');
+  const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  function safeNumber(input) {
+    const value = Number.parseFloat(input?.value || '0');
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+
+  function updateLossCalculator() {
+    if (!lossMonthly || !lossYearly) return;
+    const people = safeNumber(lossFields[0]);
+    const hourly = safeNumber(lossFields[1]);
+    const hours = safeNumber(lossFields[2]);
+    const events = safeNumber(lossFields[3]);
+    const monthly = people * hourly * hours * events;
+    const yearly = monthly * 12;
+    lossMonthly.textContent = `${money.format(monthly)} / mês`;
+    lossYearly.textContent = `${money.format(yearly)} / ano, se o padrão se repetir.`;
+  }
+
+  lossFields.forEach(field => field?.addEventListener('input', updateLossCalculator));
+  updateLossCalculator();
 
   const query = new URLSearchParams(window.location.search);
   resetToken = query.get('reset_token') || '';

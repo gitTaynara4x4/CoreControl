@@ -43,7 +43,7 @@ def _database_url() -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    app_name: str = "CoreTuner Central"
+    app_name: str = "CoreControl"
     environment: str = os.getenv("CORETUNER_ENV", "development")
     secret_key: str = os.getenv("CORETUNER_SECRET_KEY", "change-this-in-production")
     database_url: str = _database_url()
@@ -51,6 +51,21 @@ class Settings:
     dev_web: bool = _bool_env("CORETUNER_DEV_WEB", False)
     admin_email: str = os.getenv("CORETUNER_ADMIN_EMAIL", "admin@coretuner.com.br")
     admin_password: str = os.getenv("CORETUNER_ADMIN_PASSWORD", "TroqueAgora123!")
+    # Administrador Global do CoreControl. A senha padrão fica armazenada somente
+    # como hash PBKDF2; o texto puro não é gravado no código nem no banco.
+    # As variáveis antigas SUPERADMIN permanecem como fallback apenas para
+    # instalações que receberam a versão anterior.
+    global_admin_email: str = os.getenv(
+        "CORECONTROL_GLOBAL_ADMIN_EMAIL",
+        os.getenv("CORECONTROL_SUPERADMIN_EMAIL", "tataynara18n@gmail.com"),
+    ).strip().lower()
+    global_admin_password_hash: str = os.getenv(
+        "CORECONTROL_GLOBAL_ADMIN_PASSWORD_HASH",
+        os.getenv(
+            "CORECONTROL_SUPERADMIN_PASSWORD_HASH",
+            "pbkdf2_sha256$310000$uP3EDTIOvujuu4xGfI65Wg==$hsj4kW46uHbD53fKS68_QndOxhvRdAkm921yZy13Vis=",
+        ),
+    ).strip()
     download_password: str = os.getenv("CORETUNER_DOWNLOAD_PASSWORD", "")
     download_token_seconds: int = _int_env("CORETUNER_DOWNLOAD_TOKEN_SECONDS", 180)
     download_attempt_window_seconds: int = _int_env("CORETUNER_DOWNLOAD_ATTEMPT_WINDOW_SECONDS", 600)
@@ -90,7 +105,7 @@ class Settings:
     smtp_user: str = os.getenv("CORETUNER_SMTP_USER", "").strip()
     smtp_password: str = os.getenv("CORETUNER_SMTP_PASSWORD", "").strip()
     smtp_from_email: str = os.getenv("CORETUNER_SMTP_FROM_EMAIL", "").strip()
-    smtp_from_name: str = os.getenv("CORETUNER_SMTP_FROM_NAME", "CoreTuner").strip() or "CoreTuner"
+    smtp_from_name: str = os.getenv("CORETUNER_SMTP_FROM_NAME", "CoreControl").strip() or "CoreControl"
     smtp_starttls: bool = _bool_env("CORETUNER_SMTP_STARTTLS", True)
     password_reset_minutes: int = _int_env("CORETUNER_PASSWORD_RESET_MINUTES", 20)
     password_reset_max_attempts: int = _int_env("CORETUNER_PASSWORD_RESET_MAX_ATTEMPTS", 5)

@@ -1,32 +1,26 @@
-CORETUNER CENTRAL v0.4.11 — VALIDAÇÃO DO PACOTE
+CORECONTROL — VALIDAÇÃO DA RENOMEAÇÃO
 
 Alterações validadas:
-- o Setup mostra “Empresa vinculada”, o nome da empresa e o usuário conectado;
-- o Setup não consulta nem exibe quantidade de computadores, online ou offline;
-- o aplicativo local não exibe “Computadores da empresa” nem a página “Administração”;
-- o aplicativo local valida a sessão pela rota /api/auth/me, sem buscar a lista completa de dispositivos;
-- relatórios locais contêm somente dados do computador em uso;
-- menus e botões do aplicativo exibem cursor de mão e realce de hover;
-- botões do Setup exibem cursor de mão, preservando o cursor de edição nos campos.
+- marca visível alterada de CoreTuner/CoreTuner Central para CoreControl no site, Central web, login, aplicativo Windows, instalador, mensagens, relatórios e e-mails;
+- download público canônico alterado para CoreControlSetup.exe;
+- componentes canônicos alterados para CoreControl.exe e CoreControlAgent.exe;
+- aliases CoreTuner*.exe mantidos no servidor para compatibilidade com instaladores antigos;
+- novo instalador migra a execução para CoreControl.exe/CoreControlAgent.exe e remove os executáveis legados da pasta antiga;
+- variáveis CORETUNER_* e caminhos de dados legados foram preservados onde necessário para não perder configurações existentes.
 
 Validações executadas:
-- Python compileall: aprovado;
-- JavaScript node --check: aprovado em todos os arquivos .js;
-- Pytest: 32 testes aprovados;
-- Go fmt: aplicado nos módulos alterados;
-- Go test e Go vet: aprovados para Agent, aplicativo, Setup e ferramenta iconpatch;
-- compilação Windows AMD64: aprovada para CoreTunerSetup.exe, CoreTuner.exe e CoreTunerAgent.exe;
-- executáveis reconhecidos como PE32+ x86-64 GUI;
-- ícone oficial incorporado aos três executáveis;
-- domínio de produção confirmado no Setup e no aplicativo:
-  https://apps-coretuner.9ywrah.easypanel.host
-- versão 0.4.11 confirmada nos executáveis;
-- validação de strings confirmou ausência da lista de computadores e da Administração no aplicativo local.
+- Pytest: 39 testes aprovados;
+- Go fmt aplicado nos módulos alterados;
+- Go vet e compilação Windows AMD64 aprovados nos componentes alterados;
+- ferramenta iconpatch aplicada aos três executáveis canônicos;
+- executáveis canônicos recompilados como Windows x64;
+- aliases legados foram atualizados com os mesmos binários novos.
 
-SHA-256 dos executáveis:
-- CoreTuner.exe: 3094c387d695f5943f70cd7200cefc409898df1238b205fc992e8a42367f0fed
-- CoreTunerAgent.exe: d949fe8ec81311c5eab0a54c2941552c988488ae617b80570b85e49a883b5804
-- CoreTunerSetup.exe: 32d39ac40e5e5403c1190b666bccf93686474823f1fde5d2b3f55090af436c9d
+SHA-256 dos executáveis canônicos:
+- CoreControl.exe: 5d32de804d9e572635bfdfbbb29fce3c655ea761f33f98c6405b635950eed8a4
+- CoreControlAgent.exe: 7746efe5eeed2fb8cdada8a7abf917206e10a7dceb5ea2b4caf1108a1d506867
+- CoreControlSetup.exe: ec2a041ea6df0e2939eb79ce06e8b8509ed6e5d4782621066ee88414075bc58b
 
-Limitação do ambiente de validação:
-- os executáveis Windows foram compilados e inspecionados estruturalmente em Linux, mas a navegação visual final e a instalação real precisam ser confirmadas em um computador Windows.
+Observação de compatibilidade:
+- CORETUNER_* continua sendo o prefixo técnico das variáveis de ambiente;
+- a pasta técnica de dados %LOCALAPPDATA%\CoreTuner é preservada nesta etapa para evitar perda de sessão, backups e configurações de instalações existentes.

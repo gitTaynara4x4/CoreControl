@@ -6,26 +6,18 @@
   CT.stat = function stat(label, value, hint, color = 'var(--ink)') {
     const normalized = String(label || '').toLowerCase();
     let tone = 'blue';
-    let icon = '<path d="M4 20V7l8-3v16M12 9h8v11M7 9h2M7 13h2M7 17h2M15 12h2M15 16h2"/>';
+    if (normalized.includes('online') || normalized.includes('disponível')) tone = 'green';
+    if (normalized.includes('offline')) tone = 'red';
+    if (normalized.includes('alerta') || normalized.includes('indispon')) tone = 'amber';
 
-    if (normalized.includes('computador')) {
-      icon = '<rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M8 20h8M12 16.5V20"/>';
-    } else if (normalized.includes('online')) {
-      tone = 'green';
-      icon = '<path d="M7 12.5 10.5 16 17.5 8"/><circle cx="12" cy="12" r="9"/>';
-    } else if (normalized.includes('offline')) {
-      tone = 'red';
-      icon = '<path d="m8.5 8.5 7 7m0-7-7 7"/><circle cx="12" cy="12" r="9"/>';
-    } else if (normalized.includes('alerta')) {
-      tone = 'amber';
-      icon = '<path d="M12 4 3.8 18h16.4L12 4zM12 9v4M12 16h.01"/>';
-    }
-
-    return `<div class="stat-card" data-tone="${tone}"><span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><div class="label">${CT.esc(label)}</div><div class="value" style="color:${color}">${CT.esc(value)}</div><div class="hint">${CT.esc(hint)}</div></div>`;
+    return `<div class="stat-card" data-tone="${tone}"><div class="stat-top"><span class="label">${CT.esc(label)}</span></div><div class="value">${CT.esc(value)}</div><div class="hint">${CT.esc(hint)}</div></div>`;
   };
 
   CT.companyCard = function companyCard(company) {
-    return `<article class="card company-card" data-company="${company.id}"><div class="company-title"><h3>${CT.esc(company.name)}</h3><span class="pill">${company.devices_total} PCs</span></div><div class="company-metrics"><div class="mini"><strong>${company.devices_online}</strong><span>Online</span></div><div class="mini"><strong>${company.devices_total - company.devices_online}</strong><span>Offline</span></div><div class="mini"><strong>${company.alerts_open}</strong><span>Alertas</span></div></div></article>`;
+    const status = company.active
+      ? '<span class="pill resolved">Ativa</span>'
+      : '<span class="pill critical">Desativada</span>';
+    return `<article class="card company-card${company.active ? '' : ' entity-inactive'}" data-company="${company.id}"><div class="company-title"><div><h3>${CT.esc(company.name)}</h3><small class="entity-meta">Empresa #${company.id}</small></div><div class="company-title-actions">${status}<span class="pill">${company.devices_total} PCs</span></div></div><div class="company-metrics"><div class="mini"><strong>${company.devices_online}</strong><span>Online</span></div><div class="mini"><strong>${Math.max(0, company.devices_total - company.devices_online)}</strong><span>Offline</span></div><div class="mini"><strong>${company.alerts_open}</strong><span>Alertas</span></div></div></article>`;
   };
 
   CT.alertRow = function alertRow(alert) {
@@ -40,7 +32,7 @@
   };
 
   CT.deviceTable = function deviceTable(devices) {
-    return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa/Setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Remoto</th><th>Alertas</th></tr></thead><tbody>${devices.map((device) => `<tr data-device="${device.id}" style="cursor:pointer"><td><strong>${CT.esc(device.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.hostname)}</small></td><td>${CT.esc(device.sector || 'Não informado')}</td><td><span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span></td><td><span class="health ${CT.healthClass(device.health_score)}">${device.health_score}/100</span></td><td>${CT.fmtNum(device.telemetry?.cpu_percent)}%</td><td>${CT.fmtNum(device.telemetry?.memory_percent)}%</td><td>${CT.fmtNum(device.telemetry?.disk_percent)}%</td><td>${CT.remoteLabel(device)}</td><td>${device.alerts_open ? `<span class="pill critical">${device.alerts_open}</span>` : '—'}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa / setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Remoto</th><th>Alertas</th></tr></thead><tbody>${devices.map((device) => `<tr data-device="${device.id}" class="${device.active === false ? 'entity-inactive' : ''}" style="cursor:pointer"><td><strong>${CT.esc(device.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.hostname)}</small></td><td><strong class="table-company-name">${CT.esc(device.company_name || `Empresa #${device.company_id}`)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.sector || 'Setor não informado')}</small></td><td>${device.active === false ? '<span class="pill critical">Desativado</span>' : `<span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span>`}</td><td><span class="health ${CT.healthClass(device.health_score)}">${device.health_score}/100</span></td><td>${CT.fmtNum(device.telemetry?.cpu_percent)}%</td><td>${CT.fmtNum(device.telemetry?.memory_percent)}%</td><td>${CT.fmtNum(device.telemetry?.disk_percent)}%</td><td>${CT.remoteLabel(device)}</td><td>${device.alerts_open ? `<span class="pill critical">${device.alerts_open}</span>` : '—'}</td></tr>`).join('')}</tbody></table></div>`;
   };
 
   CT.metric = function metric(label, value, suffix, percent, extra = '') {
@@ -66,7 +58,8 @@
     const height = rectangle.height;
     const padding = 24;
     context.clearRect(0, 0, width, height);
-    context.strokeStyle = '#e5ebf3';
+    const themeStyles = getComputedStyle(document.documentElement);
+    context.strokeStyle = themeStyles.getPropertyValue('--border').trim() || '#e5ebf3';
     context.lineWidth = 1;
 
     for (let index = 0; index <= 4; index += 1) {
@@ -107,7 +100,7 @@
     });
 
     context.font = '12px Inter';
-    context.fillStyle = '#66758d';
+    context.fillStyle = themeStyles.getPropertyValue('--muted').trim() || '#66758d';
     context.fillText('CPU', padding, 15);
     context.fillStyle = '#1ca650';
     context.fillText('RAM', padding + 36, 15);
@@ -180,7 +173,7 @@
     try {
       const data = await CT.requestRemoteUrl(deviceId);
       CT.$('#remoteViewerTitle').textContent = `Acesso remoto — ${data.device_name}`;
-      CT.$('#remoteViewerStatus').textContent = 'Sessão autorizada pelo CoreTuner';
+      CT.$('#remoteViewerStatus').textContent = 'Sessão autorizada pelo CoreControl';
       frame.onload = () => {
         loading.classList.add('hidden');
         frame.classList.add('ready');

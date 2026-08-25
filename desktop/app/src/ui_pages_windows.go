@@ -1031,6 +1031,7 @@ func (a *App) drawPrograms(dc syscall.Handle) {
 	a.mu.RLock()
 	apps := append([]ActivityApp(nil), a.activityApps...)
 	processes := append([]ProcessInfo(nil), a.processes...)
+	browserTabs := append([]BrowserTab(nil), a.browserTabs...)
 	sessions := append([]ActivitySession(nil), a.activitySessions...)
 	var current *ActivitySession
 	if a.activityCurrent != nil {
@@ -1038,6 +1039,10 @@ func (a *App) drawPrograms(dc syscall.Handle) {
 		current = &copyCurrent
 	}
 	s := a.sys
+	expanded := make(map[string]bool, len(a.activityExpanded))
+	for k, v := range a.activityExpanded {
+		expanded[k] = v
+	}
 	a.mu.RUnlock()
 
 	now := time.Now()
@@ -1049,17 +1054,29 @@ func (a *App) drawPrograms(dc syscall.Handle) {
 		focusDetail = nz(current.WindowTitle, "Janela em primeiro plano")
 	}
 
-	// Layout adaptativo: as colunas menos importantes desaparecem primeiro.
+	// Layout adaptativo: prioriza o que já é medido de verdade por processo.
 	compactHeader := w < 760
-	showStatus := w >= 610
-	showDisk := w >= 760
-	showNet := w >= 860
-	rowH := int32(34)
+	showStatus := w >= 560
+	showTime := w >= 700
+	rowH := int32(44)
+	childH := int32(48)
+	groupGap := int32(7)
+	expandedGap := int32(9)
 	headOffset := int32(126)
 	if compactHeader {
 		headOffset = 166
 	}
-	panelH := headOffset + 54 + int32(len(groups))*rowH
+	rowsHeight := int32(len(groups)) * (rowH + groupGap)
+	for _, g := range groups {
+		key := strings.ToLower(strings.TrimSpace(g.Name))
+		if expanded[key] {
+			childrenCount := len(activityChildrenForGroup(g.Name, apps, processes, browserTabs))
+			if childrenCount > 0 {
+				rowsHeight += expandedGap*2 + int32(childrenCount)*childH
+			}
+		}
+	}
+	panelH := headOffset + 54 + rowsHeight
 	minPanelH := int32(520)
 	if compactHeader {
 		minPanelH = 560
@@ -1125,38 +1142,41 @@ func (a *App) drawPrograms(dc syscall.Handle) {
 	fill(dc, Rect{innerX, headY, innerW, 38}, rgb(247, 249, 252))
 	line(dc, innerX, headY+38, innerX+innerW, headY+38, rgb(226, 231, 238))
 
-	nameX := panel.X + 24
-	right := panel.X + panel.W - 24
-	metricGap := int32(6)
-	var netX, diskX int32
-	netW := int32(64)
-	diskW := int32(66)
-	memW := int32(76)
-	cpuW := int32(62)
-	if showNet {
-		netX = right - netW
-		right = netX - metricGap
+	// Distribuição proporcional: sem colunas vazias. Nome recebe a maior parte do espaço.
+	nameX := innerX + 10
+	usableW := innerW - 20
+	statusX, cpuX, memX, timeX := int32(0), int32(0), int32(0), int32(0)
+	statusW, cpuW, memW, timeW := int32(0), int32(0), int32(0), int32(0)
+	var nameW int32
+	if showStatus && showTime {
+		nameW = usableW * 50 / 100
+		statusW = usableW * 13 / 100
+		cpuW = usableW * 10 / 100
+		memW = usableW * 14 / 100
+		timeW = usableW - nameW - statusW - cpuW - memW
+	} else if showStatus {
+		nameW = usableW * 59 / 100
+		statusW = usableW * 15 / 100
+		cpuW = usableW * 11 / 100
+		memW = usableW - nameW - statusW - cpuW
+	} else {
+		nameW = usableW * 64 / 100
+		cpuW = usableW * 15 / 100
+		memW = usableW - nameW - cpuW
 	}
-	if showDisk {
-		diskX = right - diskW
-		right = diskX - metricGap
-	}
-	memX := right - memW
-	right = memX - metricGap
-	cpuX := right - cpuW
-	right = cpuX - metricGap
-	statusX := int32(0)
-	statusW := int32(0)
+	cursorX := nameX + nameW
 	if showStatus {
-		statusW = clamp32(panel.W*11/100, 72, 112)
-		statusX = right - statusW
-		right = statusX - 10
+		statusX = cursorX
+		cursorX += statusW
 	}
-	nameW := right - nameX
-	if nameW < 120 {
-		nameW = 120
+	cpuX = cursorX
+	cursorX += cpuW
+	memX = cursorX
+	cursorX += memW
+	if showTime {
+		timeX = cursorX
 	}
-	showSubTitle := nameW >= 180
+	showSubTitle := nameW >= 300
 
 	text(dc, "Nome", Rect{nameX, headY + 10, nameW, 20}, a.fonts["small"], rgb(101, 115, 136), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
 	if showStatus {
@@ -1164,11 +1184,19 @@ func (a *App) drawPrograms(dc syscall.Handle) {
 	}
 	text(dc, fmt.Sprintf("%.0f%% CPU", s.CPU), Rect{cpuX, headY + 10, cpuW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 	text(dc, fmt.Sprintf("%.0f%% RAM", s.Memory), Rect{memX, headY + 10, memW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
-	if showDisk {
-		text(dc, "Disco", Rect{diskX, headY + 10, diskW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE)
+	if showTime {
+		text(dc, "Tempo em foco", Rect{timeX, headY + 10, timeW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 	}
-	if showNet {
-		text(dc, "Rede", Rect{netX, headY + 10, netW, 20}, a.fonts["small"], rgb(64, 78, 100), DT_CENTER|DT_SINGLELINE)
+	// Divisórias verticais sutis ajudam o olho a acompanhar a coluna ao redimensionar.
+	dividers := []int32{cpuX, memX}
+	if showStatus {
+		dividers = append([]int32{statusX}, dividers...)
+	}
+	if showTime {
+		dividers = append(dividers, timeX)
+	}
+	for _, dx := range dividers {
+		line(dc, dx, headY, dx, panel.Y+panel.H-16, rgb(235, 239, 244))
 	}
 
 	rows := len(groups)
@@ -1185,48 +1213,67 @@ func (a *App) drawPrograms(dc syscall.Handle) {
 				maxCPU = g.CPU
 			}
 		}
+		rowY := headY + 43
 		for i, g := range groups {
-			ry := headY + 40 + int32(i)*rowH
-			row := Rect{innerX, ry, innerW, rowH}
+			ry := rowY
+			row := Rect{innerX, ry, innerW, rowH - 3}
 			if i%2 == 1 {
 				fill(dc, row, rgb(251, 252, 254))
 			}
 			if g.Focused {
 				roundedBox(dc, row, rgb(237, 245, 255), rgb(160, 196, 246), 5)
 			}
-			fill(dc, Rect{cpuX, ry + 2, cpuW, 30}, activityHeatColorLight(g.CPU, maxCPU))
-			fill(dc, Rect{memX, ry + 2, memW, 30}, activityHeatColorLight(g.MemoryMB, maxMem))
-			if showDisk {
-				fill(dc, Rect{diskX, ry + 2, diskW, 30}, rgb(249, 250, 252))
-			}
-			if showNet {
-				fill(dc, Rect{netX, ry + 2, netW, 30}, rgb(249, 250, 252))
-			}
+			fill(dc, Rect{cpuX, ry + 2, cpuW, rowH - 7}, activityHeatColorLight(g.CPU, maxCPU))
+			fill(dc, Rect{memX, ry + 2, memW, rowH - 7}, activityHeatColorLight(g.MemoryMB, maxMem))
 
-			arrowW := int32(12)
+			key := strings.ToLower(strings.TrimSpace(g.Name))
+			children := activityChildrenForGroup(g.Name, apps, processes, browserTabs)
+			isExpanded := expanded[key]
+			arrowW := int32(14)
 			dotX := nameX + arrowW + 6
-			labelX := dotX + 16
+			labelX := dotX + 22
 			labelW := nameW - (labelX - nameX)
 			if labelW < 70 {
 				labelW = 70
 			}
-			text(dc, "›", Rect{nameX, ry + 7, arrowW, 18}, a.fonts["body"], rgb(126, 139, 159), DT_LEFT|DT_SINGLELINE)
-			circle(dc, Rect{dotX, ry + 11, 7, 7}, choose(g.Focused, rgb(47, 124, 246), rgb(160, 174, 195)))
+			arrow := "›"
+			if isExpanded {
+				arrow = "⌄"
+			}
+			if len(children) > 0 {
+				toggleRect := Rect{nameX - 4, ry + 1, nameW, rowH - 5}
+				a.hits = append(a.hits, Hit{toggleRect, "toggle-activity-group", i})
+				text(dc, arrow, Rect{nameX, ry + 9, arrowW, 20}, a.fonts["body"], rgb(104, 121, 148), DT_LEFT|DT_SINGLELINE)
+			}
+			iconRect := Rect{dotX - 5, ry + 9, 18, 18}
+			if !drawProcessIcon(dc, g.ExePath, iconRect) {
+				circle(dc, Rect{dotX, ry + 14, 7, 7}, choose(g.Focused, rgb(47, 124, 246), rgb(160, 174, 195)))
+			}
 			label := friendlyProcessName(g.Name)
-			if g.Count > 1 {
+			browserGroupTabs := browserTabsForProcess(g.Name, browserTabs)
+			if len(browserGroupTabs) > 0 {
+				label = fmt.Sprintf("%s (%d abas)", label, len(browserGroupTabs))
+			} else if g.Count > 1 {
 				label = fmt.Sprintf("%s (%d)", label, g.Count)
 			}
-			labelY := ry + 7
+			labelY := ry + 10
 			if showSubTitle {
-				labelY = ry + 3
+				labelY = ry + 5
 			}
 			text(dc, label, Rect{labelX, labelY, labelW, 20}, a.fonts["body"], rgb(40, 54, 75), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
 			if showSubTitle {
-				sub := g.Title
-				if sub == "" {
-					sub = chooseText(g.Visible, "Janela aberta", "Processo em segundo plano")
+				sub := ""
+				if g.Title != "" {
+					pageName, pageDetail := friendlyActivityWindow(g.Title, g.Name)
+					sub = pageName
+					if pageDetail != "" && !strings.EqualFold(pageDetail, pageName) && !strings.EqualFold(pageDetail, friendlyProcessName(g.Name)) {
+						sub += " • " + pageDetail
+					}
 				}
-				text(dc, sub, Rect{labelX, ry + 18, labelW, 14}, a.fonts["small"], rgb(115, 128, 148), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+				if sub == "" {
+					sub = chooseText(g.Visible, "Janela aberta", "Em segundo plano")
+				}
+				text(dc, sub, Rect{labelX, ry + 22, labelW, 15}, a.fonts["small"], rgb(115, 128, 148), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
 			}
 
 			status := "Segundo plano"
@@ -1237,16 +1284,88 @@ func (a *App) drawPrograms(dc syscall.Handle) {
 				status = "Aberto"
 			}
 			if showStatus {
-				text(dc, status, Rect{statusX, ry + 7, statusW, 18}, a.fonts["small"], statusColor, DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+				text(dc, status, Rect{statusX, ry + 11, statusW, 18}, a.fonts["small"], statusColor, DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
 			}
-			text(dc, fmt.Sprintf("%.1f%%", g.CPU), Rect{cpuX + 4, ry + 7, cpuW - 8, 18}, a.fonts["small"], rgb(54, 67, 88), DT_RIGHT|DT_SINGLELINE)
-			text(dc, formatMemoryMB(g.MemoryMB), Rect{memX + 4, ry + 7, memW - 8, 18}, a.fonts["small"], rgb(54, 67, 88), DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS)
-			if showDisk {
-				text(dc, "—", Rect{diskX + 4, ry + 7, diskW - 8, 18}, a.fonts["small"], rgb(117, 130, 150), DT_RIGHT|DT_SINGLELINE)
+			text(dc, fmt.Sprintf("%.1f%%", g.CPU), Rect{cpuX + 4, ry + 11, cpuW - 8, 18}, a.fonts["small"], rgb(54, 67, 88), DT_RIGHT|DT_SINGLELINE)
+			text(dc, formatMemoryMB(g.MemoryMB), Rect{memX + 4, ry + 11, memW - 8, 18}, a.fonts["small"], rgb(54, 67, 88), DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS)
+			if showTime {
+				text(dc, formatActivitySeconds(g.ActiveSeconds), Rect{timeX + 4, ry + 11, timeW - 8, 18}, a.fonts["small"], rgb(86, 100, 121), DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS)
 			}
-			if showNet {
-				text(dc, "—", Rect{netX + 4, ry + 7, netW - 8, 18}, a.fonts["small"], rgb(117, 130, 150), DT_RIGHT|DT_SINGLELINE)
+			rowY += rowH
+
+			if isExpanded && len(children) > 0 {
+				rowY += expandedGap
+				for ci, child := range children {
+					cy := rowY
+					childRow := Rect{innerX + 18, cy, innerW - 24, childH - 5}
+					childBg := rgb(249, 250, 252)
+					if ci%2 == 1 {
+						childBg = rgb(252, 253, 254)
+					}
+					if child.BrowserTab && child.Focused {
+						childBg = rgb(239, 246, 255)
+					}
+					roundedBox(dc, childRow, childBg, rgb(235, 239, 244), 5)
+					line(dc, nameX+10, cy-6, nameX+10, cy+childH-4, rgb(214, 223, 234))
+					line(dc, nameX+10, cy+childH/2-1, nameX+27, cy+childH/2-1, rgb(214, 223, 234))
+					childIcon := Rect{nameX + 30, cy + 14, 18, 18}
+					childLabelX := nameX + 56
+					childLabelW := nameW - 64
+					if childLabelW < 90 {
+						childLabelW = 90
+					}
+					childLabel := ""
+					childSub := ""
+					if child.Summary {
+						childLabel = fmt.Sprintf("Outros componentes do %s (%d)", friendlyProcessName(g.Name), child.ProcessCount)
+						childSub = "Componentes internos usados pelo aplicativo"
+					} else if child.BrowserTab {
+						childLabel, childSub = friendlyBrowserTab(child.Title, child.Domain, child.URL)
+					} else {
+						childLabel, childSub = friendlyActivityWindow(child.Title, g.Name)
+					}
+
+					if child.BrowserTab {
+						drawBrowserFavicon(dc, child.FavIconURL, child.Domain, childIcon)
+					} else if child.ExePath != "" {
+						_ = drawProcessIcon(dc, child.ExePath, childIcon)
+					}
+
+					// Abas do navegador têm mais respiro: título e contexto em linhas separadas.
+					if child.BrowserTab {
+						text(dc, childLabel, Rect{childLabelX, cy + 7, childLabelW, 18}, a.fonts["body"], rgb(55, 70, 92), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+						text(dc, childSub, Rect{childLabelX, cy + 27, childLabelW, 15}, a.fonts["small"], rgb(119, 132, 152), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+					} else if showSubTitle && childLabelW > 160 {
+						text(dc, childLabel, Rect{childLabelX, cy + 7, childLabelW, 17}, a.fonts["small"], rgb(67, 82, 104), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+						text(dc, childSub, Rect{childLabelX, cy + 26, childLabelW, 14}, a.fonts["small"], rgb(126, 139, 158), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+					} else {
+						text(dc, childLabel, Rect{childLabelX, cy + 14, childLabelW, 18}, a.fonts["small"], rgb(91, 105, 126), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+					}
+
+					if showStatus {
+						childStatus := "Aberto"
+						childStatusColor := rgb(121, 134, 153)
+						if child.Focused {
+							childStatus = "Em uso"
+							childStatusColor = rgb(39, 151, 91)
+						} else if child.BrowserTab {
+							childStatus = "Aba aberta"
+						} else if child.Summary {
+							childStatus = "Segundo plano"
+						}
+						text(dc, childStatus, Rect{statusX, cy + 15, statusW, 18}, a.fonts["small"], childStatusColor, DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+					}
+
+					// Uma aba não possui CPU/RAM/tempo próprios confiáveis. Não desenha traços vazios.
+					if !child.BrowserTab {
+						text(dc, fmt.Sprintf("%.1f%%", child.CPU), Rect{cpuX + 4, cy + 15, cpuW - 8, 18}, a.fonts["small"], rgb(84, 98, 119), DT_RIGHT|DT_SINGLELINE)
+						text(dc, formatMemoryMB(child.MemoryMB), Rect{memX + 4, cy + 15, memW - 8, 18}, a.fonts["small"], rgb(84, 98, 119), DT_RIGHT|DT_SINGLELINE|DT_END_ELLIPSIS)
+					}
+					rowY += childH
+				}
+				rowY += expandedGap
 			}
+			rowY += groupGap
 		}
 	}
 
@@ -1307,6 +1426,7 @@ type activityGroup struct {
 	Visible       bool
 	ActiveSeconds int64
 	Title         string
+	ExePath       string
 }
 
 func buildActivityGroups(apps []ActivityApp, processes []ProcessInfo) []activityGroup {
@@ -1329,6 +1449,9 @@ func buildActivityGroups(apps []ActivityApp, processes []ProcessInfo) []activity
 		g.Count++
 		g.CPU += proc.CPU
 		g.MemoryMB += proc.MemoryMB
+		if g.ExePath == "" && proc.ExePath != "" {
+			g.ExePath = proc.ExePath
+		}
 	}
 	for _, app := range apps {
 		g := ensure(app.Name)
@@ -1365,6 +1488,102 @@ func buildActivityGroups(apps []ActivityApp, processes []ProcessInfo) []activity
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
 	return out
+}
+
+type activityChild struct {
+	PID          int
+	Title        string
+	URL          string
+	Domain       string
+	CPU          float64
+	MemoryMB     float64
+	Visible      bool
+	Focused      bool
+	Summary      bool
+	BrowserTab   bool
+	FavIconURL   string
+	ExePath      string
+	ProcessCount int
+}
+
+func activityChildrenForGroup(groupName string, apps []ActivityApp, processes []ProcessInfo, browserTabs []BrowserTab) []activityChild {
+	key := strings.ToLower(strings.TrimSpace(groupName))
+	children := make([]activityChild, 0, 12)
+	visiblePID := map[int]bool{}
+
+	// Quando a extensão do navegador está conectada, as abas são a fonte mais útil.
+	// O Windows continua sendo usado para CPU/memória do navegador como um todo.
+	browserItems := browserTabsForProcess(groupName, browserTabs)
+	if len(browserItems) > 0 {
+		for _, tab := range browserItems {
+			children = append(children, activityChild{
+				Title: tab.Title, URL: tab.URL, Domain: tab.Domain, FavIconURL: tab.FavIconURL,
+				Visible: true, Focused: tab.Active, BrowserTab: true,
+			})
+		}
+		sort.SliceStable(children, func(i, j int) bool {
+			if children[i].Summary != children[j].Summary {
+				return !children[i].Summary
+			}
+			if children[i].Focused != children[j].Focused {
+				return children[i].Focused
+			}
+			return strings.ToLower(children[i].Title) < strings.ToLower(children[j].Title)
+		})
+		return children
+	}
+
+	seenWindow := map[string]bool{}
+	for _, app := range apps {
+		if strings.ToLower(strings.TrimSpace(app.Name)) != key {
+			continue
+		}
+		wkey := fmt.Sprintf("%d\x00%s", app.PID, app.WindowTitle)
+		if seenWindow[wkey] {
+			continue
+		}
+		seenWindow[wkey] = true
+		visiblePID[app.PID] = true
+		childPath := ""
+		for _, proc := range processes {
+			if proc.PID == app.PID {
+				childPath = proc.ExePath
+				break
+			}
+		}
+		children = append(children, activityChild{
+			PID: app.PID, Title: app.WindowTitle, CPU: app.CPU, MemoryMB: app.MemoryMB, ExePath: childPath,
+			Visible: true, Focused: app.Focused, ProcessCount: 1,
+		})
+	}
+
+	background := activityChild{Summary: true}
+	for _, proc := range processes {
+		if strings.ToLower(strings.TrimSpace(proc.Name)) != key || visiblePID[proc.PID] {
+			continue
+		}
+		background.ProcessCount++
+		background.CPU += proc.CPU
+		background.MemoryMB += proc.MemoryMB
+	}
+	if background.ProcessCount > 0 {
+		background.Title = fmt.Sprintf("Processos em segundo plano (%d)", background.ProcessCount)
+		children = append(children, background)
+	}
+
+	sort.SliceStable(children, func(i, j int) bool {
+		if children[i].Summary != children[j].Summary {
+			return !children[i].Summary
+		}
+		if children[i].Focused != children[j].Focused {
+			return children[i].Focused
+		}
+		if children[i].MemoryMB != children[j].MemoryMB {
+			return children[i].MemoryMB > children[j].MemoryMB
+		}
+		return children[i].PID < children[j].PID
+	})
+	return children
 }
 
 func activityHeatColor(value, maxValue float64) uintptr {
@@ -1417,6 +1636,114 @@ func activityHeatColorLight(value, maxValue float64) uintptr {
 		return rgb(222, 238, 255)
 	}
 	return rgb(208, 229, 255)
+}
+
+func friendlyBrowserTab(title, domain, rawURL string) (string, string) {
+	title = strings.TrimSpace(title)
+	domain = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(domain), "www."))
+	lowerTitle := strings.ToLower(title)
+	label := title
+	sub := domain
+
+	switch {
+	case strings.Contains(domain, "youtube.com") || strings.Contains(lowerTitle, "youtube"):
+		label = "YouTube"
+		sub = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(title), "- YouTube"))
+		if sub == "" || strings.EqualFold(sub, "YouTube") {
+			sub = domain
+		}
+	case strings.Contains(domain, "chatgpt.com") || strings.Contains(lowerTitle, "chatgpt"):
+		label = "ChatGPT"
+		sub = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(title), "- ChatGPT"))
+		if sub == "" || strings.EqualFold(sub, "ChatGPT") {
+			sub = domain
+		}
+	case strings.Contains(domain, "mail.google.com") || strings.Contains(lowerTitle, "gmail"):
+		label = "Gmail"
+		sub = title
+	case strings.Contains(lowerTitle, "valora crm"):
+		label = "Valora CRM"
+		if pos := strings.Index(title, "|"); pos > 0 {
+			sub = strings.TrimSpace(title[:pos])
+		} else if pos := strings.Index(title, " - "); pos > 0 {
+			sub = strings.TrimSpace(title[:pos])
+		} else {
+			sub = title
+		}
+	default:
+		if label == "" {
+			label = domain
+		}
+		if sub == "" {
+			sub = rawURL
+		}
+	}
+	if strings.TrimSpace(label) == "" {
+		label = "Página do navegador"
+	}
+	if strings.EqualFold(strings.TrimSpace(sub), strings.TrimSpace(label)) {
+		sub = domain
+	}
+	return label, sub
+}
+
+func friendlyActivityWindow(title, processName string) (string, string) {
+	clean := strings.TrimSpace(title)
+	if clean == "" {
+		return friendlyProcessName(processName), "Janela do aplicativo"
+	}
+
+	suffixes := []string{
+		" - Opera", " — Opera",
+		" - Google Chrome", " — Google Chrome",
+		" - Microsoft Edge", " — Microsoft Edge",
+		" - Visual Studio Code", " — Visual Studio Code",
+		" - Explorador de Arquivos", " — Explorador de Arquivos",
+		" - File Explorer", " — File Explorer",
+	}
+	for _, suffix := range suffixes {
+		if len(clean) >= len(suffix) && strings.EqualFold(clean[len(clean)-len(suffix):], suffix) {
+			clean = strings.TrimSpace(clean[:len(clean)-len(suffix)])
+			break
+		}
+	}
+
+	label := clean
+	sub := friendlyProcessName(processName)
+	lower := strings.ToLower(clean)
+	switch {
+	case strings.Contains(lower, "youtube"):
+		label = "YouTube"
+		trimmed := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(clean), "- YouTube"))
+		if trimmed != "" && !strings.EqualFold(trimmed, "YouTube") {
+			sub = trimmed
+		} else {
+			sub = "YouTube"
+		}
+	case strings.Contains(lower, "valora crm"):
+		label = "Valora CRM"
+		if idx := strings.Index(clean, "|"); idx > 0 {
+			sub = strings.TrimSpace(clean[:idx])
+		} else {
+			sub = clean
+		}
+	case strings.Contains(lower, "chatgpt"):
+		label = "ChatGPT"
+		sub = clean
+	case strings.Contains(lower, "gmail"):
+		label = "Gmail"
+		sub = clean
+	default:
+		label = clean
+	}
+
+	if strings.TrimSpace(label) == "" {
+		label = friendlyProcessName(processName)
+	}
+	if strings.EqualFold(strings.TrimSpace(sub), strings.TrimSpace(label)) {
+		sub = friendlyProcessName(processName)
+	}
+	return label, sub
 }
 
 func friendlyProcessName(name string) string {

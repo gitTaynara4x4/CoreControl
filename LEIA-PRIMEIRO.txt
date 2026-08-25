@@ -1,4 +1,4 @@
-CORETUNER CENTRAL COMPLETO — v0.4.11
+CORECONTROL COMPLETO — v0.4.11
 
 Este pacote contém o projeto completo e os executáveis Windows recompilados.
 
@@ -10,11 +10,11 @@ O que mudou nesta versão:
 5. Menus e botões agora exibem cursor de mão e realce ao passar o mouse.
 
 Para atualizar:
-1. Feche o CoreTuner e o instalador no Windows.
+1. Feche o CoreControl e o instalador no Windows.
 2. Faça uma cópia da pasta atual.
 3. Substitua os arquivos pelos deste pacote ou aplique o ZIP de patch.
 4. Envie as alterações para o repositório e aguarde o deploy do serviço coretuner.
-5. Baixe e execute o novo CoreTunerSetup.exe.
+5. Baixe e execute o novo CoreControlSetup.exe.
 
 IMPORTANTE
 - Não altere o serviço coretuner-remote nem as credenciais já configuradas no EasyPanel.

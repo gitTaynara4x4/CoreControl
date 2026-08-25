@@ -50,17 +50,18 @@ var (
 	nativePsapi    = syscall.NewLazyDLL("psapi.dll")
 	nativeWinmm    = syscall.NewLazyDLL("winmm.dll")
 
-	nativeRegOpenKeyExW     = nativeAdvapi32.NewProc("RegOpenKeyExW")
-	nativeRegQueryValueExW  = nativeAdvapi32.NewProc("RegQueryValueExW")
-	nativeRegCloseKey       = nativeAdvapi32.NewProc("RegCloseKey")
-	nativeCreateSnapshot    = nativeKernel32.NewProc("CreateToolhelp32Snapshot")
-	nativeProcess32FirstW   = nativeKernel32.NewProc("Process32FirstW")
-	nativeProcess32NextW    = nativeKernel32.NewProc("Process32NextW")
-	nativeOpenProcess       = nativeKernel32.NewProc("OpenProcess")
-	nativeCloseHandle       = nativeKernel32.NewProc("CloseHandle")
-	nativeGetProcessMemory  = nativePsapi.NewProc("GetProcessMemoryInfo")
-	nativeWaveOutGetNumDevs = nativeWinmm.NewProc("waveOutGetNumDevs")
-	nativeWaveInGetNumDevs  = nativeWinmm.NewProc("waveInGetNumDevs")
+	nativeRegOpenKeyExW              = nativeAdvapi32.NewProc("RegOpenKeyExW")
+	nativeRegQueryValueExW           = nativeAdvapi32.NewProc("RegQueryValueExW")
+	nativeRegCloseKey                = nativeAdvapi32.NewProc("RegCloseKey")
+	nativeCreateSnapshot             = nativeKernel32.NewProc("CreateToolhelp32Snapshot")
+	nativeProcess32FirstW            = nativeKernel32.NewProc("Process32FirstW")
+	nativeProcess32NextW             = nativeKernel32.NewProc("Process32NextW")
+	nativeOpenProcess                = nativeKernel32.NewProc("OpenProcess")
+	nativeCloseHandle                = nativeKernel32.NewProc("CloseHandle")
+	nativeQueryFullProcessImageNameW = nativeKernel32.NewProc("QueryFullProcessImageNameW")
+	nativeGetProcessMemory           = nativePsapi.NewProc("GetProcessMemoryInfo")
+	nativeWaveOutGetNumDevs          = nativeWinmm.NewProc("waveOutGetNumDevs")
+	nativeWaveInGetNumDevs           = nativeWinmm.NewProc("waveInGetNumDevs")
 )
 
 func nativeSystemDetails() map[string]string {
@@ -117,6 +118,7 @@ func nativeProcesses() []ProcessInfo {
 				Name:      strings.TrimSuffix(name, ".exe"),
 				PID:       int(entry.ProcessID),
 				ParentPID: int(entry.ParentProcessID),
+				ExePath:   processExecutablePath(entry.ProcessID),
 				MemoryMB:  memoryMB,
 				CPU:       0,
 			})
@@ -128,6 +130,26 @@ func nativeProcesses() []ProcessInfo {
 		}
 	}
 	return processes
+}
+
+func processExecutablePath(pid uint32) string {
+	handle, _, _ := nativeOpenProcess.Call(processQueryLimited, 0, uintptr(pid))
+	if handle == 0 {
+		return ""
+	}
+	defer nativeCloseHandle.Call(handle)
+	buffer := make([]uint16, 32768)
+	size := uint32(len(buffer))
+	ok, _, _ := nativeQueryFullProcessImageNameW.Call(
+		handle,
+		0,
+		uintptr(unsafe.Pointer(&buffer[0])),
+		uintptr(unsafe.Pointer(&size)),
+	)
+	if ok == 0 || size == 0 || int(size) > len(buffer) {
+		return ""
+	}
+	return strings.TrimSpace(string(unicodeutf16.Decode(buffer[:size])))
 }
 
 func processMemoryMB(pid uint32) float64 {

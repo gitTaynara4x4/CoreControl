@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.4.11"
+const agentVersion = "0.7.0"
 
 type Config struct {
 	ServerURL         string `json:"server_url"`
@@ -100,6 +100,23 @@ type telemetryRequest struct {
 	Extra          map[string]interface{} `json:"extra,omitempty"`
 }
 
+type pendingCommand struct {
+	ID      int             `json:"id"`
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type commandPollResponse struct {
+	Command *pendingCommand `json:"command"`
+}
+
+type commandResultRequest struct {
+	DeviceUID string                 `json:"device_uid"`
+	OK        bool                   `json:"ok"`
+	Result    map[string]interface{} `json:"result,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+}
+
 type Agent struct {
 	configPath string
 	cfg        Config
@@ -111,7 +128,7 @@ type Agent struct {
 func main() {
 	releaseInstance, instanceErr := acquireSingleInstance("Global\\CoreTunerAgent")
 	if instanceErr != nil {
-		fallbackLog("outra instância do CoreTuner Agent já está em execução: %v", instanceErr)
+		fallbackLog("outra instância do CoreControl Agent já está em execução: %v", instanceErr)
 		return
 	}
 	defer releaseInstance()
@@ -144,7 +161,7 @@ func main() {
 		logger.Printf("configuração recusada: %v", err)
 		return
 	}
-	logger.Printf("CoreTuner Agent %s iniciado", agentVersion)
+	logger.Printf("CoreControl Agent %s iniciado", agentVersion)
 
 	if *onceFlag {
 		if err := agent.runCycle(); err != nil {
@@ -313,6 +330,7 @@ func (a *Agent) runCycle() error {
 		a.logger.Printf("computador vinculado com sucesso; device_id=%d", resp.DeviceID)
 	}
 
+	activity := collectForegroundActivity()
 	payload := telemetryRequest{
 		DeviceUID:      snapshot.DeviceUID,
 		CPUPercent:     snapshot.CPUPercent,
@@ -331,6 +349,7 @@ func (a *Agent) runCycle() error {
 		Profile:        snapshot.Profile,
 		Extra: map[string]interface{}{
 			"agent_version":          agentVersion,
+			"activity":               activity,
 			"runtime":                runtime.GOOS + "/" + runtime.GOARCH,
 			"remote_agent_installed": snapshot.RemoteAgentInstalled,
 			"remote_agent_running":   snapshot.RemoteAgentRunning,
@@ -341,6 +360,65 @@ func (a *Agent) runCycle() error {
 		return fmt.Errorf("telemetria falhou: %w", err)
 	}
 	a.logger.Printf("telemetria enviada; cpu=%s ram=%s disco=%s", ptrText(snapshot.CPUPercent), ptrText(snapshot.MemoryPercent), ptrText(snapshot.DiskPercent))
+	if err := a.pollAndExecuteCommand(snapshot.DeviceUID); err != nil {
+		a.logger.Printf("fila de comandos: %v", err)
+	}
+	return nil
+}
+
+func (a *Agent) pollAndExecuteCommand(deviceUID string) error {
+	var response commandPollResponse
+	path := "/api/agent/commands/next?device_uid=" + url.QueryEscape(deviceUID)
+	if err := a.getJSON(path, a.cfg.AgentSecret, &response); err != nil {
+		return err
+	}
+	if response.Command == nil {
+		return nil
+	}
+
+	a.logger.Printf("comando recebido; id=%d tipo=%s", response.Command.ID, response.Command.Type)
+	result, execErr := executeAgentCommand(*response.Command)
+	request := commandResultRequest{
+		DeviceUID: deviceUID,
+		OK:        execErr == nil,
+		Result:    result,
+	}
+	if execErr != nil {
+		request.Error = execErr.Error()
+	}
+	resultPath := fmt.Sprintf("/api/agent/commands/%d/result", response.Command.ID)
+	if err := a.postJSON(resultPath, request, a.cfg.AgentSecret, nil); err != nil {
+		return fmt.Errorf("não foi possível devolver resultado do comando %d: %w", response.Command.ID, err)
+	}
+	if execErr != nil {
+		a.logger.Printf("comando finalizado com falha; id=%d erro=%v", response.Command.ID, execErr)
+	} else {
+		a.logger.Printf("comando finalizado; id=%d", response.Command.ID)
+	}
+	return nil
+}
+
+func (a *Agent) getJSON(path string, bearer string, output interface{}) error {
+	req, err := http.NewRequest(http.MethodGet, a.cfg.ServerURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "CoreControlAgent/"+agentVersion)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("servidor respondeu %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if output != nil && len(body) > 0 {
+		return json.Unmarshal(body, output)
+	}
 	return nil
 }
 
@@ -361,7 +439,7 @@ func (a *Agent) postJSON(path string, payload interface{}, bearer string, output
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "CoreTunerAgent/"+agentVersion)
+	req.Header.Set("User-Agent", "CoreControlAgent/"+agentVersion)
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}

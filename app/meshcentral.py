@@ -130,7 +130,7 @@ def build_remote_desktop_url(
             # para o custom.js reconstruir currentNode com o computador exato.
             "ctnode": _short_node_id(node_id),
             # Marcador preservado pelo MeshCentral após o login e a troca de URL.
-            # O custom.js usa este valor para iniciar somente sessões vindas do CoreTuner.
+            # O custom.js usa este valor para iniciar somente sessões vindas do CoreControl.
             "coretuner": "1",
         }
     )
@@ -256,7 +256,7 @@ class MeshCentralClient:
         meshctrl_path = Path(settings.remote_meshctrl_path)
         if not meshctrl_path.is_file():
             raise MeshCentralCommandError(
-                f"MeshCtrl não encontrado em {meshctrl_path}. Reimplante o serviço CoreTuner com o Dockerfile atualizado."
+                f"MeshCtrl não encontrado em {meshctrl_path}. Reimplante o serviço CoreControl com o Dockerfile atualizado."
             )
         node_path = settings.remote_node_path or "node"
         auth_user = (login_user or settings.remote_admin_user).strip()
@@ -297,7 +297,7 @@ class MeshCentralClient:
                     env={**os.environ, "NO_COLOR": "1"},
                 )
             except FileNotFoundError as exc:
-                raise MeshCentralCommandError("O Node.js não está instalado no serviço CoreTuner.") from exc
+                raise MeshCentralCommandError("O Node.js não está instalado no serviço CoreControl.") from exc
             except subprocess.TimeoutExpired as exc:
                 raise MeshCentralCommandError(f"O MeshCentral não respondeu ao comando {action} dentro do prazo.") from exc
 
@@ -374,7 +374,7 @@ class MeshCentralClient:
                     "--name",
                     desired_name,
                     "--desc",
-                    f"Grupo automático da empresa {company.name} no CoreTuner",
+                    f"Grupo automático da empresa {company.name} no CoreControl",
                     "--features",
                     str(settings.remote_group_features),
                     "--consent",
@@ -416,6 +416,15 @@ class MeshCentralClient:
                 if "already" not in message and "já" not in message:
                     raise
         return mesh_id, mesh_hex.lower(), group_name
+
+    def remove_company_group(self, mesh_id: str) -> None:
+        """Remove o grupo remoto vinculado a uma empresa, quando configurado."""
+        value = (mesh_id or "").strip()
+        if not value:
+            return
+        self._meshctrl_command("RemoveDeviceGroup", ["--id", value])
+        with self._cache_lock:
+            self._device_cache.pop(value, None)
 
     def _agent_path(self, mesh_hex: str) -> Path:
         cache_root = Path(settings.remote_agent_cache_dir)

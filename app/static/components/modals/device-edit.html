@@ -1,0 +1,23 @@
+<h2>Editar computador</h2>
+<p>Altere a identificação administrativa ou mova o computador para outra empresa.</p>
+<form id="deviceEditForm" class="stack">
+  <label id="editDeviceCompanyField">Empresa<select id="editDeviceCompany"></select></label>
+  <label>Nome<input id="editDeviceName" required maxlength="160"></label>
+  <label>Hostname<input id="editDeviceHostname" required maxlength="160"></label>
+  <label>Setor<input id="editDeviceSector" maxlength="120"></label>
+  <label>Localização<input id="editDeviceLocation" maxlength="160"></label>
+  <label>Fabricante<input id="editDeviceManufacturer" maxlength="160"></label>
+  <label>Modelo<input id="editDeviceModel" maxlength="160"></label>
+  <label>Número de série<input id="editDeviceSerial" maxlength="160"></label>
+  <label>Perfil aplicado<input id="editDeviceProfile" maxlength="80"></label>
+  <label>Status
+    <select id="editDeviceActive">
+      <option value="true">Ativo</option>
+      <option value="false">Desativado</option>
+    </select>
+  </label>
+  <div class="modal-actions">
+    <button type="button" class="btn" id="cancelModal">Cancelar</button>
+    <button type="submit" class="btn primary">Salvar alterações</button>
+  </div>
+</form>
