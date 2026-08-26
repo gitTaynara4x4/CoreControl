@@ -14,6 +14,7 @@ const (
 	shellHeaderHeight int32 = 88
 	shellContentLeft  int32 = 248
 	shellContentTop   int32 = 104
+	HOLLOW_BRUSH            = 5
 )
 
 func (a *App) invalidate() { procInvalidateRect.Call(uintptr(a.hwnd), 0, 0) }
@@ -34,7 +35,7 @@ func (a *App) paint() {
 }
 func (a *App) draw(dc syscall.Handle, rc RECT) {
 	a.hits = nil
-	bg := rgb(248, 250, 253)
+	bg := themeMainBackground()
 	fill(dc, Rect{0, 0, rc.Right, rc.Bottom}, bg)
 	if a.token == "" {
 		a.drawAuth(dc, rc)
@@ -66,6 +67,9 @@ func (a *App) draw(dc syscall.Handle, rc RECT) {
 	}
 	procRestoreDC.Call(uintptr(dc), saved)
 	a.drawPageScrollbar(dc)
+	if a.themeMenuOpen {
+		a.drawAppearanceMenu(dc, rc)
+	}
 }
 
 func (a *App) drawPageScrollbar(dc syscall.Handle) {
@@ -85,6 +89,7 @@ func (a *App) drawPageScrollbar(dc syscall.Handle) {
 	roundedBox(dc, thumbVisual, thumbColor, thumbColor, 8)
 }
 func fill(dc syscall.Handle, r Rect, c uintptr) {
+	c = themeSurfaceColor(c)
 	b, _, _ := procCreateSolidBrush.Call(c)
 	rr := RECT{r.X, r.Y, r.X + r.W, r.Y + r.H}
 	procFillRect.Call(uintptr(dc), uintptr(unsafe.Pointer(&rr)), b)
@@ -94,6 +99,8 @@ func card(dc syscall.Handle, r Rect) {
 	roundedBox(dc, r, rgb(255, 255, 255), rgb(224, 231, 239), 14)
 }
 func roundedBox(dc syscall.Handle, r Rect, background, border uintptr, radius int32) {
+	background = themeSurfaceColor(background)
+	border = themeBorderColor(border)
 	brush, _, _ := procCreateSolidBrush.Call(background)
 	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
 	ob, _, _ := procSelectObject.Call(uintptr(dc), brush)
@@ -105,6 +112,7 @@ func roundedBox(dc syscall.Handle, r Rect, background, border uintptr, radius in
 	procDeleteObject.Call(pen)
 }
 func text(dc syscall.Handle, s string, r Rect, font uintptr, color uintptr, flags uintptr) {
+	color = themeTextColor(color)
 	procSelectObject.Call(uintptr(dc), font)
 	procSetBkMode.Call(uintptr(dc), TRANSPARENT)
 	procSetTextColor.Call(uintptr(dc), color)
@@ -112,6 +120,7 @@ func text(dc syscall.Handle, s string, r Rect, font uintptr, color uintptr, flag
 	procDrawText.Call(uintptr(dc), uintptr(unsafe.Pointer(utf16(s))), uintptr(len([]rune(s))), uintptr(unsafe.Pointer(&rr)), flags)
 }
 func line(dc syscall.Handle, x1, y1, x2, y2 int32, c uintptr) {
+	c = themeBorderColor(c)
 	p, _, _ := procCreatePen.Call(PS_SOLID, 1, c)
 	o, _, _ := procSelectObject.Call(uintptr(dc), p)
 	procMoveToEx.Call(uintptr(dc), uintptr(x1), uintptr(y1), 0)
@@ -120,6 +129,7 @@ func line(dc syscall.Handle, x1, y1, x2, y2 int32, c uintptr) {
 	procDeleteObject.Call(p)
 }
 func circle(dc syscall.Handle, r Rect, c uintptr) {
+	c = themeSurfaceColor(c)
 	b, _, _ := procCreateSolidBrush.Call(c)
 	p, _, _ := procCreatePen.Call(PS_SOLID, 1, c)
 	ob, _, _ := procSelectObject.Call(uintptr(dc), b)
@@ -158,6 +168,8 @@ func button(dc syscall.Handle, label string, r Rect, primary bool) {
 		border = rgb(171, 197, 239)
 		tc = rgb(47, 124, 246)
 	}
+	c = themeSurfaceColor(c)
+	border = themeBorderColor(border)
 	b, _, _ := procCreateSolidBrush.Call(c)
 	p, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
 	ob, _, _ := procSelectObject.Call(uintptr(dc), b)
@@ -358,7 +370,7 @@ func drawSidebarIcon(dc syscall.Handle, index int, r Rect, color uintptr) {
 
 func (a *App) drawShell(dc syscall.Handle, rc RECT) {
 	side := shellSidebarWidth
-	fill(dc, Rect{0, 0, side, rc.Bottom}, rgb(255, 255, 255))
+	fill(dc, Rect{0, 0, side, rc.Bottom}, themeShellBackground())
 	line(dc, side, 0, side, rc.Bottom, rgb(232, 235, 240))
 
 	logoMark(dc, Rect{20, 24, 34, 34})
@@ -411,7 +423,7 @@ func (a *App) drawShell(dc syscall.Handle, rc RECT) {
 	text(dc, "↪  Sair", logoutRect, a.fonts["small"], rgb(194, 70, 70), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 	a.hits = append(a.hits, Hit{logoutRect, "logout", 0})
 
-	fill(dc, Rect{side, 0, rc.Right - side, shellHeaderHeight}, rgb(255, 255, 255))
+	fill(dc, Rect{side, 0, rc.Right - side, shellHeaderHeight}, themeShellBackground())
 	line(dc, side, shellHeaderHeight, rc.Right, shellHeaderHeight, rgb(232, 235, 240))
 	text(dc, menuLabels[a.page], Rect{side + 32, 14, 350, 34}, a.fonts["title"], rgb(23, 33, 50), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 	text(dc, pageSubtitle(a.page), Rect{side + 32, 48, 360, 22}, a.fonts["small"], rgb(112, 124, 145), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
@@ -423,11 +435,102 @@ func (a *App) drawShell(dc syscall.Handle, rc RECT) {
 
 	profileW := int32(205)
 	profileX := rc.Right - profileW - 24
+	gear := appearanceGearRect(rc)
+	if a.isHovered(gear) || a.themeMenuOpen {
+		roundedBox(dc, gear, rgb(247, 249, 252), rgb(232, 235, 240), 9)
+	}
+	drawGearOutline(dc, Rect{gear.X + 7, gear.Y + 7, 20, 20}, choose(a.themeMenuOpen, rgb(47, 124, 246), rgb(104, 118, 140)))
+	a.hits = append(a.hits, Hit{gear, "appearance-menu", 0})
 	if profileX > statusX+220 {
 		circle(dc, Rect{profileX, 23, 40, 40}, rgb(238, 244, 255))
 		text(dc, userInitials(user), Rect{profileX, 23, 40, 40}, a.fonts["small"], rgb(47, 124, 246), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 		text(dc, nz(user, "Usuário"), Rect{profileX + 50, 19, profileW - 50, 22}, a.fonts["body"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
 		text(dc, nz(company, "Conta local"), Rect{profileX + 50, 42, profileW - 50, 18}, a.fonts["small"], rgb(114, 126, 147), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	}
+}
+
+func appearanceGearRect(rc RECT) Rect {
+	profileW := int32(205)
+	profileX := rc.Right - profileW - 24
+	x := profileX - 46
+	if x < shellSidebarWidth+610 {
+		x = rc.Right - 58
+	}
+	return Rect{x, 25, 34, 34}
+}
+
+func strokeCircle(dc syscall.Handle, r Rect, color uintptr, width int32) {
+	color = themeTextColor(color)
+	pen, _, _ := procCreatePen.Call(PS_SOLID, uintptr(width), color)
+	hollow, _, _ := procGetStockObject.Call(HOLLOW_BRUSH)
+	op, _, _ := procSelectObject.Call(uintptr(dc), pen)
+	ob, _, _ := procSelectObject.Call(uintptr(dc), hollow)
+	procEllipse.Call(uintptr(dc), uintptr(r.X), uintptr(r.Y), uintptr(r.X+r.W), uintptr(r.Y+r.H))
+	procSelectObject.Call(uintptr(dc), ob)
+	procSelectObject.Call(uintptr(dc), op)
+	procDeleteObject.Call(pen)
+}
+
+func strokeRoundRect(dc syscall.Handle, r Rect, color uintptr, radius, width int32) {
+	color = themeTextColor(color)
+	pen, _, _ := procCreatePen.Call(PS_SOLID, uintptr(width), color)
+	hollow, _, _ := procGetStockObject.Call(HOLLOW_BRUSH)
+	op, _, _ := procSelectObject.Call(uintptr(dc), pen)
+	ob, _, _ := procSelectObject.Call(uintptr(dc), hollow)
+	procRoundRect.Call(uintptr(dc), uintptr(r.X), uintptr(r.Y), uintptr(r.X+r.W), uintptr(r.Y+r.H), uintptr(radius), uintptr(radius))
+	procSelectObject.Call(uintptr(dc), ob)
+	procSelectObject.Call(uintptr(dc), op)
+	procDeleteObject.Call(pen)
+}
+
+func drawGearOutline(dc syscall.Handle, r Rect, color uintptr) {
+	cx := r.X + r.W/2
+	cy := r.Y + r.H/2
+	strokeCircle(dc, Rect{cx - 5, cy - 5, 10, 10}, color, 2)
+	strokeCircle(dc, Rect{cx - 2, cy - 2, 4, 4}, color, 2)
+	for _, p := range [][4]int32{
+		{cx, r.Y, cx, r.Y + 4}, {cx, r.Y + r.H - 4, cx, r.Y + r.H},
+		{r.X, cy, r.X + 4, cy}, {r.X + r.W - 4, cy, r.X + r.W, cy},
+		{r.X + 3, r.Y + 3, r.X + 6, r.Y + 6}, {r.X + r.W - 6, r.Y + r.H - 6, r.X + r.W - 3, r.Y + r.H - 3},
+		{r.X + r.W - 3, r.Y + 3, r.X + r.W - 6, r.Y + 6}, {r.X + 6, r.Y + r.H - 6, r.X + 3, r.Y + r.H - 3},
+	} {
+		line(dc, p[0], p[1], p[2], p[3], color)
+	}
+}
+
+func (a *App) drawAppearanceMenu(dc syscall.Handle, rc RECT) {
+	gear := appearanceGearRect(rc)
+	menuW := int32(236)
+	menuH := int32(178)
+	x := gear.X + gear.W - menuW
+	if x < shellSidebarWidth+8 {
+		x = shellSidebarWidth + 8
+	}
+	r := Rect{x, 67, menuW, menuH}
+	// sombra curta e sólida, sem blur
+	roundedBox(dc, Rect{r.X + 2, r.Y + 4, r.W, r.H}, rgb(230, 233, 238), rgb(230, 233, 238), 12)
+	roundedBox(dc, r, rgb(255, 255, 255), rgb(224, 229, 236), 12)
+	text(dc, "Aparência", Rect{r.X + 16, r.Y + 12, r.W - 32, 24}, a.fonts["h2"], rgb(31, 43, 63), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	text(dc, "Escolha como o CoreControl aparece.", Rect{r.X + 16, r.Y + 38, r.W - 32, 20}, a.fonts["small"], rgb(111, 124, 145), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+
+	mode := a.appearanceMode()
+	options := []struct{ label, value string }{{"Claro", "light"}, {"Escuro", "dark"}, {"Usar tema do Windows", "system"}}
+	for i, opt := range options {
+		row := Rect{r.X + 10, r.Y + 67 + int32(i)*32, r.W - 20, 28}
+		selected := mode == opt.value
+		if selected || a.isHovered(row) {
+			bg := rgb(247, 249, 252)
+			if selected {
+				bg = rgb(237, 245, 255)
+			}
+			roundedBox(dc, row, bg, bg, 7)
+		}
+		strokeCircle(dc, Rect{row.X + 10, row.Y + 7, 14, 14}, choose(selected, rgb(47, 124, 246), rgb(145, 157, 176)), 1)
+		if selected {
+			circle(dc, Rect{row.X + 14, row.Y + 11, 6, 6}, rgb(47, 124, 246))
+		}
+		text(dc, opt.label, Rect{row.X + 34, row.Y, row.W - 44, row.H}, a.fonts["body"], rgb(48, 62, 83), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		a.hits = append(a.hits, Hit{row, "appearance-" + opt.value, 0})
 	}
 }
 

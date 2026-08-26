@@ -6,16 +6,14 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
 
 from .api import router as api_router
 from .config import settings
-from .db import Base, SessionLocal, apply_runtime_migrations, engine
-from .models import AuditLog, User
+from .db import Base, apply_runtime_migrations, engine
 from .public_api import DOWNLOAD_FILENAME, router as public_router
 from .update_api import router as update_router
 from .password_reset import router as password_reset_router
-from .security import decode_download_token, hash_password
+from .security import decode_download_token
 
 BASE_DIR = Path(__file__).resolve().parent
 DASHBOARD_DIR = BASE_DIR / "static"
@@ -32,73 +30,19 @@ def validate_runtime_settings() -> None:
         problems.append("CORETUNER_SECRET_KEY precisa ter pelo menos 32 caracteres e não pode usar o padrão")
     if not settings.download_password:
         problems.append("CORETUNER_DOWNLOAD_PASSWORD não foi configurada")
-    if settings.admin_password == "TroqueAgora123!" or settings.admin_password.startswith("COLOQUE_") or len(settings.admin_password) < 12:
-        problems.append("CORETUNER_ADMIN_PASSWORD precisa ser alterada e ter pelo menos 12 caracteres")
     if problems:
         raise RuntimeError("Configuração de produção inválida: " + "; ".join(problems))
 
 
 def initialize_database() -> None:
+    """Cria/atualiza somente o esquema do banco.
+
+    Contas administrativas nunca são criadas, reativadas ou têm senha alterada
+    durante o boot do servidor. O Administrador Global é provisionado somente
+    por uma ação explícita usando ``python -m tools.criar_admin_global``.
+    """
     Base.metadata.create_all(bind=engine)
     apply_runtime_migrations()
-    with SessionLocal() as db:
-        # Administrador técnico configurável, mantido por compatibilidade com
-        # instalações existentes do CoreControl.
-        admin = db.scalar(select(User).where(User.email == settings.admin_email.lower()))
-        if not admin:
-            db.add(
-                User(
-                    name="Administrador CoreControl",
-                    email=settings.admin_email.lower(),
-                    password_hash=hash_password(settings.admin_password),
-                    role="platform_admin",
-                    company_id=None,
-                )
-            )
-            db.flush()
-
-        # Administrador Global: conta proprietária com visão completa da plataforma.
-        # O hash bootstrap é aplicado uma única vez, permitindo alterar a senha
-        # depois pelo painel sem ela ser redefinida a cada reinicialização.
-        bootstrap_action = "system.global_admin.bootstrap.v1"
-        legacy_bootstrap_action = "system.superadmin.bootstrap.v1"
-        global_admin = db.scalar(select(User).where(User.email == settings.global_admin_email))
-        if not global_admin:
-            global_admin = User(
-                name="Gabriel",
-                email=settings.global_admin_email,
-                password_hash=settings.global_admin_password_hash,
-                role="global_admin",
-                company_id=None,
-                active=True,
-            )
-            db.add(global_admin)
-            db.flush()
-
-        marker = db.scalar(
-            select(AuditLog.id).where(
-                AuditLog.actor_user_id == global_admin.id,
-                AuditLog.action.in_([bootstrap_action, legacy_bootstrap_action]),
-            )
-        )
-        if marker is None:
-            global_admin.password_hash = settings.global_admin_password_hash
-            db.add(
-                AuditLog(
-                    company_id=None,
-                    actor_user_id=global_admin.id,
-                    action=bootstrap_action,
-                    details="Conta de Administrador Global inicializada",
-                )
-            )
-
-        # A conta proprietária não pode ficar presa a uma empresa nem perder o
-        # acesso global por uma edição acidental. Esta linha também migra
-        # automaticamente a função interna usada pela versão anterior.
-        global_admin.role = "global_admin"
-        global_admin.company_id = None
-        global_admin.active = True
-        db.commit()
 
 
 @asynccontextmanager

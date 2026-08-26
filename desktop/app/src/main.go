@@ -220,6 +220,14 @@ type App struct {
 	optimizationAppliedAt           time.Time
 	optimizationNote                string
 	optimizationBusy                bool
+	themeMode                       string
+	themeDark                       bool
+	themeMenuOpen                   bool
+	testRunning                     string
+	testLastAction                  string
+	testLastAt                      time.Time
+	testLastOK                      bool
+	testLastMessage                 string
 }
 
 var app *App
@@ -309,6 +317,7 @@ func runGUI() {
 	}
 	applyCoreTunerWindowIcons(syscall.Handle(h), largeIcon, smallIcon)
 	app = &App{hwnd: syscall.Handle(h), width: 1420, height: 900, page: 0, loginMode: "login", controls: map[int]syscall.Handle{}, fonts: map[string]uintptr{}, client: &http.Client{Timeout: 20 * time.Second}, serverURL: loadServerURL(), statusText: "Preparando diagnóstico seguro..."}
+	app.loadAppearance()
 	app.createFonts()
 	app.buildLogin()
 	app.loadHistory()

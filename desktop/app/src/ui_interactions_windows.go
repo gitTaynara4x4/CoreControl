@@ -89,6 +89,17 @@ func (a *App) action(action string, value int) {
 		a.invalidate()
 	case "logout":
 		a.logout()
+	case "appearance-menu":
+		a.mu.Lock()
+		a.themeMenuOpen = !a.themeMenuOpen
+		a.mu.Unlock()
+		a.invalidate()
+	case "appearance-light":
+		a.applyAppearance("light", true)
+	case "appearance-dark":
+		a.applyAppearance("dark", true)
+	case "appearance-system":
+		a.applyAppearance("system", true)
 	case "reauth":
 		a.logout()
 	case "profile":
@@ -190,13 +201,8 @@ func (a *App) action(action string, value int) {
 	case "refresh-all":
 		go a.refreshLocal(false)
 		go a.refreshCentralStatus()
-	case "test-internet":
-		go func() { a.refreshLocal(false); a.addHistory("Teste de internet", "Teste concluído") }()
-	case "test-audio":
-		go func() {
-			a.refreshLocal(false)
-			a.addHistory("Teste de áudio", "Detecção de áudio e microfone atualizada")
-		}()
+	case "test-internet", "test-audio", "test-mic", "test-central":
+		go a.runSystemTest(action)
 	case "report":
 		a.generateReport()
 	case "comparison-report":
@@ -498,5 +504,100 @@ func (a *App) mouseWheel(delta int16) {
 	}
 	a.clampPageScroll()
 	a.hoverActive = false
+	a.invalidate()
+}
+
+func (a *App) runSystemTest(action string) {
+	a.mu.Lock()
+	if a.testRunning != "" {
+		a.mu.Unlock()
+		return
+	}
+	a.testRunning = action
+	a.testLastAction = ""
+	a.testLastMessage = ""
+	a.mu.Unlock()
+	a.invalidate()
+
+	ok := false
+	messageText := "Verificação concluída."
+	historyTitle := "Teste do sistema"
+
+	switch action {
+	case "test-internet":
+		historyTitle = "Teste de internet"
+		a.refreshLocal(false)
+		a.mu.RLock()
+		s := a.sys
+		a.mu.RUnlock()
+		ok = s.InternetOK
+		if ok {
+			messageText = fmt.Sprintf("Internet funcionando. Latência medida: %d ms.", s.LatencyMS)
+		} else {
+			messageText = "Não foi possível confirmar acesso à internet."
+		}
+	case "test-audio":
+		historyTitle = "Teste de saída de áudio"
+		a.refreshLocal(false)
+		a.mu.RLock()
+		ok = a.sys.AudioOK
+		a.mu.RUnlock()
+		if ok {
+			messageText = "Saída de áudio detectada e confirmada pelo Windows."
+		} else {
+			messageText = "Nenhum dispositivo de saída de áudio foi confirmado."
+		}
+	case "test-mic":
+		historyTitle = "Teste de microfone"
+		a.refreshLocal(false)
+		a.mu.RLock()
+		ok = a.sys.MicOK
+		a.mu.RUnlock()
+		if ok {
+			messageText = "Microfone detectado e confirmado pelo Windows."
+		} else {
+			messageText = "Nenhum microfone foi confirmado pelo Windows."
+		}
+	case "test-central":
+		historyTitle = "Teste de conexão com a Central"
+		a.mu.RLock()
+		token := a.token
+		server := a.serverURL
+		a.mu.RUnlock()
+		if strings.TrimSpace(server) == "" {
+			ok = false
+			messageText = "Servidor da Central não está configurado."
+		} else if strings.TrimSpace(token) == "" {
+			ok = false
+			messageText = "Este computador ainda não possui uma sessão vinculada à Central."
+		} else {
+			a.refreshCentralStatus()
+			a.mu.RLock()
+			ok = a.centralOK
+			status := a.statusText
+			a.mu.RUnlock()
+			if ok {
+				messageText = "Central respondeu corretamente em " + server + "."
+			} else if strings.TrimSpace(status) != "" {
+				messageText = status
+			} else {
+				messageText = "Não foi possível confirmar a conexão com a Central."
+			}
+		}
+	}
+
+	now := time.Now()
+	a.mu.Lock()
+	a.testRunning = ""
+	a.testLastAction = action
+	a.testLastAt = now
+	a.testLastOK = ok
+	a.testLastMessage = messageText
+	a.mu.Unlock()
+	result := "Falhou"
+	if ok {
+		result = "Concluído"
+	}
+	a.addHistory(historyTitle, result+" — "+messageText)
 	a.invalidate()
 }

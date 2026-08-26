@@ -49,22 +49,16 @@ class Settings:
     database_url: str = _database_url()
     public_url: str = os.getenv("CORETUNER_PUBLIC_URL", "http://127.0.0.1:8002").rstrip("/")
     dev_web: bool = _bool_env("CORETUNER_DEV_WEB", False)
-    admin_email: str = os.getenv("CORETUNER_ADMIN_EMAIL", "admin@coretuner.com.br")
-    admin_password: str = os.getenv("CORETUNER_ADMIN_PASSWORD", "TroqueAgora123!")
-    # Administrador Global do CoreControl. A senha padrão fica armazenada somente
-    # como hash PBKDF2; o texto puro não é gravado no código nem no banco.
-    # As variáveis antigas SUPERADMIN permanecem como fallback apenas para
-    # instalações que receberam a versão anterior.
+    # Administrador Global do CoreControl. Estas variáveis nunca criam conta
+    # durante o boot; servem somente ao provisionamento manual e à proteção
+    # opcional do e-mail da conta proprietária.
     global_admin_email: str = os.getenv(
         "CORECONTROL_GLOBAL_ADMIN_EMAIL",
-        os.getenv("CORECONTROL_SUPERADMIN_EMAIL", "tataynara18n@gmail.com"),
+        os.getenv("CORECONTROL_SUPERADMIN_EMAIL", ""),
     ).strip().lower()
     global_admin_password_hash: str = os.getenv(
         "CORECONTROL_GLOBAL_ADMIN_PASSWORD_HASH",
-        os.getenv(
-            "CORECONTROL_SUPERADMIN_PASSWORD_HASH",
-            "pbkdf2_sha256$310000$uP3EDTIOvujuu4xGfI65Wg==$hsj4kW46uHbD53fKS68_QndOxhvRdAkm921yZy13Vis=",
-        ),
+        os.getenv("CORECONTROL_SUPERADMIN_PASSWORD_HASH", ""),
     ).strip()
     download_password: str = os.getenv("CORETUNER_DOWNLOAD_PASSWORD", "")
     download_token_seconds: int = _int_env("CORETUNER_DOWNLOAD_TOKEN_SECONDS", 180)

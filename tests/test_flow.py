@@ -5,8 +5,6 @@ from datetime import datetime, timezone
 _tmp = tempfile.TemporaryDirectory()
 os.environ["CORETUNER_DATA_DIR"] = _tmp.name
 os.environ["CORETUNER_SECRET_KEY"] = "test-secret-key-with-enough-length"
-os.environ["CORETUNER_ADMIN_EMAIL"] = "admin@test.example.com"
-os.environ["CORETUNER_ADMIN_PASSWORD"] = "TestPassword123!"
 os.environ["CORECONTROL_GLOBAL_ADMIN_EMAIL"] = "global@test.example.com"
 os.environ["CORECONTROL_GLOBAL_ADMIN_PASSWORD_HASH"] = "pbkdf2_sha256$310000$YCmI7xMMracfxRlNkhBrCQ==$IQNDwsLqyqNIQSZBFwJmDbS4eKOKTL5suO23x6cW7PA="
 os.environ["CORETUNER_ENV"] = "development"
@@ -29,7 +27,35 @@ os.environ["CORETUNER_DATABASE_URL"] = f"sqlite:///{_tmp.name}/coretuner-test.db
 from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
-from app.models import Device  # noqa: E402
+from app.models import Device, User  # noqa: E402
+from app.security import hash_password  # noqa: E402
+
+
+def seed_test_platform_accounts():
+    with SessionLocal() as db:
+        if not db.query(User).filter(User.email == "global@test.example.com").first():
+            db.add(
+                User(
+                    name="Administrador Global",
+                    email="global@test.example.com",
+                    password_hash=hash_password("SuperAdminTest123!"),
+                    role="global_admin",
+                    company_id=None,
+                    active=True,
+                )
+            )
+        if not db.query(User).filter(User.email == "admin@test.example.com").first():
+            db.add(
+                User(
+                    name="Administrador CoreControl",
+                    email="admin@test.example.com",
+                    password_hash=hash_password("TestPassword123!"),
+                    role="platform_admin",
+                    company_id=None,
+                    active=True,
+                )
+            )
+        db.commit()
 
 
 def register_company(client, suffix="1"):
@@ -49,6 +75,8 @@ def register_company(client, suffix="1"):
 
 def test_company_self_registration_login_and_isolation():
     with TestClient(app) as client_a:
+        with SessionLocal() as db:
+            assert db.query(User).filter(User.email.in_(["admin@test.example.com", "global@test.example.com"])).count() == 0
         auth_a = register_company(client_a, "a")
         assert auth_a["user"]["role"] == "company_admin"
         assert auth_a["company"]["name"] == "Empresa Cliente a"
@@ -78,6 +106,7 @@ def test_company_self_registration_login_and_isolation():
 
 def test_global_admin_sees_edits_and_can_destroy_companies():
     with TestClient(app) as client:
+        seed_test_platform_accounts()
         login = client.post(
             "/api/auth/login",
             json={"email": "global@test.example.com", "password": "SuperAdminTest123!"},

@@ -655,12 +655,72 @@ func drawMiniStat(dc syscall.Handle, r Rect, label, value, detail string, color 
 	text(dc, detail, Rect{r.X + 16, r.Y + 76, r.W - 32, 28}, app.fonts["small"], rgb(117, 130, 150), DT_LEFT|DT_WORDBREAK|DT_END_ELLIPSIS)
 }
 
+func statusIconKind(title string) string {
+	name := strings.ToLower(strings.TrimSpace(title))
+	switch {
+	case strings.Contains(name, "internet") || strings.Contains(name, "conectividade"):
+		return "internet"
+	case strings.Contains(name, "áudio") || strings.Contains(name, "audio") || strings.Contains(name, "saída") || strings.Contains(name, "saida"):
+		return "audio"
+	case strings.Contains(name, "microfone"):
+		return "microphone"
+	case strings.Contains(name, "central") || strings.Contains(name, "servidor"):
+		return "server"
+	default:
+		return "status"
+	}
+}
+
+func drawStatusIcon(dc syscall.Handle, kind string, r Rect, color uintptr) {
+	// Ícones lineares, sem bloco/caixinha: a cor comunica o estado.
+	switch kind {
+	case "internet":
+		line(dc, r.X+2, r.Y+7, r.X+r.W/2, r.Y+3, color)
+		line(dc, r.X+r.W/2, r.Y+3, r.X+r.W-2, r.Y+7, color)
+		line(dc, r.X+5, r.Y+11, r.X+r.W/2, r.Y+8, color)
+		line(dc, r.X+r.W/2, r.Y+8, r.X+r.W-5, r.Y+11, color)
+		line(dc, r.X+8, r.Y+15, r.X+r.W/2, r.Y+13, color)
+		line(dc, r.X+r.W/2, r.Y+13, r.X+r.W-8, r.Y+15, color)
+		circle(dc, Rect{r.X + r.W/2 - 2, r.Y + r.H - 3, 4, 4}, color)
+	case "audio":
+		// Speaker outline, sem preenchimento.
+		strokeRoundRect(dc, Rect{r.X + 1, r.Y + 7, 5, 8}, color, 2, 1)
+		line(dc, r.X+6, r.Y+7, r.X+11, r.Y+3, color)
+		line(dc, r.X+11, r.Y+3, r.X+11, r.Y+19, color)
+		line(dc, r.X+11, r.Y+19, r.X+6, r.Y+15, color)
+		line(dc, r.X+15, r.Y+8, r.X+18, r.Y+11, color)
+		line(dc, r.X+18, r.Y+11, r.X+15, r.Y+14, color)
+		line(dc, r.X+18, r.Y+5, r.X+21, r.Y+8, color)
+		line(dc, r.X+21, r.Y+8, r.X+21, r.Y+14, color)
+		line(dc, r.X+21, r.Y+14, r.X+18, r.Y+17, color)
+	case "microphone":
+		strokeRoundRect(dc, Rect{r.X + 7, r.Y + 2, 9, 13}, color, 7, 1)
+		line(dc, r.X+4, r.Y+10, r.X+4, r.Y+12, color)
+		line(dc, r.X+4, r.Y+12, r.X+8, r.Y+17, color)
+		line(dc, r.X+8, r.Y+17, r.X+15, r.Y+17, color)
+		line(dc, r.X+15, r.Y+17, r.X+19, r.Y+12, color)
+		line(dc, r.X+19, r.Y+12, r.X+19, r.Y+10, color)
+		line(dc, r.X+12, r.Y+17, r.X+12, r.Y+21, color)
+		line(dc, r.X+8, r.Y+21, r.X+16, r.Y+21, color)
+	case "server":
+		strokeRoundRect(dc, Rect{r.X + 2, r.Y + 3, r.W - 4, 7}, color, 3, 1)
+		strokeRoundRect(dc, Rect{r.X + 2, r.Y + 14, r.W - 4, 7}, color, 3, 1)
+		circle(dc, Rect{r.X + 5, r.Y + 6, 2, 2}, color)
+		circle(dc, Rect{r.X + 5, r.Y + 17, 2, 2}, color)
+		line(dc, r.X+10, r.Y+6, r.X+r.W-5, r.Y+6, color)
+		line(dc, r.X+10, r.Y+17, r.X+r.W-5, r.Y+17, color)
+	default:
+		strokeCircle(dc, Rect{r.X + 5, r.Y + 5, r.W - 10, r.H - 10}, color, 1)
+	}
+}
+
 func drawStatusRow(dc syscall.Handle, r Rect, title, detail, status string, ok bool, actionLabel, action string) {
 	fill(dc, Rect{r.X, r.Y + r.H - 1, r.W, 1}, rgb(237, 239, 243))
-	circle(dc, Rect{r.X + 2, r.Y + 17, 10, 10}, choose(ok, rgb(42, 176, 91), rgb(241, 153, 32)))
-	text(dc, title, Rect{r.X + 24, r.Y + 8, 250, 24}, app.fonts["body"], rgb(37, 50, 71), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
-	text(dc, detail, Rect{r.X + 24, r.Y + 32, r.W - 300, 22}, app.fonts["small"], rgb(112, 125, 146), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
-	text(dc, status, Rect{r.X + r.W - 285, r.Y + 12, 110, 28}, app.fonts["small"], choose(ok, rgb(42, 176, 91), rgb(241, 153, 32)), DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
+	iconColor := choose(ok, rgb(42, 176, 91), rgb(241, 153, 32))
+	drawStatusIcon(dc, statusIconKind(title), Rect{r.X + 3, r.Y + 14, 22, 22}, iconColor)
+	text(dc, title, Rect{r.X + 38, r.Y + 8, 250, 24}, app.fonts["body"], rgb(37, 50, 71), DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, detail, Rect{r.X + 38, r.Y + 32, r.W - 314, 22}, app.fonts["small"], rgb(112, 125, 146), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+	text(dc, status, Rect{r.X + r.W - 285, r.Y + 12, 110, 28}, app.fonts["small"], iconColor, DT_RIGHT|DT_VCENTER|DT_SINGLELINE)
 	if action != "" {
 		br := Rect{r.X + r.W - 155, r.Y + 9, 145, 36}
 		button(dc, actionLabel, br, false)
@@ -746,10 +806,11 @@ func (a *App) drawDiagnostics(dc syscall.Handle) {
 	}
 	for i, st := range statuses {
 		ry := right.Y + 51 + int32(i)*53
-		circle(dc, Rect{right.X + 20, ry + 8, 10, 10}, choose(st.ok, rgb(42, 176, 91), rgb(241, 153, 32)))
-		text(dc, st.title, Rect{right.X + 42, ry, 145, 22}, a.fonts["body"], rgb(38, 51, 72), DT_LEFT|DT_SINGLELINE)
-		text(dc, st.detail, Rect{right.X + 42, ry + 23, right.W - 145, 20}, a.fonts["small"], rgb(115, 128, 148), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
-		text(dc, chooseText(st.ok, "OK", "Atenção"), Rect{right.X + right.W - 90, ry + 4, 65, 22}, a.fonts["small"], choose(st.ok, rgb(42, 176, 91), rgb(241, 153, 32)), DT_RIGHT|DT_SINGLELINE)
+		iconColor := choose(st.ok, rgb(42, 176, 91), rgb(241, 153, 32))
+		drawStatusIcon(dc, statusIconKind(st.title), Rect{right.X + 20, ry + 5, 22, 22}, iconColor)
+		text(dc, st.title, Rect{right.X + 56, ry, 145, 22}, a.fonts["body"], rgb(38, 51, 72), DT_LEFT|DT_SINGLELINE)
+		text(dc, st.detail, Rect{right.X + 56, ry + 23, right.W - 159, 20}, a.fonts["small"], rgb(115, 128, 148), DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS)
+		text(dc, chooseText(st.ok, "OK", "Atenção"), Rect{right.X + right.W - 90, ry + 4, 65, 22}, a.fonts["small"], iconColor, DT_RIGHT|DT_SINGLELINE)
 	}
 	br := Rect{right.X + 20, right.Y + right.H - 52, right.W - 40, 36}
 	button(dc, "Atualizar diagnóstico", br, true)
@@ -797,6 +858,11 @@ func (a *App) drawTests(dc syscall.Handle) {
 	s := a.sys
 	centralOK := a.centralOK
 	serverURL := a.serverURL
+	testRunning := a.testRunning
+	testLastAction := a.testLastAction
+	testLastAt := a.testLastAt
+	testLastOK := a.testLastOK
+	testLastMessage := a.testLastMessage
 	a.mu.RUnlock()
 	gap := int32(12)
 	mw := (w - gap*3) / 4
@@ -825,12 +891,31 @@ func (a *App) drawTests(dc syscall.Handle) {
 	}{
 		{"Conectividade com a internet", fmt.Sprintf("Verifica acesso e atualiza a latência atual (%d ms).", s.LatencyMS), chooseText(s.InternetOK, "Funcionando", "Verificar"), "test-internet", s.InternetOK},
 		{"Saída de áudio", chooseText(s.AudioOK, "Dispositivo de saída detectado pelo Windows.", "Nenhuma saída de áudio foi confirmada."), chooseText(s.AudioOK, "Detectado", "Atenção"), "test-audio", s.AudioOK},
-		{"Microfone", chooseText(s.MicOK, "Dispositivo de entrada detectado pelo Windows.", "Nenhum microfone foi confirmado."), chooseText(s.MicOK, "Detectado", "Atenção"), "test-audio", s.MicOK},
-		{"Conexão com a Central", nz(serverURL, "Servidor não configurado"), chooseText(centralOK, "Conectado", "Verificar"), "refresh-central", centralOK},
+		{"Microfone", chooseText(s.MicOK, "Dispositivo de entrada detectado pelo Windows.", "Nenhum microfone foi confirmado."), chooseText(s.MicOK, "Detectado", "Atenção"), "test-mic", s.MicOK},
+		{"Conexão com a Central", nz(serverURL, "Servidor não configurado"), chooseText(centralOK, "Conectado", "Verificar"), "test-central", centralOK},
 	}
 	for i, t := range tests {
+		detail := t.detail
+		status := t.status
+		ok := t.ok
+		actionLabel := "Executar teste"
+		if testRunning == t.action {
+			detail = "Executando verificação agora..."
+			status = "Testando..."
+			ok = false
+			actionLabel = "Testando..."
+		} else if testLastAction == t.action && !testLastAt.IsZero() {
+			detail = testLastMessage
+			ok = testLastOK
+			if testLastOK {
+				status = "Concluído • " + testLastAt.Format("15:04:05")
+			} else {
+				status = "Falhou • " + testLastAt.Format("15:04:05")
+			}
+			actionLabel = "Testar novamente"
+		}
 		r := Rect{panel.X + 20, panel.Y + 73 + int32(i)*67, panel.W - 40, 58}
-		drawStatusRow(dc, r, t.title, t.detail, t.status, t.ok, "Executar teste", t.action)
+		drawStatusRow(dc, r, t.title, detail, status, ok, actionLabel, t.action)
 	}
 
 	note := Rect{x, panelY + 374, w, 112}

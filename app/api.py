@@ -1126,7 +1126,8 @@ def update_user(user_id: int, payload: UserUpdate, user: CurrentUser, db: Db):
         "active": target.active,
     }
 
-    is_primary_global_admin = target.email.lower() == settings.global_admin_email
+    # A proteção da conta global é baseada no papel, não em um e-mail hardcoded.
+    is_primary_global_admin = target.role == "global_admin"
     if is_primary_global_admin and user.id != target.id and user.role != "global_admin":
         raise HTTPException(status_code=403, detail="Somente o Administrador Global pode alterar esta conta")
     if is_primary_global_admin:
@@ -1136,7 +1137,11 @@ def update_user(user_id: int, payload: UserUpdate, user: CurrentUser, db: Db):
             raise HTTPException(status_code=400, detail="O Administrador Global deve manter acesso global")
         if "company_id" in changes and changes["company_id"] is not None:
             raise HTTPException(status_code=400, detail="O Administrador Global não pode ser vinculado a uma empresa")
-        if "email" in changes and str(changes["email"]).lower().strip() != settings.global_admin_email:
+        if (
+            "email" in changes
+            and settings.global_admin_email
+            and str(changes["email"]).lower().strip() != settings.global_admin_email
+        ):
             raise HTTPException(status_code=400, detail="O e-mail do Administrador Global é definido na configuração do servidor")
 
     if target.id == user.id:
