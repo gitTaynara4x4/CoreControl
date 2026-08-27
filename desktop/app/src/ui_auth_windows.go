@@ -75,21 +75,257 @@ func (a *App) buildLogin() {
 		}
 		return h
 	}
-	add(idServer, "EDIT", a.serverURL, WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, false)
-	add(idEmail, "EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, false)
-	add(idPassword, "EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, false)
-	add(idLogin, "BUTTON", "Entrar", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON, false)
-	add(idShowRegister, "BUTTON", "Criar empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, false)
-	add(idForgotPassword, "BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON, false)
-	add(idCompany, "EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, true)
-	add(idResponsible, "EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, true)
-	add(idRegEmail, "EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, true)
-	add(idRegPassword, "EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, true)
-	add(idRegConfirm, "EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, true)
-	add(idRegister, "BUTTON", "Criar empresa e entrar", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON, true)
-	add(idShowLogin, "BUTTON", "Já tenho uma conta", WS_CHILD|WS_TABSTOP|BS_PUSHBUTTON, true)
+	add(idServer, "EDIT", a.serverURL, WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL, false)
+	add(idEmail, "EDIT", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL, false)
+	add(idPassword, "EDIT", "", WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, false)
+	add(idLogin, "BUTTON", "Entrar", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, false)
+	add(idShowRegister, "BUTTON", "Criar empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, false)
+	add(idForgotPassword, "BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, false)
+	add(idCompany, "EDIT", "", WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL, true)
+	add(idResponsible, "EDIT", "", WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL, true)
+	add(idRegEmail, "EDIT", "", WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL, true)
+	add(idRegPassword, "EDIT", "", WS_CHILD|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, true)
+	add(idRegConfirm, "EDIT", "", WS_CHILD|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, true)
+	add(idRegister, "BUTTON", "Criar empresa e entrar", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, true)
+	add(idShowLogin, "BUTTON", "Já tenho uma conta", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, true)
 	a.layoutLogin()
 	a.showLogin("login")
+}
+
+type authPalette struct {
+	page         uintptr
+	orb          uintptr
+	orbAccent    uintptr
+	card         uintptr
+	shadow       uintptr
+	border       uintptr
+	field        uintptr
+	fieldBorder  uintptr
+	title        uintptr
+	body         uintptr
+	label        uintptr
+	primary      uintptr
+	primaryHot   uintptr
+	secondary    uintptr
+	secondaryHot uintptr
+	buttonText   uintptr
+	link         uintptr
+	success      uintptr
+}
+
+var (
+	authLightEditBrush uintptr
+	authDarkEditBrush  uintptr
+)
+
+func (a *App) authPalette() authPalette {
+	if a != nil && a.isDarkTheme() {
+		return authPalette{
+			page:         rawRGB(23, 23, 23),
+			orb:          rawRGB(28, 28, 28),
+			orbAccent:    rawRGB(31, 31, 31),
+			card:         rawRGB(33, 33, 33),
+			shadow:       rawRGB(13, 13, 13),
+			border:       rawRGB(55, 55, 55),
+			field:        rawRGB(43, 43, 43),
+			fieldBorder:  rawRGB(65, 65, 65),
+			title:        rawRGB(245, 245, 245),
+			body:         rawRGB(166, 166, 174),
+			label:        rawRGB(205, 205, 211),
+			primary:      rawRGB(37, 99, 235),
+			primaryHot:   rawRGB(29, 78, 216),
+			secondary:    rawRGB(42, 42, 42),
+			secondaryHot: rawRGB(50, 50, 50),
+			buttonText:   rawRGB(245, 245, 245),
+			link:         rawRGB(112, 166, 255),
+			success:      rawRGB(74, 222, 128),
+		}
+	}
+	return authPalette{
+		page:         rawRGB(247, 249, 252),
+		orb:          rawRGB(238, 243, 249),
+		orbAccent:    rawRGB(232, 239, 250),
+		card:         rawRGB(255, 255, 255),
+		shadow:       rawRGB(220, 227, 235),
+		border:       rawRGB(226, 232, 240),
+		field:        rawRGB(250, 252, 255),
+		fieldBorder:  rawRGB(210, 220, 232),
+		title:        rawRGB(15, 31, 55),
+		body:         rawRGB(96, 112, 136),
+		label:        rawRGB(52, 68, 91),
+		primary:      rawRGB(37, 99, 235),
+		primaryHot:   rawRGB(29, 78, 216),
+		secondary:    rawRGB(255, 255, 255),
+		secondaryHot: rawRGB(246, 249, 253),
+		buttonText:   rawRGB(30, 45, 66),
+		link:         rawRGB(37, 99, 235),
+		success:      rawRGB(22, 163, 74),
+	}
+}
+
+func authFillRaw(dc syscall.Handle, r Rect, c uintptr) {
+	b, _, _ := procCreateSolidBrush.Call(c)
+	rr := RECT{r.X, r.Y, r.X + r.W, r.Y + r.H}
+	procFillRect.Call(uintptr(dc), uintptr(unsafe.Pointer(&rr)), b)
+	procDeleteObject.Call(b)
+}
+
+func authRoundRaw(dc syscall.Handle, r Rect, background, border uintptr, radius int32) {
+	brush, _, _ := procCreateSolidBrush.Call(background)
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
+	ob, _, _ := procSelectObject.Call(uintptr(dc), brush)
+	op, _, _ := procSelectObject.Call(uintptr(dc), pen)
+	procRoundRect.Call(uintptr(dc), uintptr(r.X), uintptr(r.Y), uintptr(r.X+r.W), uintptr(r.Y+r.H), uintptr(radius), uintptr(radius))
+	procSelectObject.Call(uintptr(dc), ob)
+	procSelectObject.Call(uintptr(dc), op)
+	procDeleteObject.Call(brush)
+	procDeleteObject.Call(pen)
+}
+
+func authTextRaw(dc syscall.Handle, s string, r Rect, font uintptr, color uintptr, flags uintptr) {
+	procSelectObject.Call(uintptr(dc), font)
+	procSetBkMode.Call(uintptr(dc), TRANSPARENT)
+	procSetTextColor.Call(uintptr(dc), color)
+	rr := RECT{r.X, r.Y, r.X + r.W, r.Y + r.H}
+	procDrawText.Call(uintptr(dc), uintptr(unsafe.Pointer(utf16(s))), uintptr(len([]rune(s))), uintptr(unsafe.Pointer(&rr)), flags)
+}
+
+func authCircleRaw(dc syscall.Handle, r Rect, c uintptr) {
+	b, _, _ := procCreateSolidBrush.Call(c)
+	p, _, _ := procCreatePen.Call(PS_SOLID, 1, c)
+	ob, _, _ := procSelectObject.Call(uintptr(dc), b)
+	op, _, _ := procSelectObject.Call(uintptr(dc), p)
+	procEllipse.Call(uintptr(dc), uintptr(r.X), uintptr(r.Y), uintptr(r.X+r.W), uintptr(r.Y+r.H))
+	procSelectObject.Call(uintptr(dc), ob)
+	procSelectObject.Call(uintptr(dc), op)
+	procDeleteObject.Call(b)
+	procDeleteObject.Call(p)
+}
+
+func authLogoMark(dc syscall.Handle, r Rect, background uintptr) {
+	blue := rawRGB(19, 102, 246)
+	authCircleRaw(dc, r, blue)
+	ring := max32(4, r.W/5)
+	inner := Rect{r.X + ring, r.Y + ring, r.W - ring*2, r.H - ring*2}
+	authCircleRaw(dc, inner, background)
+	gap := max32(3, r.W/10)
+	authFillRaw(dc, Rect{r.X + r.W/2 - gap/2, r.Y - 1, gap, ring + 3}, background)
+	authFillRaw(dc, Rect{r.X + r.W/2 - gap/2, r.Y + r.H - ring - 2, gap, ring + 4}, background)
+	authFillRaw(dc, Rect{r.X - 1, r.Y + r.H/2 - gap/2, ring + 3, gap}, background)
+	authFillRaw(dc, Rect{r.X + r.W - ring - 2, r.Y + r.H/2 - gap/2, ring + 4, gap}, background)
+	knob := max32(12, r.W*9/20)
+	kx := r.X + (r.W-knob)/2
+	ky := r.Y + (r.H-knob)/2 + 2
+	authCircleRaw(dc, Rect{kx, ky, knob, knob}, blue)
+	stemW := max32(4, r.W/7)
+	stemX := r.X + (r.W-stemW)/2
+	authFillRaw(dc, Rect{stemX, r.Y + ring/2, stemW, ky - r.Y - ring/2 + 3}, blue)
+}
+
+func authFieldInner(r Rect) Rect {
+	return Rect{r.X + 13, r.Y + 7, r.W - 26, r.H - 14}
+}
+
+func (a *App) isAuthEditControl(h syscall.Handle) bool {
+	for _, id := range []int{idEmail, idPassword, idCompany, idResponsible, idRegEmail, idRegPassword, idRegConfirm} {
+		if a.controls[id] == h {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) authEditColor(dc syscall.Handle, control syscall.Handle) uintptr {
+	if a == nil || !a.isAuthEditControl(control) {
+		return 0
+	}
+	pal := a.authPalette()
+	procSetTextColor.Call(uintptr(dc), pal.title)
+	procSetBkColor.Call(uintptr(dc), pal.field)
+	if a.isDarkTheme() {
+		if authDarkEditBrush == 0 {
+			authDarkEditBrush, _, _ = procCreateSolidBrush.Call(pal.field)
+		}
+		return authDarkEditBrush
+	}
+	if authLightEditBrush == 0 {
+		authLightEditBrush, _, _ = procCreateSolidBrush.Call(pal.field)
+	}
+	return authLightEditBrush
+}
+
+const (
+	ODS_SELECTED = 0x0001
+	ODS_DISABLED = 0x0004
+	ODS_FOCUS    = 0x0010
+)
+
+func (a *App) drawAuthButton(lParam uintptr) bool {
+	if lParam == 0 {
+		return false
+	}
+	dis := (*DRAWITEMSTRUCT)(unsafe.Pointer(lParam))
+	id := int(dis.CtlID)
+	label := ""
+	kind := "secondary"
+	switch id {
+	case idLogin:
+		label, kind = "Entrar", "primary"
+	case idRegister:
+		label, kind = "Criar empresa e entrar", "primary"
+	case idShowRegister:
+		label = "Criar empresa"
+	case idShowLogin:
+		label = "Já tenho uma conta"
+	case idForgotPassword:
+		label, kind = "Esqueci minha senha", "link"
+	default:
+		return false
+	}
+
+	pal := a.authPalette()
+	r := Rect{dis.RcItem.Left, dis.RcItem.Top, dis.RcItem.Right - dis.RcItem.Left, dis.RcItem.Bottom - dis.RcItem.Top}
+	authFillRaw(dis.HDC, r, pal.card)
+	pressed := dis.ItemState&ODS_SELECTED != 0
+	disabled := dis.ItemState&ODS_DISABLED != 0
+
+	if kind == "link" {
+		fg := pal.link
+		if disabled {
+			fg = pal.body
+		}
+		if pressed {
+			r.Y++
+		}
+		authTextRaw(dis.HDC, label, r, a.fonts["small"], fg, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		return true
+	}
+
+	bg := pal.secondary
+	border := pal.fieldBorder
+	fg := pal.buttonText
+	if kind == "primary" {
+		bg = pal.primary
+		border = pal.primary
+		fg = rawRGB(255, 255, 255)
+	}
+	if pressed {
+		if kind == "primary" {
+			bg, border = pal.primaryHot, pal.primaryHot
+		} else {
+			bg = pal.secondaryHot
+		}
+	}
+	if disabled {
+		fg = pal.body
+	}
+	authRoundRaw(dis.HDC, r, bg, border, 10)
+	if dis.ItemState&ODS_FOCUS != 0 {
+		focus := Rect{r.X + 3, r.Y + 3, r.W - 6, r.H - 6}
+		authRoundRaw(dis.HDC, focus, bg, pal.link, 8)
+	}
+	authTextRaw(dis.HDC, label, r, a.fonts["body"], fg, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	return true
 }
 
 type authLayout struct {
@@ -111,14 +347,14 @@ func makeAuthLayout(width, height int32, mode string) authLayout {
 
 	// O card acompanha o tamanho da janela, mas mantém limites confortáveis.
 	// Em monitores grandes ele não fica minúsculo; em janelas menores não estoura.
-	cardW := width * 31 / 100
-	if cardW < 460 {
-		cardW = 460
+	cardW := width * 30 / 100
+	if cardW < 440 {
+		cardW = 440
 	}
-	if cardW > 530 {
-		cardW = 530
+	if cardW > 500 {
+		cardW = 500
 	}
-	cardH := int32(570)
+	cardH := int32(548)
 	if mode == "register" {
 		cardW = width * 34 / 100
 		if cardW < 500 {
@@ -155,18 +391,18 @@ func makeAuthLayout(width, height int32, mode string) authLayout {
 		cardY = margin
 	}
 
-	contentPad := int32(48)
-	if cardW < 430 {
-		contentPad = 32
+	contentPad := int32(44)
+	if cardW < 420 {
+		contentPad = 30
 	}
 	contentX := cardX + contentPad
 	contentW := cardW - contentPad*2
 
 	l := authLayout{
 		card:     Rect{cardX, cardY, cardW, cardH},
-		logo:     Rect{cardX + cardW/2 - 24, cardY + 28, 48, 48},
-		title:    Rect{cardX + 30, cardY + 88, cardW - 60, 38},
-		subtitle: Rect{cardX + 42, cardY + 124, cardW - 84, 40},
+		logo:     Rect{cardX + cardW/2 - 22, cardY + 28, 44, 44},
+		title:    Rect{cardX + 30, cardY + 82, cardW - 60, 36},
+		subtitle: Rect{cardX + 42, cardY + 116, cardW - 84, 38},
 	}
 
 	if mode == "register" {
@@ -183,17 +419,17 @@ func makeAuthLayout(width, height int32, mode string) authLayout {
 		return l
 	}
 
-	fieldStart := cardY + 184
+	fieldStart := cardY + 174
 	for i := int32(0); i < 2; i++ {
-		y := fieldStart + i*88
+		y := fieldStart + i*82
 		l.labels = append(l.labels, Rect{contentX, y, contentW, 18})
-		l.fields = append(l.fields, Rect{contentX, y + 24, contentW, 40})
+		l.fields = append(l.fields, Rect{contentX, y + 23, contentW, 46})
 	}
-	l.primary = Rect{contentX, cardY + 368, contentW, 46}
-	l.secondary = Rect{contentX, cardY + 426, contentW, 40}
-	l.forgot = Rect{contentX + contentW/2 - 115, cardY + 480, 230, 30}
-	l.status = Rect{contentX, cardY + cardH - 62, contentW, 18}
-	l.security = Rect{contentX, cardY + cardH - 40, contentW, 30}
+	l.primary = Rect{contentX, cardY + 350, contentW, 46}
+	l.secondary = Rect{contentX, cardY + 407, contentW, 42}
+	l.forgot = Rect{contentX + contentW/2 - 115, cardY + 458, 230, 28}
+	l.status = Rect{contentX, cardY + cardH - 66, contentW, 18}
+	l.security = Rect{contentX, cardY + cardH - 44, contentW, 34}
 	return l
 }
 
@@ -226,15 +462,15 @@ func (a *App) layoutLogin() {
 	if a.loginMode == "register" {
 		ids := []int{idCompany, idResponsible, idRegEmail, idRegPassword, idRegConfirm}
 		for i, id := range ids {
-			setpos(id, layout.fields[i])
+			setpos(id, authFieldInner(layout.fields[i]))
 		}
 		setpos(idRegister, layout.primary)
 		setpos(idShowLogin, layout.secondary)
 		return
 	}
 
-	setpos(idEmail, layout.fields[0])
-	setpos(idPassword, layout.fields[1])
+	setpos(idEmail, authFieldInner(layout.fields[0]))
+	setpos(idPassword, authFieldInner(layout.fields[1]))
 	setpos(idLogin, layout.primary)
 	setpos(idShowRegister, layout.secondary)
 	setpos(idForgotPassword, layout.forgot)

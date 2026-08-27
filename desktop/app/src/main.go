@@ -25,6 +25,7 @@ const (
 	ES_PASSWORD         = 0x0020
 	BS_PUSHBUTTON       = 0
 	BS_DEFPUSHBUTTON    = 1
+	BS_OWNERDRAW        = 0x0000000B
 	SW_SHOW             = 5
 	SW_HIDE             = 0
 	SW_SHOWNORMAL       = 1
@@ -35,6 +36,8 @@ const (
 	WM_ERASEBKGND       = 0x0014
 	WM_SETCURSOR        = 0x0020
 	WM_COMMAND          = 0x0111
+	WM_DRAWITEM         = 0x002B
+	WM_CTLCOLOREDIT     = 0x0133
 	WM_TIMER            = 0x0113
 	WM_MOUSEMOVE        = 0x0200
 	WM_LBUTTONDOWN      = 0x0201
@@ -82,6 +85,18 @@ const (
 	idRegister       = 116
 	idShowLogin      = 117
 )
+
+type DRAWITEMSTRUCT struct {
+	CtlType    uint32
+	CtlID      uint32
+	ItemID     uint32
+	ItemAction uint32
+	ItemState  uint32
+	HwndItem   syscall.Handle
+	HDC        syscall.Handle
+	RcItem     RECT
+	ItemData   uintptr
+}
 
 type POINT struct{ X, Y int32 }
 type RECT struct{ Left, Top, Right, Bottom int32 }
@@ -275,6 +290,7 @@ var (
 	procSelectObject           = gdi32.NewProc("SelectObject")
 	procDeleteObject           = gdi32.NewProc("DeleteObject")
 	procSetTextColor           = gdi32.NewProc("SetTextColor")
+	procSetBkColor             = gdi32.NewProc("SetBkColor")
 	procSetBkMode              = gdi32.NewProc("SetBkMode")
 	procRoundRect              = gdi32.NewProc("RoundRect")
 	procEllipse                = gdi32.NewProc("Ellipse")
@@ -399,6 +415,14 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			app.mouseWheel(delta)
 		}
 		return 0
+	case WM_DRAWITEM:
+		if app != nil && app.token == "" && app.drawAuthButton(lParam) {
+			return 1
+		}
+	case WM_CTLCOLOREDIT:
+		if app != nil && app.token == "" {
+			return app.authEditColor(syscall.Handle(wParam), syscall.Handle(lParam))
+		}
 	case WM_COMMAND:
 		if app != nil {
 			app.command(loword(wParam))

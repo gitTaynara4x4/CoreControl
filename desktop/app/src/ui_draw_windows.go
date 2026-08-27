@@ -231,43 +231,52 @@ func statusPill(dc syscall.Handle, label string, r Rect, background, foreground 
 }
 
 func (a *App) drawAuth(dc syscall.Handle, rc RECT) {
-	fill(dc, Rect{0, 0, rc.Right, rc.Bottom}, rgb(234, 248, 250))
+	pal := a.authPalette()
+	authFillRaw(dc, Rect{0, 0, rc.Right, rc.Bottom}, pal.page)
 
-	// Fundo suave e leve, inspirado na referência, sem interferir no formulário.
-	circle(dc, Rect{-140, 105, 520, 520}, rgb(242, 246, 250))
-	circle(dc, Rect{-75, rc.Bottom - 300, 260, 260}, rgb(205, 203, 248))
-	circle(dc, Rect{rc.Right - 255, -95, 300, 300}, rgb(204, 240, 245))
+	// Fundo discreto: só profundidade visual, sem círculos gigantes dominando a tela.
+	if rc.Right >= 900 {
+		authCircleRaw(dc, Rect{-155, rc.Bottom/2 - 150, 300, 300}, pal.orb)
+		authCircleRaw(dc, Rect{rc.Right - 135, -95, 230, 230}, pal.orbAccent)
+	}
 
-	logoMark(dc, Rect{54, 35, 28, 28})
-	text(dc, "CoreControl", Rect{96, 28, 250, 40}, a.fonts["brand"], rgb(10, 31, 62), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+	// Marca no canto superior esquerdo.
+	authLogoMark(dc, Rect{50, 33, 30, 30}, pal.page)
+	authTextRaw(dc, "CoreControl", Rect{92, 25, 260, 46}, a.fonts["brand"], pal.title, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
 
 	layout := makeAuthLayout(rc.Right, rc.Bottom, a.loginMode)
-	shadow := Rect{layout.card.X, layout.card.Y + 8, layout.card.W, layout.card.H}
-	roundedBox(dc, shadow, rgb(202, 219, 226), rgb(202, 219, 226), 18)
-	roundedBox(dc, layout.card, rgb(255, 255, 255), rgb(226, 234, 240), 18)
+	shadow := Rect{layout.card.X, layout.card.Y + 7, layout.card.W, layout.card.H}
+	authRoundRaw(dc, shadow, pal.shadow, pal.shadow, 18)
+	authRoundRaw(dc, layout.card, pal.card, pal.border, 18)
 
-	logoMark(dc, layout.logo)
+	authLogoMark(dc, layout.logo, pal.card)
 	title := "Entrar na sua empresa"
-	sub := "Use a mesma conta do site para acessar seus computadores."
+	sub := "Acesse sua empresa com a mesma conta do CoreControl."
 	labels := []string{"E-mail", "Senha"}
 	if a.loginMode == "register" {
 		title = "Criar uma empresa"
-		sub = "Cadastre sua empresa e comece a usar o CoreControl."
+		sub = "Cadastre sua empresa para começar a usar o CoreControl."
 		labels = []string{"Nome da empresa", "Responsável", "E-mail", "Senha", "Confirmar senha"}
 	}
-	text(dc, title, layout.title, a.fonts["h1"], rgb(11, 31, 60), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
-	text(dc, sub, layout.subtitle, a.fonts["small"], rgb(93, 112, 140), DT_CENTER|DT_WORDBREAK)
+	authTextRaw(dc, title, layout.title, a.fonts["h1"], pal.title, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	authTextRaw(dc, sub, layout.subtitle, a.fonts["small"], pal.body, DT_CENTER|DT_WORDBREAK)
+
 	for i, label := range labels {
-		text(dc, label, layout.labels[i], a.fonts["small"], rgb(55, 73, 102), DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		authTextRaw(dc, label, layout.labels[i], a.fonts["small"], pal.label, DT_LEFT|DT_VCENTER|DT_SINGLELINE)
+		authRoundRaw(dc, layout.fields[i], pal.field, pal.fieldBorder, 10)
 	}
 
 	a.mu.RLock()
 	st, busy := a.statusText, a.busy
 	a.mu.RUnlock()
 	if busy {
-		text(dc, st, layout.status, a.fonts["small"], rgb(38, 113, 208), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		authTextRaw(dc, st, layout.status, a.fonts["small"], pal.link, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 	}
-	text(dc, "Privacidade protegida: o CoreControl não acessa documentos, conversas ou senhas.", layout.security, a.fonts["small"], rgb(37, 153, 87), DT_CENTER|DT_VCENTER|DT_WORDBREAK)
+
+	privacyTitle := Rect{layout.security.X, layout.security.Y, layout.security.W, 16}
+	privacySub := Rect{layout.security.X, layout.security.Y + 15, layout.security.W, 18}
+	authTextRaw(dc, "Privacidade protegida", privacyTitle, a.fonts["small"], pal.success, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+	authTextRaw(dc, "O CoreControl não acessa documentos, conversas ou senhas.", privacySub, a.fonts["small"], pal.body, DT_CENTER|DT_VCENTER|DT_SINGLELINE)
 }
 
 var menuLabels = []string{"Painel inicial", "Diagnóstico", "Testes", "Otimizações", "Programas", "Relatórios", "Histórico", "Configurações", "Suporte"}
