@@ -31,6 +31,20 @@
       ].some((value) => String(value || '').toLowerCase().includes(query)));
       renderTable(filtered, 'Nenhum resultado.');
     };
+
+    const addComputerBtn = CT.$('#addComputerBtn');
+    const canEnroll = ['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user?.role);
+    addComputerBtn.classList.toggle('hidden', !canEnroll);
+    if (canEnroll) {
+      addComputerBtn.onclick = async () => {
+        try {
+          const companies = await CT.api('/companies');
+          await CT.chooseEnrollmentCompany(companies);
+        } catch (error) {
+          CT.toast(error.message, true);
+        }
+      };
+    }
   });
 
   function activityVersionSupported(version) {

@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -163,6 +164,12 @@ type AuthResponse struct {
 	Company     *Company `json:"company"`
 }
 
+type EnrollmentInfo struct {
+	CompanyID   int    `json:"company_id"`
+	CompanyName string `json:"company_name"`
+	ExpiresAt   string `json:"expires_at"`
+}
+
 type Machine struct {
 	DeviceUID    string `json:"device_uid"`
 	Hostname     string `json:"hostname"`
@@ -218,28 +225,29 @@ type APIError struct {
 }
 
 type App struct {
-	hwnd           syscall.Handle
-	font           uintptr
-	titleFont      uintptr
-	sectionFont    uintptr
-	smallFont      uintptr
-	buttonFont     uintptr
-	controls       map[int]syscall.Handle
-	loginGroup     []syscall.Handle
-	registerGroup  []syscall.Handle
-	dashboardGroup []syscall.Handle
-	client         *http.Client
-	serverURL      string
-	token          string
-	user           AuthUser
-	company        *Company
-	status         syscall.Handle
-	companyLabel   syscall.Handle
-	title          syscall.Handle
-	subtitle       syscall.Handle
-	installNotice  string
-	mode           string
-	logoBitmap     syscall.Handle
+	hwnd            syscall.Handle
+	font            uintptr
+	titleFont       uintptr
+	sectionFont     uintptr
+	smallFont       uintptr
+	buttonFont      uintptr
+	controls        map[int]syscall.Handle
+	loginGroup      []syscall.Handle
+	registerGroup   []syscall.Handle
+	dashboardGroup  []syscall.Handle
+	client          *http.Client
+	serverURL       string
+	enrollmentToken string
+	token           string
+	user            AuthUser
+	company         *Company
+	status          syscall.Handle
+	companyLabel    syscall.Handle
+	title           syscall.Handle
+	subtitle        syscall.Handle
+	installNotice   string
+	mode            string
+	logoBitmap      syscall.Handle
 }
 
 var app *App
@@ -317,9 +325,22 @@ func runGUI() {
 	}
 	applyCoreTunerWindowIcons(syscall.Handle(h), largeIcon, smallIcon)
 	font, _, _ := procGetStockObject.Call(DEFAULT_GUI_FONT)
-	app = &App{hwnd: syscall.Handle(h), font: font, controls: map[int]syscall.Handle{}, client: &http.Client{Timeout: 25 * time.Second}, serverURL: loadServerURL()}
+	launchToken := enrollmentTokenFromLaunch()
+	serverURL := loadServerURL()
+	if launchToken != "" {
+		// Um instalador vindo de um link de empresa sempre usa o servidor
+		// incorporado no build, ignorando configurações antigas desta máquina.
+		serverURL = defaultServerURL
+	}
+	app = &App{hwnd: syscall.Handle(h), font: font, controls: map[int]syscall.Handle{}, client: &http.Client{Timeout: 25 * time.Second}, serverURL: serverURL, enrollmentToken: launchToken}
 	app.createFonts()
 	buildUI()
+	if launchToken != "" {
+		if err := app.activateEnrollmentLink(); err != nil {
+			app.enrollmentToken = ""
+			message("Link de instalação", err.Error(), MB_OK|MB_ICONERROR)
+		}
+	}
 	procShowWindow.Call(h, SW_SHOW)
 	procUpdateWindow.Call(h)
 	var msg MSG
@@ -604,6 +625,40 @@ func (a *App) server() (string, error) {
 	return raw, nil
 }
 
+var enrollmentTokenPattern = regexp.MustCompile(`ctenr_[A-Za-z0-9_-]{20,}`)
+
+func enrollmentTokenFromLaunch() string {
+	for _, arg := range os.Args[1:] {
+		if token := enrollmentTokenPattern.FindString(arg); token != "" {
+			return token
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return enrollmentTokenPattern.FindString(filepath.Base(exe))
+}
+
+func (a *App) activateEnrollmentLink() error {
+	if a.enrollmentToken == "" {
+		return nil
+	}
+	var info EnrollmentInfo
+	endpoint := a.serverURL + "/api/enrollment/" + url.PathEscape(a.enrollmentToken) + "/info"
+	if err := a.request("GET", endpoint, nil, "", &info); err != nil {
+		return err
+	}
+	a.company = &Company{ID: info.CompanyID, Name: info.CompanyName}
+	setText(a.companyLabel, info.CompanyName)
+	setText(a.status, "Instalação autorizada por link. Nenhum login ou senha da empresa é necessário.")
+	a.showMode("dashboard")
+	setText(a.controls[idInstall], "Instalar CoreControl neste computador")
+	show(a.controls[idOpenCentral], false)
+	show(a.controls[idLogout], false)
+	return nil
+}
+
 func (a *App) login() {
 	server, err := a.server()
 	if err != nil {
@@ -694,6 +749,10 @@ func (a *App) isClickableControl(hwnd syscall.Handle) bool {
 }
 
 func (a *App) installCurrent() {
+	if a.enrollmentToken != "" {
+		a.installCurrentEnrollment()
+		return
+	}
 	if a.token == "" {
 		return
 	}
@@ -748,6 +807,164 @@ func (a *App) installCurrent() {
 	}
 	message("CoreControl instalado", fmt.Sprintf("Empresa: %s\nComputador: %s\n\nO agente de diagnóstico já está enviando informações técnicas.\n%s", resp.CompanyName, name, notice), MB_OK|MB_ICONINFORMATION)
 	procDestroyWindow.Call(uintptr(a.hwnd))
+}
+
+func (a *App) installCurrentEnrollment() {
+	name := strings.TrimSpace(getText(a.controls[idDeviceName]))
+	if name == "" {
+		message("CoreControl", "Informe o nome deste computador.", MB_OK|MB_ICONERROR)
+		return
+	}
+	enable(a.controls[idInstall], false)
+	setText(a.status, "Validando o link e preparando os componentes...")
+
+	machine, err := collectMachine()
+	if err != nil {
+		enable(a.controls[idInstall], true)
+		message("Diagnóstico", err.Error(), MB_OK|MB_ICONERROR)
+		return
+	}
+
+	var manifest ComponentManifest
+	manifestURL := a.serverURL + "/api/enrollment/" + url.PathEscape(a.enrollmentToken) + "/manifest"
+	if err = a.request("GET", manifestURL, nil, "", &manifest); err != nil {
+		enable(a.controls[idInstall], true)
+		setText(a.status, "O link de instalação não está mais disponível.")
+		message("Link de instalação", err.Error(), MB_OK|MB_ICONERROR)
+		return
+	}
+	coreInfo, ok := manifest.Files["CoreControl.exe"]
+	if !ok {
+		enable(a.controls[idInstall], true)
+		message("CoreControl", "O servidor não forneceu o CoreControl.exe.", MB_OK|MB_ICONERROR)
+		return
+	}
+	agentInfo, ok := manifest.Files["CoreControlAgent.exe"]
+	if !ok {
+		enable(a.controls[idInstall], true)
+		message("CoreControl", "O servidor não forneceu o CoreControlAgent.exe.", MB_OK|MB_ICONERROR)
+		return
+	}
+
+	setText(a.status, "Baixando componentes oficiais do CoreControl...")
+	coreBytes, err := a.downloadComponent(coreInfo)
+	if err != nil {
+		enable(a.controls[idInstall], true)
+		message("Download", "Falha ao baixar CoreControl.exe: "+err.Error(), MB_OK|MB_ICONERROR)
+		return
+	}
+	agentBytes, err := a.downloadComponent(agentInfo)
+	if err != nil {
+		enable(a.controls[idInstall], true)
+		message("Download", "Falha ao baixar CoreControlAgent.exe: "+err.Error(), MB_OK|MB_ICONERROR)
+		return
+	}
+
+	payload := map[string]any{
+		"enrollment_token": a.enrollmentToken,
+		"device_uid":       machine.DeviceUID,
+		"name":             name,
+		"hostname":         machine.Hostname,
+		"sector":           strings.TrimSpace(getText(a.controls[idSector])),
+		"location":         strings.TrimSpace(getText(a.controls[idLocation])),
+		"manufacturer":     machine.Manufacturer,
+		"model":            machine.Model,
+		"serial_number":    machine.SerialNumber,
+		"os_name":          machine.OSName,
+		"os_version":       machine.OSVersion,
+		"agent_version":    appVersion,
+	}
+
+	setText(a.status, "Vinculando este computador à empresa...")
+	var resp InstallResponse
+	err = a.request("POST", a.serverURL+"/api/agent/enroll", payload, "", &resp)
+	if err == nil {
+		err = a.writeEnrollmentFiles(machine, name, getText(a.controls[idSector]), getText(a.controls[idLocation]), resp, coreBytes, agentBytes)
+	}
+	enable(a.controls[idInstall], true)
+	if err != nil {
+		setText(a.status, "Instalação não concluída.")
+		message("Instalação não concluída", err.Error(), MB_OK|MB_ICONERROR)
+		return
+	}
+
+	a.enrollmentToken = ""
+	setText(a.status, "CoreControl instalado e conectado com sucesso.")
+	message(
+		"CoreControl instalado",
+		fmt.Sprintf("Empresa: %s\nComputador: %s\n\nPronto. Este computador já está vinculado e o agente começou a enviar as informações técnicas.\n\nNenhum login ou senha da empresa foi armazenado neste computador.", resp.CompanyName, name),
+		MB_OK|MB_ICONINFORMATION,
+	)
+	procDestroyWindow.Call(uintptr(a.hwnd))
+}
+
+func (a *App) writeEnrollmentFiles(machine Machine, name, sector, location string, resp InstallResponse, coreBytes, agentBytes []byte) error {
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		home, _ := os.UserHomeDir()
+		localAppData = filepath.Join(home, "AppData", "Local")
+	}
+	installDir := filepath.Join(localAppData, "Programs", "CoreControl")
+	legacyInstallDir := filepath.Join(localAppData, "Programs", "CoreTuner")
+	agentDataDir := filepath.Join(localAppData, "CoreTuner", "Agent")
+	userDataDir := configDir()
+	for _, dir := range []string{installDir, agentDataDir, userDataDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("não foi possível preparar a pasta de instalação: %w", err)
+		}
+	}
+
+	agentPath := filepath.Join(installDir, "CoreControlAgent.exe")
+	corePath := filepath.Join(installDir, "CoreControl.exe")
+	legacyAgentPath := filepath.Join(legacyInstallDir, "CoreTunerAgent.exe")
+	legacyCorePath := filepath.Join(legacyInstallDir, "CoreTuner.exe")
+	stopExistingAgent(agentPath)
+	stopExistingAgent(legacyAgentPath)
+	_ = os.Remove(agentPath)
+	_ = os.Remove(legacyAgentPath)
+	_ = os.Remove(legacyCorePath)
+	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreTunerAgent", "/f").Run()
+	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlAgent", "/f").Run()
+	time.Sleep(300 * time.Millisecond)
+
+	if err := writeAtomic(agentPath, agentBytes, 0755); err != nil {
+		return fmt.Errorf("não foi possível instalar o agente: %w", err)
+	}
+	if err := writeAtomic(corePath, coreBytes, 0755); err != nil {
+		return fmt.Errorf("não foi possível instalar o aplicativo: %w", err)
+	}
+
+	cfg := map[string]any{
+		"server_url":          a.serverURL,
+		"agent_secret":        resp.AgentSecret,
+		"device_id":           resp.DeviceID,
+		"interval_seconds":    30,
+		"allow_insecure_http": strings.HasPrefix(strings.ToLower(a.serverURL), "http://127.0.0.1") || strings.HasPrefix(strings.ToLower(a.serverURL), "http://localhost"),
+		"name":                name,
+		"sector":              strings.TrimSpace(sector),
+		"location":            strings.TrimSpace(location),
+	}
+	raw, _ := json.MarshalIndent(cfg, "", "  ")
+	configPath := filepath.Join(agentDataDir, "agent-config.json")
+	if err := writeAtomic(configPath, raw, 0600); err != nil {
+		return fmt.Errorf("não foi possível salvar a configuração do agente: %w", err)
+	}
+	if err := writeAtomic(filepath.Join(userDataDir, "server-url.txt"), []byte(a.serverURL), 0644); err != nil {
+		return fmt.Errorf("não foi possível salvar o endereço do servidor: %w", err)
+	}
+
+	// Instalação por link não deve herdar nem criar sessão administrativa.
+	_ = os.Remove(filepath.Join(userDataDir, "session.json"))
+
+	runCommand := fmt.Sprintf(`"%s" -config "%s"`, agentPath, configPath)
+	if out, err := hiddenCommand("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlAgent", "/t", "REG_SZ", "/d", runCommand, "/f").CombinedOutput(); err != nil {
+		return fmt.Errorf("não foi possível configurar a inicialização do agente: %s", strings.TrimSpace(string(out)))
+	}
+	cmd := hiddenCommand(agentPath, "-config", configPath)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("não foi possível iniciar o agente: %w", err)
+	}
+	return nil
 }
 
 func (a *App) installFiles(machine Machine, name, sector, location string, resp InstallResponse, installRemote bool) error {
@@ -987,7 +1204,9 @@ func (a *App) downloadComponent(info ComponentInfo) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+a.token)
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
 	req.Header.Set("User-Agent", "CoreTunerSetup/"+appVersion)
 	resp, err := a.client.Do(req)
 	if err != nil {

@@ -607,3 +607,62 @@ def test_updates_queue_agent_scan_inventory_install_and_policy():
         policies = client.get("/api/updates/policies", headers=headers)
         assert policies.status_code == 200
         assert any(item["name"] == "Janela noturna" for item in policies.json())
+
+
+def test_company_can_generate_single_use_loginless_installation_link():
+    from urllib.parse import urlsplit
+
+    with TestClient(app) as admin_client:
+        auth = register_company(admin_client, "install-link")
+        company_id = auth["company"]["id"]
+        created = admin_client.post(f"/api/companies/{company_id}/enrollment-token")
+        assert created.status_code == 200, created.text
+        data = created.json()
+        assert data["single_use"] is True
+        assert data["token"].startswith("ctenr_")
+        assert "/instalar/" in data["installation_url"]
+
+        install_path = urlsplit(data["installation_url"]).path
+        token = data["token"]
+
+    # Simula o funcionário em outro navegador/computador: sem cookie, sem login
+    # e sem conhecer a senha da empresa.
+    with TestClient(app) as employee_client:
+        setup = employee_client.get(install_path)
+        assert setup.status_code == 200, setup.text
+        assert setup.content[:2] == b"MZ"
+        assert token in setup.headers.get("content-disposition", "")
+
+        info = employee_client.get(f"/api/enrollment/{token}/info")
+        assert info.status_code == 200, info.text
+        assert info.json()["company_id"] == company_id
+        assert info.json()["company_name"] == "Empresa Cliente install-link"
+
+        manifest = employee_client.get(f"/api/enrollment/{token}/manifest")
+        assert manifest.status_code == 200, manifest.text
+        files = manifest.json()["files"]
+        assert set(files) == {"CoreControl.exe", "CoreControlAgent.exe"}
+
+        agent_component = employee_client.get(files["CoreControlAgent.exe"]["url"])
+        assert agent_component.status_code == 200
+        assert agent_component.content[:2] == b"MZ"
+
+        enrolled = employee_client.post(
+            "/api/agent/enroll",
+            json={
+                "enrollment_token": token,
+                "device_uid": "install-link-device-001",
+                "name": "PC Recepcao",
+                "hostname": "PC-RECEPCAO",
+                "sector": "Recepcao",
+                "agent_version": "0.4.14",
+            },
+        )
+        assert enrolled.status_code == 201, enrolled.text
+        assert enrolled.json()["company_id"] == company_id
+        assert enrolled.json()["company_name"] == "Empresa Cliente install-link"
+
+        reused = employee_client.get(f"/api/enrollment/{token}/info")
+        assert reused.status_code == 410
+        reused_setup = employee_client.get(install_path)
+        assert reused_setup.status_code == 410

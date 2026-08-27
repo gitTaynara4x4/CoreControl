@@ -3,13 +3,14 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 
-from .api import router as api_router
+from .api import get_valid_enrollment, router as api_router
 from .config import settings
-from .db import Base, apply_runtime_migrations, engine
+from .db import Base, apply_runtime_migrations, engine, get_db
 from .public_api import DOWNLOAD_FILENAME, router as public_router
 from .update_api import router as update_router
 from .password_reset import router as password_reset_router
@@ -99,6 +100,29 @@ def meshcentral_custom_script():
 @app.get("/health")
 def health():
     return {"status": "ok", "app": settings.app_name, "version": "0.4.11"}
+
+
+@app.get("/instalar/{raw_token}")
+def enrollment_setup_download(raw_token: str, db: Session = Depends(get_db)):
+    # O próprio link é a credencial temporária. Ele só funciona enquanto o
+    # EnrollmentToken estiver válido e ainda não tiver sido utilizado.
+    get_valid_enrollment(db, raw_token)
+    file_path = DOWNLOAD_DIR / DOWNLOAD_FILENAME
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Instalador do CoreControl indisponível")
+    # O Setup lê o token do próprio nome do arquivo. Assim o funcionário não
+    # recebe login/senha da empresa e também não precisa digitar códigos.
+    download_name = f"CoreControlSetup--{raw_token}.exe"
+    return FileResponse(
+        file_path,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename=download_name,
+        headers={
+            "Cache-Control": "no-store, private",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
 
 
 @app.get("/downloads/{filename}")

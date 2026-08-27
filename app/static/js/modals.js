@@ -40,17 +40,55 @@
     try {
       const data = await CT.api(`/companies/${companyId}/enrollment-token`, { method: 'POST' });
       await CT.openModalTemplate('enrollment-token');
+      const installationUrl = new URL(data.installation_url, window.location.origin).href;
       CT.$('#tokenCompanyName').textContent = companyName;
-      CT.$('#tokenText').textContent = data.token;
-      CT.$('#tokenExpiration').textContent = `Validade: ${CT.fmtDate(data.expires_at)}. O token deixa de funcionar assim que um computador for vinculado.`;
+      CT.$('#installationLink').textContent = installationUrl;
+      CT.$('#tokenExpiration').textContent = `Válido até ${CT.fmtDate(data.expires_at)}. O funcionário só precisa abrir o link e executar o instalador.`;
       CT.$('#closeToken').onclick = CT.closeModal;
-      CT.$('#copyToken').onclick = async () => {
-        await navigator.clipboard.writeText(data.token);
-        CT.toast('Token copiado.');
+      CT.$('#downloadHere').onclick = () => window.location.assign(installationUrl);
+      CT.$('#copyInstallLink').onclick = async () => {
+        await navigator.clipboard.writeText(installationUrl);
+        CT.toast('Link de instalação copiado.');
       };
     } catch (error) {
       CT.toast(error.message, true);
     }
+  };
+
+  CT.chooseEnrollmentCompany = async function chooseEnrollmentCompany(companies) {
+    const active = (companies || []).filter((company) => company.active !== false);
+    if (!active.length) {
+      CT.toast('Nenhuma empresa ativa disponível.', true);
+      return;
+    }
+    if (active.length === 1) {
+      await CT.createEnrollmentToken(active[0].id, active[0].name);
+      return;
+    }
+    CT.openModal(`
+      <h2>Adicionar computador</h2>
+      <p>Escolha a empresa que receberá este computador.</p>
+      <form id="enrollmentCompanyForm" class="stack">
+        <label>Empresa
+          <select id="enrollmentCompanySelect" required>
+            <option value="">Selecione uma empresa</option>
+            ${active.map((company) => `<option value="${company.id}">${CT.esc(company.name)}</option>`).join('')}
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="cancelEnrollmentCompany">Cancelar</button>
+          <button class="btn primary" type="submit">Gerar link de instalação</button>
+        </div>
+      </form>`);
+    CT.$('#cancelEnrollmentCompany').onclick = CT.closeModal;
+    CT.$('#enrollmentCompanyForm').onsubmit = async (event) => {
+      event.preventDefault();
+      const id = Number(CT.$('#enrollmentCompanySelect').value);
+      const company = active.find((item) => item.id === id);
+      if (!company) return;
+      CT.closeModal();
+      await CT.createEnrollmentToken(company.id, company.name);
+    };
   };
 
   CT.openUserModal = async function openUserModal(companies) {

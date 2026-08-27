@@ -770,14 +770,30 @@ def get_company(company_id: int, user: CurrentUser, db: Db):
     }
 
 
+def get_valid_enrollment(db: Session, raw_token: str) -> tuple[EnrollmentToken, Company]:
+    token_hash = sha256_text(raw_token)
+    enrollment = db.scalar(select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash))
+    now = utcnow()
+    if not enrollment or enrollment.used_at is not None:
+        raise HTTPException(status_code=410, detail="Link de instalação inválido ou já utilizado")
+    expires_at = as_utc(enrollment.expires_at)
+    if not expires_at or expires_at < now:
+        raise HTTPException(status_code=410, detail="Link de instalação expirado")
+    company = db.get(Company, enrollment.company_id)
+    if not company or not company.active:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada ou desativada")
+    return enrollment, company
+
+
 @router.post("/companies/{company_id}/enrollment-token")
 def create_enrollment_token(company_id: int, user: CurrentUser, db: Db):
     assert_company_access(user, company_id)
     require_roles(user, "platform_admin", "company_admin", "technician")
-    if not db.get(Company, company_id):
-        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    company = db.get(Company, company_id)
+    if not company or not company.active:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada ou desativada")
     raw = f"ctenr_{new_secret(32)}"
-    expires = utcnow() + timedelta(hours=24)
+    expires = utcnow() + timedelta(minutes=30)
     db.add(
         EnrollmentToken(
             company_id=company_id,
@@ -791,11 +807,62 @@ def create_enrollment_token(company_id: int, user: CurrentUser, db: Db):
             company_id=company_id,
             actor_user_id=user.id,
             action="agent.enrollment_token.create",
-            details=f"Token válido até {expires.isoformat()}",
+            details=f"Link de instalação de uso único válido até {expires.isoformat()}",
         )
     )
     db.commit()
-    return {"token": raw, "expires_at": expires.isoformat(), "single_use": True}
+    base = settings.public_url.rstrip("/")
+    return {
+        "token": raw,
+        "installation_url": f"{base}/instalar/{raw}",
+        "expires_at": expires.isoformat(),
+        "single_use": True,
+    }
+
+
+@router.get("/enrollment/{raw_token}/info")
+def enrollment_info(raw_token: str, db: Db):
+    enrollment, company = get_valid_enrollment(db, raw_token)
+    return {
+        "ok": True,
+        "company_id": company.id,
+        "company_name": company.name,
+        "expires_at": iso(enrollment.expires_at),
+        "single_use": True,
+    }
+
+
+@router.get("/enrollment/{raw_token}/manifest")
+def enrollment_manifest(raw_token: str, db: Db):
+    get_valid_enrollment(db, raw_token)
+    files: dict[str, dict] = {}
+    for filename in ("CoreControl.exe", "CoreControlAgent.exe"):
+        path = COMPONENT_DIR / filename
+        if not path.exists() or not path.is_file():
+            raise HTTPException(status_code=503, detail=f"Componente indisponível: {filename}")
+        files[filename] = {
+            "filename": filename,
+            "url": f"/api/enrollment/{raw_token}/components/{filename}",
+            "sha256": file_sha256(path),
+            "size": path.stat().st_size,
+        }
+    return {"version": "0.4.14", "files": files}
+
+
+@router.get("/enrollment/{raw_token}/components/{filename}")
+def enrollment_component(raw_token: str, filename: str, db: Db):
+    get_valid_enrollment(db, raw_token)
+    if filename not in {"CoreControl.exe", "CoreControlAgent.exe"}:
+        raise HTTPException(status_code=404, detail="Componente não encontrado")
+    path = COMPONENT_DIR / filename
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Componente indisponível")
+    return FileResponse(
+        path,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename=filename,
+        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/devices")
@@ -1321,14 +1388,8 @@ def get_agent_secret(authorization: str | None) -> str:
 
 @router.post("/agent/enroll", status_code=201)
 def agent_enroll(payload: EnrollmentRequest, db: Db):
-    token_hash = sha256_text(payload.enrollment_token)
-    enrollment = db.scalar(select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash))
+    enrollment, company = get_valid_enrollment(db, payload.enrollment_token)
     now = utcnow()
-    if not enrollment or enrollment.used_at is not None:
-        raise HTTPException(status_code=401, detail="Token de instalação inválido ou já utilizado")
-    expires_at = as_utc(enrollment.expires_at)
-    if not expires_at or expires_at < now:
-        raise HTTPException(status_code=401, detail="Token de instalação expirado")
     existing = db.scalar(
         select(Device).where(Device.company_id == enrollment.company_id, Device.device_uid == payload.device_uid)
     )
@@ -1372,13 +1433,21 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
     db.add(
         AuditLog(
             company_id=device.company_id,
+            actor_user_id=enrollment.created_by,
             device_id=device.id,
             action="agent.enroll",
-            details=json.dumps({"hostname": device.hostname, "uid": device.device_uid}, ensure_ascii=False),
+            details=json.dumps({"hostname": device.hostname, "uid": device.device_uid, "source": "installation_link"}, ensure_ascii=False),
         )
     )
     db.commit()
-    return {"device_id": device.id, "agent_secret": raw_secret, "company_id": device.company_id}
+    return {
+        "device_id": device.id,
+        "agent_secret": raw_secret,
+        "company_id": device.company_id,
+        "company_name": company.name,
+        "remote_agent": None,
+        "remote_warning": "Acesso remoto não é instalado pelo link de uso único.",
+    }
 
 
 @router.post("/agent/telemetry")
