@@ -1,12 +1,41 @@
 <h2>Adicionar computador</h2>
-<p>Envie este link para a pessoa que está no computador da empresa <strong id="tokenCompanyName"></strong>. Ela não precisa receber seu login nem sua senha.</p>
-<div class="token-box" id="installationLink"></div>
-<div class="callout" id="tokenExpiration" style="margin-top:14px"></div>
-<div class="callout" style="margin-top:10px">
-  O link é de uso único. Depois que um computador for vinculado, ele deixa de funcionar automaticamente.
+<p>
+  Passe o código abaixo para a pessoa que está no computador da empresa
+  <strong id="tokenCompanyName"></strong>. Ela não precisa receber seu login nem sua senha.
+</p>
+
+<div style="margin-top:16px">
+  <div style="font-size:12px;opacity:.72;margin-bottom:6px">Código de instalação</div>
+  <div class="token-box" id="installationCode" style="font-size:22px;font-weight:700;letter-spacing:2px;text-align:center"></div>
 </div>
-<div class="modal-actions">
-  <button class="btn" id="closeToken">Fechar</button>
-  <button class="btn" id="downloadHere">Baixar neste computador</button>
-  <button class="btn primary" id="copyInstallLink">Copiar link</button>
+
+<div class="callout" id="tokenExpiration" style="margin-top:12px"></div>
+<div class="callout" style="margin-top:10px">
+  No computador do funcionário, abra o instalador do CoreControl, escolha <strong>Tenho um código de instalação</strong> e digite o código acima.
+</div>
+
+<div style="margin-top:16px">
+  <div style="font-size:12px;opacity:.72;margin-bottom:6px">Instalador genérico</div>
+  <div class="token-box" id="genericSetupAddress" style="font-size:12px"></div>
+</div>
+
+<details style="margin-top:14px">
+  <summary style="cursor:pointer;font-weight:600">Outras formas de instalar</summary>
+  <div style="margin-top:12px">
+    <div style="font-size:12px;opacity:.72;margin-bottom:6px">Link direto de instalação</div>
+    <div class="token-box" id="installationLink" style="font-size:12px;word-break:break-all"></div>
+  </div>
+</details>
+
+<div id="installationQrPanel" class="hidden" style="margin-top:14px;text-align:center">
+  <img id="installationQr" alt="QR Code de instalação" style="width:220px;height:220px;max-width:100%;background:#fff;padding:10px;border-radius:12px">
+  <div style="font-size:12px;opacity:.72;margin-top:6px">O QR Code abre o mesmo link direto e também expira após o uso.</div>
+</div>
+
+<div class="modal-actions" style="flex-wrap:wrap">
+  <button class="btn" type="button" id="closeToken">Fechar</button>
+  <button class="btn" type="button" id="downloadHere">Baixar Setup</button>
+  <button class="btn" type="button" id="showInstallQr">Mostrar QR Code</button>
+  <button class="btn" type="button" id="copyInstallLink">Copiar link</button>
+  <button class="btn primary" type="button" id="copyInstallCode">Copiar código</button>
 </div>

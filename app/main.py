@@ -55,7 +55,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.11",
+    version="0.4.15",
     docs_url="/api/docs" if not settings.is_production else None,
     redoc_url=None,
     lifespan=lifespan,
@@ -99,7 +99,25 @@ def meshcentral_custom_script():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name, "version": "0.4.11"}
+    return {"status": "ok", "app": settings.app_name, "version": "0.4.15"}
+
+
+@app.get("/instalar")
+def generic_setup_download():
+    """Instalador genérico para uso com um código temporário da empresa."""
+    file_path = DOWNLOAD_DIR / DOWNLOAD_FILENAME
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Instalador do CoreControl indisponível")
+    return FileResponse(
+        file_path,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename="CoreControlSetup.exe",
+        headers={
+            "Cache-Control": "no-store, private",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
 
 
 @app.get("/instalar/{raw_token}")

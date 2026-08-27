@@ -472,7 +472,7 @@ def test_site_central_and_health_are_served():
 
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.4.11"
+        assert health.json()["version"] == "0.4.15"
 
 
 def test_updates_queue_agent_scan_inventory_install_and_policy():
@@ -609,36 +609,59 @@ def test_updates_queue_agent_scan_inventory_install_and_policy():
         assert any(item["name"] == "Janela noturna" for item in policies.json())
 
 
-def test_company_can_generate_single_use_loginless_installation_link():
+def test_company_can_generate_single_use_code_link_qr_and_generic_setup():
     from urllib.parse import urlsplit
 
     with TestClient(app) as admin_client:
-        auth = register_company(admin_client, "install-link")
+        auth = register_company(admin_client, "install-code")
         company_id = auth["company"]["id"]
-        created = admin_client.post(f"/api/companies/{company_id}/enrollment-token")
+        created = admin_client.post(f"/api/companies/{company_id}/enrollment-token?valid_minutes=120")
         assert created.status_code == 200, created.text
         data = created.json()
         assert data["single_use"] is True
         assert data["token"].startswith("ctenr_")
+        assert data["installation_code"].startswith("CC-")
+        assert len(data["installation_code"]) == 12
+        assert data["valid_minutes"] == 120
+        assert data["setup_url"].endswith("/instalar")
         assert "/instalar/" in data["installation_url"]
+        assert data["qr_url"].endswith("/qr.svg")
 
         install_path = urlsplit(data["installation_url"]).path
         token = data["token"]
+        code = data["installation_code"]
+
+        invalid_validity = admin_client.post(f"/api/companies/{company_id}/enrollment-token?valid_minutes=15")
+        assert invalid_validity.status_code == 422
 
     # Simula o funcionário em outro navegador/computador: sem cookie, sem login
     # e sem conhecer a senha da empresa.
     with TestClient(app) as employee_client:
-        setup = employee_client.get(install_path)
-        assert setup.status_code == 200, setup.text
-        assert setup.content[:2] == b"MZ"
-        assert token in setup.headers.get("content-disposition", "")
+        generic_setup = employee_client.get("/instalar")
+        assert generic_setup.status_code == 200, generic_setup.text
+        assert generic_setup.content[:2] == b"MZ"
+        assert "CoreControlSetup.exe" in generic_setup.headers.get("content-disposition", "")
 
-        info = employee_client.get(f"/api/enrollment/{token}/info")
-        assert info.status_code == 200, info.text
-        assert info.json()["company_id"] == company_id
-        assert info.json()["company_name"] == "Empresa Cliente install-link"
+        direct_setup = employee_client.get(install_path)
+        assert direct_setup.status_code == 200, direct_setup.text
+        assert direct_setup.content[:2] == b"MZ"
+        assert token in direct_setup.headers.get("content-disposition", "")
 
-        manifest = employee_client.get(f"/api/enrollment/{token}/manifest")
+        info_by_code = employee_client.get(f"/api/enrollment/{code}/info")
+        assert info_by_code.status_code == 200, info_by_code.text
+        assert info_by_code.json()["company_id"] == company_id
+        assert info_by_code.json()["company_name"] == "Empresa Cliente install-code"
+
+        compact_code = code.replace("CC-", "").replace("-", "").lower()
+        info_compact = employee_client.get(f"/api/enrollment/{compact_code}/info")
+        assert info_compact.status_code == 200, info_compact.text
+
+        qr = employee_client.get(data["qr_url"])
+        assert qr.status_code == 200, qr.text
+        assert "image/svg+xml" in qr.headers.get("content-type", "")
+        assert b"<svg" in qr.content
+
+        manifest = employee_client.get(f"/api/enrollment/{code}/manifest")
         assert manifest.status_code == 200, manifest.text
         files = manifest.json()["files"]
         assert set(files) == {"CoreControl.exe", "CoreControlAgent.exe"}
@@ -650,19 +673,22 @@ def test_company_can_generate_single_use_loginless_installation_link():
         enrolled = employee_client.post(
             "/api/agent/enroll",
             json={
-                "enrollment_token": token,
-                "device_uid": "install-link-device-001",
+                "enrollment_token": code,
+                "device_uid": "install-code-device-001",
                 "name": "PC Recepcao",
                 "hostname": "PC-RECEPCAO",
                 "sector": "Recepcao",
-                "agent_version": "0.4.14",
+                "agent_version": "0.4.15",
             },
         )
         assert enrolled.status_code == 201, enrolled.text
         assert enrolled.json()["company_id"] == company_id
-        assert enrolled.json()["company_name"] == "Empresa Cliente install-link"
+        assert enrolled.json()["company_name"] == "Empresa Cliente install-code"
 
-        reused = employee_client.get(f"/api/enrollment/{token}/info")
-        assert reused.status_code == 410
+        # Código e link representam a mesma autorização: usar um invalida ambos.
+        reused_code = employee_client.get(f"/api/enrollment/{code}/info")
+        assert reused_code.status_code == 410
+        reused_link = employee_client.get(f"/api/enrollment/{token}/info")
+        assert reused_link.status_code == 410
         reused_setup = employee_client.get(install_path)
         assert reused_setup.status_code == 410

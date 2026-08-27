@@ -36,23 +36,70 @@
     };
   };
 
-  CT.createEnrollmentToken = async function createEnrollmentToken(companyId, companyName) {
+  CT.createEnrollmentToken = async function createEnrollmentToken(companyId, companyName, validMinutes) {
     try {
-      const data = await CT.api(`/companies/${companyId}/enrollment-token`, { method: 'POST' });
+      const minutes = Number(validMinutes) || 30;
+      const data = await CT.api(`/companies/${companyId}/enrollment-token?valid_minutes=${minutes}`, { method: 'POST' });
       await CT.openModalTemplate('enrollment-token');
+
       const installationUrl = new URL(data.installation_url, window.location.origin).href;
+      const setupUrl = new URL(data.setup_url || '/instalar', window.location.origin).href;
+      const qrUrl = new URL(data.qr_url, window.location.origin).href;
+
       CT.$('#tokenCompanyName').textContent = companyName;
+      CT.$('#installationCode').textContent = data.installation_code;
       CT.$('#installationLink').textContent = installationUrl;
-      CT.$('#tokenExpiration').textContent = `Válido até ${CT.fmtDate(data.expires_at)}. O funcionário só precisa abrir o link e executar o instalador.`;
+      CT.$('#genericSetupAddress').textContent = setupUrl;
+      CT.$('#tokenExpiration').textContent = `Válido até ${CT.fmtDate(data.expires_at)} • uso único.`;
       CT.$('#closeToken').onclick = CT.closeModal;
-      CT.$('#downloadHere').onclick = () => window.location.assign(installationUrl);
+
+      CT.$('#downloadHere').onclick = () => window.location.assign(setupUrl);
+      CT.$('#copyInstallCode').onclick = async () => {
+        await navigator.clipboard.writeText(data.installation_code);
+        CT.toast('Código de instalação copiado.');
+      };
       CT.$('#copyInstallLink').onclick = async () => {
         await navigator.clipboard.writeText(installationUrl);
         CT.toast('Link de instalação copiado.');
       };
+      CT.$('#showInstallQr').onclick = () => {
+        const panel = CT.$('#installationQrPanel');
+        const image = CT.$('#installationQr');
+        const opening = panel.classList.contains('hidden');
+        panel.classList.toggle('hidden', !opening);
+        if (opening && !image.src) image.src = qrUrl;
+        CT.$('#showInstallQr').textContent = opening ? 'Ocultar QR Code' : 'Mostrar QR Code';
+      };
     } catch (error) {
       CT.toast(error.message, true);
     }
+  };
+
+  CT.openEnrollmentOptions = function openEnrollmentOptions(companyId, companyName) {
+    CT.openModal(`
+      <h2>Adicionar computador</h2>
+      <p>Gere um código temporário para <strong>${CT.esc(companyName)}</strong>. O funcionário não precisa receber login ou senha da empresa.</p>
+      <form id="enrollmentOptionsForm" class="stack">
+        <label>Validade do código
+          <select id="enrollmentValidity" required>
+            <option value="30" selected>30 minutos</option>
+            <option value="120">2 horas</option>
+            <option value="1440">24 horas</option>
+          </select>
+        </label>
+        <div class="callout">O código é de uso único. Assim que um computador for vinculado, código, link e QR Code deixam de funcionar.</div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="cancelEnrollmentOptions">Cancelar</button>
+          <button class="btn primary" type="submit">Gerar código de instalação</button>
+        </div>
+      </form>`);
+    CT.$('#cancelEnrollmentOptions').onclick = CT.closeModal;
+    CT.$('#enrollmentOptionsForm').onsubmit = async (event) => {
+      event.preventDefault();
+      const minutes = Number(CT.$('#enrollmentValidity').value) || 30;
+      CT.closeModal();
+      await CT.createEnrollmentToken(companyId, companyName, minutes);
+    };
   };
 
   CT.chooseEnrollmentCompany = async function chooseEnrollmentCompany(companies) {
@@ -62,7 +109,7 @@
       return;
     }
     if (active.length === 1) {
-      await CT.createEnrollmentToken(active[0].id, active[0].name);
+      CT.openEnrollmentOptions(active[0].id, active[0].name);
       return;
     }
     CT.openModal(`
@@ -77,7 +124,7 @@
         </label>
         <div class="modal-actions">
           <button class="btn" type="button" id="cancelEnrollmentCompany">Cancelar</button>
-          <button class="btn primary" type="submit">Gerar link de instalação</button>
+          <button class="btn primary" type="submit">Continuar</button>
         </div>
       </form>`);
     CT.$('#cancelEnrollmentCompany').onclick = CT.closeModal;
@@ -87,7 +134,7 @@
       const company = active.find((item) => item.id === id);
       if (!company) return;
       CT.closeModal();
-      await CT.createEnrollmentToken(company.id, company.name);
+      CT.openEnrollmentOptions(company.id, company.name);
     };
   };
 

@@ -23,7 +23,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.14"
+const appVersion = "0.4.15"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -72,6 +72,9 @@ const (
 	idLoginButton      = 104
 	idShowRegister     = 105
 	idForgotPassword   = 106
+	idUseInstallCode   = 107
+	idInstallCode      = 108
+	idValidateCode     = 109
 	idRegisterCompany  = 110
 	idRegisterName     = 111
 	idRegisterEmail    = 112
@@ -79,6 +82,7 @@ const (
 	idRegisterConfirm  = 114
 	idRegisterButton   = 115
 	idShowLogin        = 116
+	idCodeBack         = 117
 	idDeviceName       = 201
 	idSector           = 202
 	idLocation         = 203
@@ -233,6 +237,7 @@ type App struct {
 	buttonFont      uintptr
 	controls        map[int]syscall.Handle
 	loginGroup      []syscall.Handle
+	codeGroup       []syscall.Handle
 	registerGroup   []syscall.Handle
 	dashboardGroup  []syscall.Handle
 	client          *http.Client
@@ -336,9 +341,9 @@ func runGUI() {
 	app.createFonts()
 	buildUI()
 	if launchToken != "" {
-		if err := app.activateEnrollmentLink(); err != nil {
+		if err := app.activateEnrollmentCredential("link"); err != nil {
 			app.enrollmentToken = ""
-			message("Link de instalação", err.Error(), MB_OK|MB_ICONERROR)
+			message("Autorização de instalação", err.Error(), MB_OK|MB_ICONERROR)
 		}
 	}
 	procShowWindow.Call(h, SW_SHOW)
@@ -453,15 +458,36 @@ func buildUI() {
 	a.add(idLoginPassword, createControl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL, 80, 464, 540, 42, a.hwnd, idLoginPassword), &a.loginGroup)
 
 	a.add(idLoginButton, createControl("BUTTON", "Entrar no CoreControl", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 536, 540, 50, a.hwnd, idLoginButton), &a.loginGroup)
-	a.add(idShowRegister, createControl("BUTTON", "Criar uma empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 80, 606, 260, 46, a.hwnd, idShowRegister), &a.loginGroup)
-	a.add(idForgotPassword, createControl("BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 360, 606, 260, 46, a.hwnd, idForgotPassword), &a.loginGroup)
+	a.add(idUseInstallCode, createControl("BUTTON", "Tenho um código de instalação", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 80, 606, 540, 46, a.hwnd, idUseInstallCode), &a.loginGroup)
+	a.add(idShowRegister, createControl("BUTTON", "Criar uma empresa", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 80, 670, 260, 46, a.hwnd, idShowRegister), &a.loginGroup)
+	a.add(idForgotPassword, createControl("BUTTON", "Esqueci minha senha", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW, 360, 670, 260, 46, a.hwnd, idForgotPassword), &a.loginGroup)
 	applyFont(a.controls[idLoginButton], a.buttonFont)
+	applyFont(a.controls[idUseInstallCode], a.buttonFont)
 	applyFont(a.controls[idShowRegister], a.buttonFont)
 	applyFont(a.controls[idForgotPassword], a.buttonFont)
 
-	loginNote := createControl("STATIC", "✓  Conexão segura. Seus dados técnicos são protegidos e usados somente para o monitoramento.", WS_CHILD|WS_VISIBLE, 80, 684, 540, 46, a.hwnd, 0)
+	loginNote := createControl("STATIC", "✓  Funcionários podem instalar com um código temporário sem conhecer a senha da empresa.", WS_CHILD|WS_VISIBLE, 80, 744, 540, 46, a.hwnd, 0)
 	applyFont(loginNote, a.smallFont)
 	a.loginGroup = append(a.loginGroup, loginNote)
+
+	// Instalação por código temporário
+	c1 := createControl("STATIC", "Vincular com código", WS_CHILD, 80, 270, 540, 34, a.hwnd, 0)
+	applyFont(c1, a.sectionFont)
+	a.codeGroup = append(a.codeGroup, c1)
+	cIntro := createControl("STATIC", "Digite o código fornecido pelo administrador da empresa. Nenhum login ou senha é necessário.", WS_CHILD, 80, 310, 540, 48, a.hwnd, 0)
+	applyFont(cIntro, a.smallFont)
+	a.codeGroup = append(a.codeGroup, cIntro)
+	cLabel := createControl("STATIC", "Código de instalação", WS_CHILD, 80, 382, 220, 22, a.hwnd, 0)
+	applyFont(cLabel, a.smallFont)
+	a.codeGroup = append(a.codeGroup, cLabel)
+	a.add(idInstallCode, createControl("EDIT", "", WS_CHILD|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 80, 410, 540, 46, a.hwnd, idInstallCode), &a.codeGroup)
+	a.add(idValidateCode, createControl("BUTTON", "Validar código e continuar", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 80, 486, 540, 50, a.hwnd, idValidateCode), &a.codeGroup)
+	a.add(idCodeBack, createControl("BUTTON", "Voltar", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 80, 556, 540, 44, a.hwnd, idCodeBack), &a.codeGroup)
+	applyFont(a.controls[idValidateCode], a.buttonFont)
+	applyFont(a.controls[idCodeBack], a.buttonFont)
+	cNote := createControl("STATIC", "Exemplo: CC-7K4P-9M2X  •  O código expira e só pode vincular um computador.", WS_CHILD, 80, 630, 540, 46, a.hwnd, 0)
+	applyFont(cNote, a.smallFont)
+	a.codeGroup = append(a.codeGroup, cNote)
 
 	// Cadastro
 	r1 := createControl("STATIC", "Crie sua empresa", WS_CHILD, 80, 264, 540, 34, a.hwnd, 0)
@@ -508,7 +534,7 @@ func buildUI() {
 	applyFont(a.status, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, a.status)
 
-	steps := createControl("STATIC", "1  Conta     2  Computador     3  Instalação     4  Concluído", WS_CHILD, 80, 382, 540, 26, a.hwnd, 0)
+	steps := createControl("STATIC", "1  Vínculo     2  Computador     3  Instalação     4  Concluído", WS_CHILD, 80, 382, 540, 26, a.hwnd, 0)
 	applyFont(steps, a.smallFont)
 	a.dashboardGroup = append(a.dashboardGroup, steps)
 	section := createControl("STATIC", "Identifique este computador", WS_CHILD, 80, 424, 540, 32, a.hwnd, 0)
@@ -554,6 +580,9 @@ func (a *App) showMode(mode string) {
 	for _, h := range a.loginGroup {
 		show(h, false)
 	}
+	for _, h := range a.codeGroup {
+		show(h, false)
+	}
 	for _, h := range a.registerGroup {
 		show(h, false)
 	}
@@ -567,6 +596,12 @@ func (a *App) showMode(mode string) {
 		for _, h := range a.dashboardGroup {
 			show(h, true)
 		}
+	} else if mode == "code" {
+		setText(a.subtitle, "Instalação sem login da empresa")
+		for _, h := range a.codeGroup {
+			show(h, true)
+		}
+		procSetFocus.Call(uintptr(a.controls[idInstallCode]))
 	} else if mode == "register" {
 		setText(a.subtitle, "Crie sua conta e conecte o primeiro computador")
 		for _, h := range a.registerGroup {
@@ -592,7 +627,11 @@ func (a *App) handleCommand(id int) {
 	switch id {
 	case idShowRegister:
 		a.showMode("register")
-	case idShowLogin:
+	case idUseInstallCode:
+		a.showMode("code")
+	case idValidateCode:
+		a.activateEnrollmentCode()
+	case idCodeBack, idShowLogin:
 		a.showMode("login")
 	case idLoginButton:
 		a.login()
@@ -640,7 +679,19 @@ func enrollmentTokenFromLaunch() string {
 	return enrollmentTokenPattern.FindString(filepath.Base(exe))
 }
 
-func (a *App) activateEnrollmentLink() error {
+func normalizeEnrollmentCode(value string) string {
+	compact := strings.ToUpper(regexp.MustCompile(`[^A-Z0-9]`).ReplaceAllString(strings.TrimSpace(value), ""))
+	if len(compact) == 8 {
+		compact = "CC" + compact
+	}
+	if len(compact) != 10 || !strings.HasPrefix(compact, "CC") {
+		return ""
+	}
+	body := compact[2:]
+	return "CC-" + body[:4] + "-" + body[4:]
+}
+
+func (a *App) activateEnrollmentCredential(source string) error {
 	if a.enrollmentToken == "" {
 		return nil
 	}
@@ -651,12 +702,40 @@ func (a *App) activateEnrollmentLink() error {
 	}
 	a.company = &Company{ID: info.CompanyID, Name: info.CompanyName}
 	setText(a.companyLabel, info.CompanyName)
-	setText(a.status, "Instalação autorizada por link. Nenhum login ou senha da empresa é necessário.")
+	if source == "código" {
+		setText(a.status, "Código validado. Nenhum login ou senha da empresa foi usado neste computador.")
+	} else {
+		setText(a.status, "Instalação autorizada por link. Nenhum login ou senha da empresa é necessário.")
+	}
 	a.showMode("dashboard")
 	setText(a.controls[idInstall], "Instalar CoreControl neste computador")
 	show(a.controls[idOpenCentral], false)
 	show(a.controls[idLogout], false)
 	return nil
+}
+
+func (a *App) activateEnrollmentCode() {
+	code := normalizeEnrollmentCode(getText(a.controls[idInstallCode]))
+	if code == "" {
+		message("Código de instalação", "Digite um código válido, por exemplo CC-7K4P-9M2X.", MB_OK|MB_ICONERROR)
+		return
+	}
+
+	// O Setup oficial usa o servidor incorporado no build para códigos temporários,
+	// evitando que uma configuração antiga desta máquina envie o código para outro ambiente.
+	a.serverURL = strings.TrimRight(defaultServerURL, "/")
+	setText(a.controls[idServer], a.serverURL)
+	a.enrollmentToken = code
+	enable(a.controls[idValidateCode], false)
+	setText(a.subtitle, "Validando código de instalação...")
+	err := a.activateEnrollmentCredential("código")
+	enable(a.controls[idValidateCode], true)
+	if err != nil {
+		a.enrollmentToken = ""
+		setText(a.subtitle, "Código não validado.")
+		message("Código de instalação", err.Error(), MB_OK|MB_ICONERROR)
+		return
+	}
 }
 
 func (a *App) login() {
@@ -741,7 +820,7 @@ func (a *App) isClickableControl(hwnd syscall.Handle) bool {
 	}
 	id, _, _ := procGetDlgCtrlID.Call(uintptr(hwnd))
 	switch int(id) {
-	case idLoginButton, idShowRegister, idForgotPassword, idRegisterButton, idShowLogin, idInstall, idOpenCentral, idLogout:
+	case idLoginButton, idUseInstallCode, idValidateCode, idCodeBack, idShowRegister, idForgotPassword, idRegisterButton, idShowLogin, idInstall, idOpenCentral, idLogout:
 		return true
 	default:
 		return false
@@ -816,7 +895,7 @@ func (a *App) installCurrentEnrollment() {
 		return
 	}
 	enable(a.controls[idInstall], false)
-	setText(a.status, "Validando o link e preparando os componentes...")
+	setText(a.status, "Validando a autorização e preparando os componentes...")
 
 	machine, err := collectMachine()
 	if err != nil {
@@ -829,7 +908,7 @@ func (a *App) installCurrentEnrollment() {
 	manifestURL := a.serverURL + "/api/enrollment/" + url.PathEscape(a.enrollmentToken) + "/manifest"
 	if err = a.request("GET", manifestURL, nil, "", &manifest); err != nil {
 		enable(a.controls[idInstall], true)
-		setText(a.status, "O link de instalação não está mais disponível.")
+		setText(a.status, "O código ou link de instalação não está mais disponível.")
 		message("Link de instalação", err.Error(), MB_OK|MB_ICONERROR)
 		return
 	}

@@ -33,6 +33,9 @@ _RUNTIME_COLUMNS: dict[str, dict[str, str]] = {
         "remote_checked_at": "TIMESTAMP NULL",
         "remote_last_seen": "TIMESTAMP NULL",
     },
+    "enrollment_tokens": {
+        "code_hash": "VARCHAR(64) NULL",
+    },
 }
 
 
@@ -54,6 +57,14 @@ def apply_runtime_migrations() -> None:
                 if column_name.lower() in present:
                     continue
                 connection.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {definition}'))
+
+        if "enrollment_tokens" in existing_tables:
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_enrollment_tokens_code_hash "
+                    "ON enrollment_tokens (code_hash)"
+                )
+            )
 
 
 def get_db():
