@@ -87,7 +87,7 @@ func colorRef(r, g, b byte) uintptr {
 
 func ensureThemeResources() {
 	if themeWindowBrush == 0 {
-		brush, _, _ := procCreateSolidBrush.Call(colorRef(245, 248, 252))
+		brush, _, _ := procCreateSolidBrush.Call(colorRef(246, 247, 249))
 		themeWindowBrush = syscall.Handle(brush)
 	}
 	if themeWhiteBrush == 0 {
@@ -144,34 +144,39 @@ func paintTheme(hwnd syscall.Handle) {
 	procGetClientRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&client)))
 	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&client)), uintptr(themeWindowBrush))
 
-	header := RECT{Left: 0, Top: 0, Right: client.Right, Bottom: 226}
+	// Cabeçalho limpo, sem dados técnicos ou linhas decorativas pesadas.
+	header := RECT{Left: 0, Top: 0, Right: client.Right, Bottom: 112}
 	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&header)), uintptr(themeWhiteBrush))
 
-	// Linha de identidade visual entre o cabeçalho e o formulário.
-	accentBrush, _, _ := procCreateSolidBrush.Call(colorRef(18, 183, 240))
-	accent := RECT{Left: 44, Top: 222, Right: client.Right - 44, Bottom: 226}
-	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&accent)), accentBrush)
-	procDeleteObject.Call(accentBrush)
-
-	// Cartão principal da etapa atual.
+	// Cartão único da etapa atual.
 	brush, _, _ := procCreateSolidBrush.Call(colorRef(255, 255, 255))
-	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, colorRef(221, 229, 240))
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, colorRef(228, 231, 236))
 	oldBrush, _, _ := procSelectObject.Call(hdc, brush)
 	oldPen, _, _ := procSelectObject.Call(hdc, pen)
-	procRoundRect.Call(hdc, 44, 242, uintptr(client.Right-44), uintptr(client.Bottom-32), 18, 18)
+	procRoundRect.Call(hdc, 32, 124, uintptr(client.Right-32), uintptr(client.Bottom-14), 18, 18)
 	procSelectObject.Call(hdc, oldBrush)
 	procSelectObject.Call(hdc, oldPen)
 	procDeleteObject.Call(brush)
 	procDeleteObject.Call(pen)
 }
 
-func staticControlColor(hdc uintptr) uintptr {
+func staticControlColor(hdc uintptr, hwnd syscall.Handle) uintptr {
 	ensureThemeResources()
-	// Os textos ficam sobre áreas brancas (cabeçalho e cartão). Fundo opaco
-	// impede que o texto anterior permaneça visível após SetWindowText/ShowWindow.
 	procSetBkMode.Call(hdc, OPAQUE)
 	procSetBkColor.Call(hdc, colorRef(255, 255, 255))
-	procSetTextColor.Call(hdc, colorRef(38, 50, 74))
+
+	textColor := colorRef(42, 48, 60)
+	if app != nil {
+		switch hwnd {
+		case app.brand:
+			textColor = colorRef(23, 62, 118)
+		case app.subtitle, app.status:
+			textColor = colorRef(91, 99, 113)
+		case app.verifiedLabel:
+			textColor = colorRef(31, 130, 78)
+		}
+	}
+	procSetTextColor.Call(hdc, textColor)
 	return uintptr(themeWhiteBrush)
 }
 
@@ -197,17 +202,17 @@ func drawOwnerButton(dis *DRAWITEMSTRUCT) {
 
 	switch id {
 	case idLoginButton, idRegisterButton, idInstall:
-		fill = colorRef(13, 91, 245)
-		border = colorRef(13, 91, 245)
+		fill = colorRef(22, 93, 210)
+		border = colorRef(22, 93, 210)
 		textColor = colorRef(255, 255, 255)
 		if pressed {
-			fill = colorRef(8, 70, 196)
+			fill = colorRef(18, 76, 171)
 			border = fill
 		}
 	case idForgotPassword:
 		fill = colorRef(239, 246, 255)
 		border = colorRef(218, 232, 252)
-		textColor = colorRef(13, 91, 245)
+		textColor = colorRef(22, 93, 210)
 	}
 
 	if disabled {

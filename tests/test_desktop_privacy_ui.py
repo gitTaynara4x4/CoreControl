@@ -12,8 +12,8 @@ SETUP_SOURCE = (ROOT / "desktop" / "setup" / "src" / "main.go").read_text(encodi
 
 
 def test_setup_shows_only_linked_company_context():
-    assert '"Empresa vinculada"' in SETUP_SOURCE
-    assert "Este computador será adicionado a essa empresa." in SETUP_SOURCE
+    assert '"✓ Empresa confirmada"' in SETUP_SOURCE
+    assert "Nenhuma senha administrativa é salva neste computador." in SETUP_SOURCE
     assert "computadores, %d online" not in SETUP_SOURCE
     assert 'serverURL+"/api/devices"' not in SETUP_SOURCE
 
