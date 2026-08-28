@@ -12,8 +12,8 @@ SETUP_SOURCE = (ROOT / "desktop" / "setup" / "src" / "main.go").read_text(encodi
 
 
 def test_setup_shows_only_linked_company_context():
-    assert '"✓ Empresa confirmada"' in SETUP_SOURCE
-    assert "Nenhuma senha administrativa é salva neste computador." in SETUP_SOURCE
+    assert '"Empresa confirmada"' in SETUP_SOURCE
+    assert "Nenhum login ou senha da empresa foi usado." in SETUP_SOURCE
     assert "computadores, %d online" not in SETUP_SOURCE
     assert 'serverURL+"/api/devices"' not in SETUP_SOURCE
 
@@ -47,7 +47,7 @@ def test_setup_repaints_between_wizard_steps_without_ghosting():
     assert "forceRedraw(a.hwnd)" in SETUP_SOURCE
     assert "windowStyle := uintptr(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX)" in SETUP_SOURCE
     assert "procSetBkMode.Call(hdc, OPAQUE)" in theme_source
-    assert "return uintptr(themeWhiteBrush)" in theme_source
+    assert "return uintptr(brush)" in theme_source
     assert "RDW_ALLCHILDREN" in theme_source
     assert 'createControl("STATIC", "Aguardando login"' not in SETUP_SOURCE
     assert 'createControl("STATIC", "Entre com sua conta para continuar."' not in SETUP_SOURCE

@@ -69,6 +69,9 @@ var (
 	procSelectObject     = gdi32.NewProc("SelectObject")
 	procDeleteObject     = gdi32.NewProc("DeleteObject")
 	procRoundRect        = gdi32.NewProc("RoundRect")
+	procEllipse          = gdi32.NewProc("Ellipse")
+	procMoveToEx         = gdi32.NewProc("MoveToEx")
+	procLineTo           = gdi32.NewProc("LineTo")
 	procSetBkMode        = gdi32.NewProc("SetBkMode")
 	procSetBkColor       = gdi32.NewProc("SetBkColor")
 	procSetTextColor     = gdi32.NewProc("SetTextColor")
@@ -79,6 +82,7 @@ var (
 	themeWindowBrush syscall.Handle
 	themeWhiteBrush  syscall.Handle
 	themeEditBrush   syscall.Handle
+	themeInfoBrush   syscall.Handle
 )
 
 func colorRef(r, g, b byte) uintptr {
@@ -87,7 +91,7 @@ func colorRef(r, g, b byte) uintptr {
 
 func ensureThemeResources() {
 	if themeWindowBrush == 0 {
-		brush, _, _ := procCreateSolidBrush.Call(colorRef(246, 247, 249))
+		brush, _, _ := procCreateSolidBrush.Call(colorRef(248, 250, 252))
 		themeWindowBrush = syscall.Handle(brush)
 	}
 	if themeWhiteBrush == 0 {
@@ -97,6 +101,10 @@ func ensureThemeResources() {
 	if themeEditBrush == 0 {
 		brush, _, _ := procCreateSolidBrush.Call(colorRef(255, 255, 255))
 		themeEditBrush = syscall.Handle(brush)
+	}
+	if themeInfoBrush == 0 {
+		brush, _, _ := procCreateSolidBrush.Call(colorRef(248, 251, 255))
+		themeInfoBrush = syscall.Handle(brush)
 	}
 }
 
@@ -131,6 +139,147 @@ func eraseThemeBackground(hwnd syscall.Handle, hdc uintptr) {
 	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&client)), uintptr(themeWindowBrush))
 }
 
+func roundedPanel(hdc uintptr, left, top, right, bottom int32, fill, border uintptr, radius int32) {
+	brush, _, _ := procCreateSolidBrush.Call(fill)
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
+	oldBrush, _, _ := procSelectObject.Call(hdc, brush)
+	oldPen, _, _ := procSelectObject.Call(hdc, pen)
+	procRoundRect.Call(hdc, uintptr(left), uintptr(top), uintptr(right), uintptr(bottom), uintptr(radius), uintptr(radius))
+	procSelectObject.Call(hdc, oldBrush)
+	procSelectObject.Call(hdc, oldPen)
+	procDeleteObject.Call(brush)
+	procDeleteObject.Call(pen)
+}
+
+func strokedLine(hdc uintptr, x1, y1, x2, y2 int32, color uintptr, width int32) {
+	pen, _, _ := procCreatePen.Call(PS_SOLID, uintptr(width), color)
+	oldPen, _, _ := procSelectObject.Call(hdc, pen)
+	procMoveToEx.Call(hdc, uintptr(x1), uintptr(y1), 0)
+	procLineTo.Call(hdc, uintptr(x2), uintptr(y2))
+	procSelectObject.Call(hdc, oldPen)
+	procDeleteObject.Call(pen)
+}
+
+func filledCircle(hdc uintptr, left, top, right, bottom int32, fill, border uintptr) {
+	brush, _, _ := procCreateSolidBrush.Call(fill)
+	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, border)
+	oldBrush, _, _ := procSelectObject.Call(hdc, brush)
+	oldPen, _, _ := procSelectObject.Call(hdc, pen)
+	procEllipse.Call(hdc, uintptr(left), uintptr(top), uintptr(right), uintptr(bottom))
+	procSelectObject.Call(hdc, oldBrush)
+	procSelectObject.Call(hdc, oldPen)
+	procDeleteObject.Call(brush)
+	procDeleteObject.Call(pen)
+}
+
+func drawCheckIcon(hdc uintptr, cx, cy int32) {
+	filledCircle(hdc, cx-22, cy-22, cx+22, cy+22, colorRef(229, 248, 238), colorRef(229, 248, 238))
+	green := colorRef(18, 151, 91)
+	strokedLine(hdc, cx-9, cy, cx-2, cy+7, green, 3)
+	strokedLine(hdc, cx-2, cy+7, cx+11, cy-8, green, 3)
+}
+
+func drawBuildingIcon(hdc uintptr, cx, cy int32) {
+	filledCircle(hdc, cx-22, cy-22, cx+22, cy+22, colorRef(233, 242, 255), colorRef(233, 242, 255))
+	blue := colorRef(20, 100, 222)
+	// Corpo principal e anexo.
+	strokedLine(hdc, cx-9, cy-10, cx-9, cy+11, blue, 2)
+	strokedLine(hdc, cx+4, cy-10, cx+4, cy+11, blue, 2)
+	strokedLine(hdc, cx-9, cy-10, cx+4, cy-10, blue, 2)
+	strokedLine(hdc, cx-12, cy+11, cx+12, cy+11, blue, 2)
+	strokedLine(hdc, cx+4, cy-3, cx+11, cy-3, blue, 2)
+	strokedLine(hdc, cx+11, cy-3, cx+11, cy+11, blue, 2)
+	for _, y := range []int32{cy - 5, cy + 1, cy + 7} {
+		strokedLine(hdc, cx-5, y, cx-2, y, blue, 2)
+	}
+}
+
+func drawComputerIcon(hdc uintptr, cx, cy int32, color uintptr) {
+	// Monitor
+	strokedLine(hdc, cx-11, cy-8, cx+11, cy-8, color, 2)
+	strokedLine(hdc, cx-11, cy-8, cx-11, cy+6, color, 2)
+	strokedLine(hdc, cx+11, cy-8, cx+11, cy+6, color, 2)
+	strokedLine(hdc, cx-11, cy+6, cx+11, cy+6, color, 2)
+	strokedLine(hdc, cx, cy+6, cx, cy+11, color, 2)
+	strokedLine(hdc, cx-6, cy+11, cx+6, cy+11, color, 2)
+}
+
+func drawBriefcaseIcon(hdc uintptr, cx, cy int32, color uintptr) {
+	strokedLine(hdc, cx-10, cy-4, cx+10, cy-4, color, 2)
+	strokedLine(hdc, cx-10, cy-4, cx-10, cy+9, color, 2)
+	strokedLine(hdc, cx+10, cy-4, cx+10, cy+9, color, 2)
+	strokedLine(hdc, cx-10, cy+9, cx+10, cy+9, color, 2)
+	strokedLine(hdc, cx-5, cy-4, cx-5, cy-8, color, 2)
+	strokedLine(hdc, cx+5, cy-4, cx+5, cy-8, color, 2)
+	strokedLine(hdc, cx-5, cy-8, cx+5, cy-8, color, 2)
+}
+
+func drawPinIcon(hdc uintptr, cx, cy int32, color uintptr) {
+	filledCircle(hdc, cx-7, cy-9, cx+7, cy+5, colorRef(255, 255, 255), color)
+	filledCircle(hdc, cx-2, cy-4, cx+2, cy, color, color)
+	strokedLine(hdc, cx-5, cy+2, cx, cy+10, color, 2)
+	strokedLine(hdc, cx, cy+10, cx+5, cy+2, color, 2)
+}
+
+func drawLockIcon(hdc uintptr, cx, cy int32, color uintptr) {
+	// Corpo.
+	strokedLine(hdc, cx-9, cy, cx+9, cy, color, 2)
+	strokedLine(hdc, cx-9, cy, cx-9, cy+13, color, 2)
+	strokedLine(hdc, cx+9, cy, cx+9, cy+13, color, 2)
+	strokedLine(hdc, cx-9, cy+13, cx+9, cy+13, color, 2)
+	// Arco aproximado por segmentos.
+	strokedLine(hdc, cx-6, cy, cx-6, cy-5, color, 2)
+	strokedLine(hdc, cx-6, cy-5, cx-3, cy-9, color, 2)
+	strokedLine(hdc, cx-3, cy-9, cx+3, cy-9, color, 2)
+	strokedLine(hdc, cx+3, cy-9, cx+6, cy-5, color, 2)
+	strokedLine(hdc, cx+6, cy-5, cx+6, cy, color, 2)
+}
+
+func drawShieldIcon(hdc uintptr, cx, cy int32, color uintptr) {
+	strokedLine(hdc, cx, cy-9, cx+8, cy-5, color, 2)
+	strokedLine(hdc, cx+8, cy-5, cx+6, cy+5, color, 2)
+	strokedLine(hdc, cx+6, cy+5, cx, cy+10, color, 2)
+	strokedLine(hdc, cx, cy+10, cx-6, cy+5, color, 2)
+	strokedLine(hdc, cx-6, cy+5, cx-8, cy-5, color, 2)
+	strokedLine(hdc, cx-8, cy-5, cx, cy-9, color, 2)
+}
+
+func paintDashboardTheme(hdc uintptr, client RECT) {
+	// Cabeçalho totalmente limpo para a marca centralizada.
+	header := RECT{Left: 0, Top: 0, Right: client.Right, Bottom: 140}
+	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&header)), uintptr(themeWhiteBrush))
+
+	// Card principal.
+	roundedPanel(hdc, 40, 146, client.Right-40, client.Bottom-22, colorRef(255, 255, 255), colorRef(229, 233, 240), 20)
+
+	// Confirmação.
+	drawCheckIcon(hdc, 88, 194)
+
+	// Empresa vinculada.
+	roundedPanel(hdc, 66, 248, client.Right-66, 404, colorRef(248, 251, 255), colorRef(205, 222, 250), 16)
+	drawBuildingIcon(hdc, 112, 312)
+	drawShieldIcon(hdc, 96, 368, colorRef(37, 73, 132))
+
+	// Identificação do computador.
+	roundedPanel(hdc, 66, 418, client.Right-66, 680, colorRef(255, 255, 255), colorRef(226, 231, 238), 16)
+	drawComputerIcon(hdc, 92, 451, colorRef(20, 100, 222))
+
+	// Campos arredondados — os EDITs sem borda ficam encaixados por cima.
+	roundedPanel(hdc, 88, 538, client.Right-88, 580, colorRef(255, 255, 255), colorRef(205, 213, 225), 10)
+	roundedPanel(hdc, 88, 620, 368, 662, colorRef(255, 255, 255), colorRef(205, 213, 225), 10)
+	roundedPanel(hdc, 390, 620, client.Right-88, 662, colorRef(255, 255, 255), colorRef(205, 213, 225), 10)
+	drawComputerIcon(hdc, 108, 559, colorRef(102, 115, 137))
+	drawBriefcaseIcon(hdc, 108, 641, colorRef(102, 115, 137))
+	drawPinIcon(hdc, 410, 641, colorRef(102, 115, 137))
+
+	// Aviso seguro.
+	roundedPanel(hdc, 66, 690, client.Right-66, 764, colorRef(248, 251, 255), colorRef(199, 219, 251), 14)
+	drawLockIcon(hdc, 92, 725, colorRef(20, 100, 222))
+
+	// Rodapé de confiança.
+	drawShieldIcon(hdc, 224, 873, colorRef(107, 120, 142))
+}
+
 func paintTheme(hwnd syscall.Handle) {
 	ensureThemeResources()
 	var ps PAINTSTRUCT
@@ -144,48 +293,63 @@ func paintTheme(hwnd syscall.Handle) {
 	procGetClientRect.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&client)))
 	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&client)), uintptr(themeWindowBrush))
 
-	// Cabeçalho limpo, sem dados técnicos ou linhas decorativas pesadas.
+	if app != nil && app.mode == "dashboard" {
+		paintDashboardTheme(hdc, client)
+		return
+	}
+
+	// Demais etapas mantêm o layout compacto original.
 	header := RECT{Left: 0, Top: 0, Right: client.Right, Bottom: 112}
 	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&header)), uintptr(themeWhiteBrush))
-
-	// Cartão único da etapa atual.
-	brush, _, _ := procCreateSolidBrush.Call(colorRef(255, 255, 255))
-	pen, _, _ := procCreatePen.Call(PS_SOLID, 1, colorRef(228, 231, 236))
-	oldBrush, _, _ := procSelectObject.Call(hdc, brush)
-	oldPen, _, _ := procSelectObject.Call(hdc, pen)
-	procRoundRect.Call(hdc, 32, 124, uintptr(client.Right-32), uintptr(client.Bottom-14), 18, 18)
-	procSelectObject.Call(hdc, oldBrush)
-	procSelectObject.Call(hdc, oldPen)
-	procDeleteObject.Call(brush)
-	procDeleteObject.Call(pen)
+	roundedPanel(hdc, 32, 124, client.Right-32, client.Bottom-14, colorRef(255, 255, 255), colorRef(228, 231, 236), 18)
 }
 
 func staticControlColor(hdc uintptr, hwnd syscall.Handle) uintptr {
 	ensureThemeResources()
 	procSetBkMode.Call(hdc, OPAQUE)
-	procSetBkColor.Call(hdc, colorRef(255, 255, 255))
 
-	textColor := colorRef(42, 48, 60)
+	background := colorRef(255, 255, 255)
+	brush := themeWhiteBrush
+	textColor := colorRef(37, 48, 67)
+
 	if app != nil {
+		if hwnd == app.companyCaption || hwnd == app.companyLabel || hwnd == app.status || hwnd == app.secureTitle || hwnd == app.secureText {
+			background = colorRef(248, 251, 255)
+			brush = themeInfoBrush
+		}
 		switch hwnd {
 		case app.brand:
-			textColor = colorRef(23, 62, 118)
-		case app.subtitle, app.status:
-			textColor = colorRef(91, 99, 113)
-		case app.verifiedLabel:
-			textColor = colorRef(31, 130, 78)
+			textColor = colorRef(15, 48, 96)
+		case app.subtitle, app.verifiedDescription, app.companyCaption, app.identityHelp, app.secureText, app.footerText:
+			textColor = colorRef(91, 105, 129)
+		case app.verifiedLabel, app.companyLabel, app.identityTitle, app.secureTitle:
+			textColor = colorRef(13, 43, 87)
+		case app.status:
+			textColor = colorRef(54, 72, 104)
 		}
 	}
+
+	procSetBkColor.Call(hdc, background)
 	procSetTextColor.Call(hdc, textColor)
-	return uintptr(themeWhiteBrush)
+	return uintptr(brush)
 }
 
 func editControlColor(hdc uintptr) uintptr {
 	ensureThemeResources()
 	procSetBkMode.Call(hdc, OPAQUE)
 	procSetBkColor.Call(hdc, colorRef(255, 255, 255))
-	procSetTextColor.Call(hdc, colorRef(24, 39, 67))
+	procSetTextColor.Call(hdc, colorRef(36, 52, 78))
 	return uintptr(themeEditBrush)
+}
+
+func drawInstallArrow(hdc uintptr, rect RECT) {
+	cx := (rect.Left+rect.Right)/2 - 174
+	cy := (rect.Top + rect.Bottom) / 2
+	white := colorRef(255, 255, 255)
+	strokedLine(hdc, cx, cy-9, cx, cy+6, white, 2)
+	strokedLine(hdc, cx-6, cy+1, cx, cy+7, white, 2)
+	strokedLine(hdc, cx, cy+7, cx+6, cy+1, white, 2)
+	strokedLine(hdc, cx-8, cy+11, cx+8, cy+11, white, 2)
 }
 
 func drawOwnerButton(dis *DRAWITEMSTRUCT) {
@@ -202,11 +366,11 @@ func drawOwnerButton(dis *DRAWITEMSTRUCT) {
 
 	switch id {
 	case idLoginButton, idRegisterButton, idInstall:
-		fill = colorRef(22, 93, 210)
-		border = colorRef(22, 93, 210)
+		fill = colorRef(9, 101, 238)
+		border = colorRef(9, 101, 238)
 		textColor = colorRef(255, 255, 255)
 		if pressed {
-			fill = colorRef(18, 76, 171)
+			fill = colorRef(7, 82, 195)
 			border = fill
 		}
 	case idForgotPassword:
@@ -234,7 +398,7 @@ func drawOwnerButton(dis *DRAWITEMSTRUCT) {
 	procRoundRect.Call(
 		uintptr(dis.Hdc),
 		uintptr(rect.Left), uintptr(rect.Top), uintptr(rect.Right), uintptr(rect.Bottom),
-		14, 14,
+		16, 16,
 	)
 	procSelectObject.Call(uintptr(dis.Hdc), oldBrush)
 	procSelectObject.Call(uintptr(dis.Hdc), oldPen)
@@ -249,6 +413,10 @@ func drawOwnerButton(dis *DRAWITEMSTRUCT) {
 	procSetTextColor.Call(uintptr(dis.Hdc), textColor)
 	label := getText(dis.HwndItem)
 	textRect := rect
+	if id == idInstall && !disabled {
+		drawInstallArrow(uintptr(dis.Hdc), rect)
+		textRect.Left += 24
+	}
 	procDrawTextW.Call(
 		uintptr(dis.Hdc),
 		uintptr(unsafe.Pointer(utf16(label))),
