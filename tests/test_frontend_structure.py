@@ -111,8 +111,8 @@ def test_login_mount_is_removed_from_layout_after_authentication():
 def test_frontend_cache_version_install_code_v1_is_consistent():
     index = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
     core = (ROOT / "app/static/js/core.js").read_text(encoding="utf-8")
-    assert "20260827-install-code-v1" in index
-    assert "CT.VERSION = '20260827-install-code-v1'" in core
+    assert "20260828-install-flow-v2" in index
+    assert "CT.VERSION = '20260828-install-flow-v2'" in core
 
 
 def test_company_destroy_modal_is_split_and_requires_confirmation():

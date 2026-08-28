@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Instalar computador — CoreControl</title>
+  <link rel="icon" href="/site/logo-mark.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/site/site.css?v=20260828-install-flow-v1">
+</head>
+<body class="install-body">
+  <header class="install-header">
+    <div class="container install-header-inner">
+      <a class="brand-link" href="/" aria-label="CoreControl — início">
+        <img src="/site/logo.png" alt="CoreControl" class="brand-full-logo">
+      </a>
+      <div class="install-header-actions">
+        <a class="btn btn-ghost" href="/">Voltar ao site</a>
+        <a class="btn btn-secondary" href="/central">Entrar</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="install-main">
+    <div class="container install-layout">
+      <section class="install-copy" aria-labelledby="installTitle">
+        <span class="section-kicker">Instalação para funcionário</span>
+        <h1 id="installTitle">Recebeu um código da sua empresa?</h1>
+        <p>Digite o código abaixo. Instale sem e-mail e sem senha do administrador. O código temporário é suficiente para vincular este computador à empresa correta.</p>
+
+        <div class="install-security-note">
+          <span>✓</span>
+          <div><strong>Vínculo temporário e de uso único</strong><p>O código identifica somente a empresa autorizada. Depois que este computador for vinculado, ele deixa de funcionar.</p></div>
+        </div>
+      </section>
+
+      <section class="install-card" aria-label="Instalar CoreControl com código">
+        <div class="install-card-heading">
+          <span class="install-step">01</span>
+          <div><h2>Digite o código de instalação</h2><p>Exemplo: CC-7K4P-9M2X</p></div>
+        </div>
+
+        <form id="installCodeForm" novalidate>
+          <label for="installCode">Código recebido da empresa</label>
+          <input id="installCode" class="install-code-input" type="text" inputmode="text" autocomplete="one-time-code" spellcheck="false" maxlength="12" placeholder="CC-XXXX-XXXX" aria-describedby="installCodeHint installCodeError">
+          <small id="installCodeHint">Pode colar o código com ou sem os traços.</small>
+          <div class="form-error install-error" id="installCodeError" role="alert"></div>
+          <button class="btn btn-primary btn-full install-submit" id="installCodeButton" type="submit">Validar código e baixar</button>
+        </form>
+
+        <div class="install-valid hidden" id="installValid" role="status">
+          <span>✓</span>
+          <div><strong id="installCompanyName"></strong><p>Código validado. O Setup foi preparado para esta empresa.</p></div>
+        </div>
+        <a class="btn btn-secondary btn-full hidden" id="installFallback" href="#">Baixar novamente</a>
+
+        <div class="install-divider"><span>ou</span></div>
+
+        <div class="install-manual">
+          <h3>Prefere baixar primeiro?</h3>
+          <p>Baixe o instalador genérico. Ao abrir, escolha <strong>Tenho um código de instalação</strong> e informe o código recebido.</p>
+          <a class="btn btn-secondary btn-full" href="/instalar/setup" download="CoreControlSetup.exe">Baixar instalador genérico</a>
+        </div>
+      </section>
+    </div>
+
+    <div class="container install-help">
+      <strong>Não recebeu um código?</strong>
+      <span>Peça ao administrador da empresa para abrir <b>Computadores → Adicionar computador</b> no CoreControl e enviar o link ou o código de instalação.</span>
+    </div>
+  </main>
+
+  <script src="/site/install.js?v=20260828-install-flow-v1"></script>
+</body>
+</html>

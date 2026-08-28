@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from .api import get_valid_enrollment, router as api_router
+from .api import get_valid_enrollment, normalize_install_code, router as api_router
 from .config import settings
 from .db import Base, apply_runtime_migrations, engine, get_db
 from .public_api import DOWNLOAD_FILENAME, router as public_router
@@ -103,8 +103,14 @@ def health():
 
 
 @app.get("/instalar")
+def install_page():
+    """Página pública para instalação por código, sem login da empresa."""
+    return FileResponse(PUBLIC_DIR / "install.html")
+
+
+@app.get("/instalar/setup")
 def generic_setup_download():
-    """Instalador genérico para uso com um código temporário da empresa."""
+    """Instalador genérico para uso manual com um código temporário."""
     file_path = DOWNLOAD_DIR / DOWNLOAD_FILENAME
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Instalador do CoreControl indisponível")
@@ -112,6 +118,28 @@ def generic_setup_download():
         file_path,
         media_type="application/vnd.microsoft.portable-executable",
         filename="CoreControlSetup.exe",
+        headers={
+            "Cache-Control": "no-store, private",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
+
+
+@app.get("/instalar/codigo/{installation_code}")
+def code_setup_download(installation_code: str, db: Session = Depends(get_db)):
+    """Baixa um Setup que carrega o código temporário no próprio nome do arquivo."""
+    normalized_code = normalize_install_code(installation_code)
+    if not normalized_code:
+        raise HTTPException(status_code=400, detail="Código de instalação inválido")
+    get_valid_enrollment(db, normalized_code)
+    file_path = DOWNLOAD_DIR / DOWNLOAD_FILENAME
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Instalador do CoreControl indisponível")
+    return FileResponse(
+        file_path,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename=f"CoreControlSetup--{normalized_code}.exe",
         headers={
             "Cache-Control": "no-store, private",
             "X-Content-Type-Options": "nosniff",

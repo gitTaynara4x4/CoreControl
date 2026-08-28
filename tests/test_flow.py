@@ -455,7 +455,13 @@ def test_site_central_and_health_are_served():
         landing = client.get("/")
         assert landing.status_code == 200
         assert "Criar empresa" in landing.text
-        assert "CoreControl Setup" in landing.text
+        assert "Instalar computador" in landing.text
+        assert "senha de download" not in landing.text.lower()
+
+        install_page = client.get("/instalar")
+        assert install_page.status_code == 200
+        assert 'id="installCodeForm"' in install_page.text
+        assert "sem e-mail" in install_page.text.lower()
 
         central = client.get("/central")
         assert central.status_code == 200
@@ -468,7 +474,12 @@ def test_site_central_and_health_are_served():
         site_js = client.get("/site/site.js")
         assert site_js.status_code == 200
         assert "register-company" in site_js.text
-        assert "CoreControlSetup.exe" in site_js.text
+        assert "window.location.href = '/instalar'" in site_js.text
+
+        install_js = client.get("/site/install.js")
+        assert install_js.status_code == 200
+        assert "/instalar/codigo/" in install_js.text
+        assert "CoreControlSetup--" in install_js.text
 
         health = client.get("/health")
         assert health.status_code == 200
@@ -623,7 +634,9 @@ def test_company_can_generate_single_use_code_link_qr_and_generic_setup():
         assert data["installation_code"].startswith("CC-")
         assert len(data["installation_code"]) == 12
         assert data["valid_minutes"] == 120
-        assert data["setup_url"].endswith("/instalar")
+        assert data["install_page_url"].endswith("/instalar")
+        assert data["setup_url"].endswith("/instalar/setup")
+        assert data["code_download_url"].endswith(f"/instalar/codigo/{data['installation_code']}")
         assert "/instalar/" in data["installation_url"]
         assert data["qr_url"].endswith("/qr.svg")
 
@@ -637,10 +650,21 @@ def test_company_can_generate_single_use_code_link_qr_and_generic_setup():
     # Simula o funcionário em outro navegador/computador: sem cookie, sem login
     # e sem conhecer a senha da empresa.
     with TestClient(app) as employee_client:
-        generic_setup = employee_client.get("/instalar")
+        install_page = employee_client.get("/instalar")
+        assert install_page.status_code == 200, install_page.text
+        assert "Recebeu um código da sua empresa?" in install_page.text
+        assert "Validar código e baixar" in install_page.text
+        assert "E-mail" not in install_page.text
+
+        generic_setup = employee_client.get("/instalar/setup")
         assert generic_setup.status_code == 200, generic_setup.text
         assert generic_setup.content[:2] == b"MZ"
         assert "CoreControlSetup.exe" in generic_setup.headers.get("content-disposition", "")
+
+        code_setup = employee_client.get(f"/instalar/codigo/{code}")
+        assert code_setup.status_code == 200, code_setup.text
+        assert code_setup.content[:2] == b"MZ"
+        assert code in code_setup.headers.get("content-disposition", "")
 
         direct_setup = employee_client.get(install_path)
         assert direct_setup.status_code == 200, direct_setup.text

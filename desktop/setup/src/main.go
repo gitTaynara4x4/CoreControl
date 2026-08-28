@@ -330,18 +330,22 @@ func runGUI() {
 	}
 	applyCoreTunerWindowIcons(syscall.Handle(h), largeIcon, smallIcon)
 	font, _, _ := procGetStockObject.Call(DEFAULT_GUI_FONT)
-	launchToken := enrollmentTokenFromLaunch()
+	launchCredential := enrollmentCredentialFromLaunch()
 	serverURL := loadServerURL()
-	if launchToken != "" {
+	if launchCredential != "" {
 		// Um instalador vindo de um link de empresa sempre usa o servidor
 		// incorporado no build, ignorando configurações antigas desta máquina.
 		serverURL = defaultServerURL
 	}
-	app = &App{hwnd: syscall.Handle(h), font: font, controls: map[int]syscall.Handle{}, client: &http.Client{Timeout: 25 * time.Second}, serverURL: serverURL, enrollmentToken: launchToken}
+	app = &App{hwnd: syscall.Handle(h), font: font, controls: map[int]syscall.Handle{}, client: &http.Client{Timeout: 25 * time.Second}, serverURL: serverURL, enrollmentToken: launchCredential}
 	app.createFonts()
 	buildUI()
-	if launchToken != "" {
-		if err := app.activateEnrollmentCredential("link"); err != nil {
+	if launchCredential != "" {
+		source := "link"
+		if normalizeEnrollmentCode(launchCredential) != "" {
+			source = "código"
+		}
+		if err := app.activateEnrollmentCredential(source); err != nil {
 			app.enrollmentToken = ""
 			message("Autorização de instalação", err.Error(), MB_OK|MB_ICONERROR)
 		}
@@ -665,18 +669,29 @@ func (a *App) server() (string, error) {
 }
 
 var enrollmentTokenPattern = regexp.MustCompile(`ctenr_[A-Za-z0-9_-]{20,}`)
+var enrollmentCodePattern = regexp.MustCompile(`(?i)CC[-_ ]?[A-Z0-9]{4}[-_ ]?[A-Z0-9]{4}`)
 
-func enrollmentTokenFromLaunch() string {
+func enrollmentCredentialFromText(value string) string {
+	if token := enrollmentTokenPattern.FindString(value); token != "" {
+		return token
+	}
+	if code := enrollmentCodePattern.FindString(value); code != "" {
+		return normalizeEnrollmentCode(code)
+	}
+	return ""
+}
+
+func enrollmentCredentialFromLaunch() string {
 	for _, arg := range os.Args[1:] {
-		if token := enrollmentTokenPattern.FindString(arg); token != "" {
-			return token
+		if credential := enrollmentCredentialFromText(arg); credential != "" {
+			return credential
 		}
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
 	}
-	return enrollmentTokenPattern.FindString(filepath.Base(exe))
+	return enrollmentCredentialFromText(filepath.Base(exe))
 }
 
 func normalizeEnrollmentCode(value string) string {

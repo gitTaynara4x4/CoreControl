@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/site/site.css?v=20260822-sales-v2">
+  <link rel="stylesheet" href="/site/site.css?v=20260828-install-flow-v1">
 </head>
 <body>
   <a class="skip-link" href="#conteudo">Ir para o conteúdo</a>
@@ -35,6 +35,7 @@
       </nav>
 
       <div class="header-actions">
+        <a class="btn btn-ghost header-install-link" href="/instalar">Instalar computador</a>
         <button class="btn btn-ghost" id="accountButton" type="button">Entrar</button>
         <button class="btn btn-primary js-register-download" type="button">Quero parar de descobrir tarde</button>
       </div>
@@ -51,6 +52,7 @@
       <a href="#multiempresa">Multiempresa</a>
       <a href="#seguranca">Segurança</a>
       <a href="#duvidas">Dúvidas</a>
+      <a href="/instalar">Instalar computador</a>
       <button class="mobile-account" id="mobileAccountButton" type="button">Entrar</button>
       <button class="btn btn-primary js-register-download" type="button">Quero parar de descobrir tarde</button>
     </nav>
@@ -413,7 +415,7 @@
           <details><summary>O monitoramento vê documentos, mensagens ou senhas?</summary><p>Não. A telemetria é voltada para informações técnicas da máquina. O conteúdo de documentos, conversas, senhas e histórico de navegação não é necessário para o monitoramento.</p></details>
           <details><summary>Posso administrar mais de uma empresa?</summary><p>Sim. O CoreControl possui estrutura multiempresa e perfis administrativos para separar computadores, usuários e permissões por organização.</p></details>
           <details><summary>Como funciona o acesso remoto?</summary><p>O computador fica identificado na Central e a sessão é iniciada como uma ação explícita de suporte, vinculada à empresa e à máquina correta.</p></details>
-          <details><summary>Por que o download pede uma senha de liberação?</summary><p>O acesso ao instalador continua controlado durante a implantação. A conta identifica a empresa e a senha de liberação impede instalação não autorizada.</p></details>
+          <details><summary>O funcionário precisa receber meu login ou minha senha?</summary><p>Não. O administrador pode enviar um link temporário de instalação ou apenas o código CC-XXXX-XXXX. O funcionário instala sem entrar na conta da empresa.</p></details>
         </div>
       </div>
     </section>
@@ -442,7 +444,7 @@
         <p>Monitoramento, diagnóstico, atualizações, otimização segura e suporte remoto para computadores Windows.</p>
       </div>
       <div class="footer-column"><strong>Produto</strong><a href="#produto">Visão geral</a><a href="#recursos">Recursos</a><a href="#multiempresa">Multiempresa</a></div>
-      <div class="footer-column"><strong>Acesso</strong><a href="/central">Painel Central</a><button class="footer-link js-register-download" type="button">Criar empresa</button><button class="footer-link js-download" type="button">Baixar instalador</button></div>
+      <div class="footer-column"><strong>Acesso</strong><a href="/central">Painel Central</a><button class="footer-link js-register-download" type="button">Criar empresa</button><a class="footer-link" href="/instalar">Instalar computador</a></div>
       <div class="footer-column"><strong>Informações</strong><a href="#seguranca">Segurança</a><a href="#como-funciona">Como funciona</a><a href="#duvidas">Dúvidas frequentes</a></div>
     </div>
     <div class="container footer-bottom"><span>© 2026 CoreControl. Todos os direitos reservados.</span><span>Gestão técnica com segurança e transparência.</span></div>
@@ -506,27 +508,7 @@
     </section>
   </div>
 
-  <div class="modal-backdrop" id="downloadModal" aria-hidden="true">
-    <section class="download-modal" role="dialog" aria-modal="true" aria-labelledby="downloadTitle">
-      <button class="modal-close" id="closeModal" type="button" aria-label="Fechar">×</button>
-      <div class="modal-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></div>
-      <span class="section-kicker">Acesso controlado</span>
-      <h2 id="downloadTitle">Baixar CoreControl Setup</h2>
-      <p>Faça login na sua empresa e digite a senha autorizada para liberar o instalador.</p>
-      <form id="downloadForm">
-        <label for="downloadPassword">Senha de download</label>
-        <div class="password-field">
-          <input id="downloadPassword" type="password" autocomplete="off" maxlength="128" required placeholder="Digite a senha">
-          <button type="button" id="togglePassword" aria-label="Mostrar ou ocultar senha">Mostrar</button>
-        </div>
-        <div class="form-error" id="downloadError" role="alert"></div>
-        <button class="btn btn-primary btn-full" id="unlockButton" type="submit">Validar e baixar</button>
-      </form>
-      <small>A senha é validada no servidor e não é armazenada no navegador.</small>
-    </section>
-  </div>
-
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/site/site.js?v=20260822-sales-v2"></script>
+  <script src="/site/site.js?v=20260828-install-flow-v1"></script>
 </body>
 </html>

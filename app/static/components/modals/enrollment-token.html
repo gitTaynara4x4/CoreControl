@@ -1,29 +1,27 @@
 <h2>Adicionar computador</h2>
 <p>
-  Passe o código abaixo para a pessoa que está no computador da empresa
+  Envie a instalação para a pessoa que está no computador da empresa
   <strong id="tokenCompanyName"></strong>. Ela não precisa receber seu login nem sua senha.
 </p>
 
-<div style="margin-top:16px">
-  <div style="font-size:12px;opacity:.72;margin-bottom:6px">Código de instalação</div>
-  <div class="token-box" id="installationCode" style="font-size:22px;font-weight:700;letter-spacing:2px;text-align:center"></div>
-</div>
-
 <div class="callout" id="tokenExpiration" style="margin-top:12px"></div>
-<div class="callout" style="margin-top:10px">
-  No computador do funcionário, abra o instalador do CoreControl, escolha <strong>Tenho um código de instalação</strong> e digite o código acima.
-</div>
 
 <div style="margin-top:16px">
-  <div style="font-size:12px;opacity:.72;margin-bottom:6px">Instalador genérico</div>
-  <div class="token-box" id="genericSetupAddress" style="font-size:12px"></div>
+  <div style="font-size:12px;font-weight:650;margin-bottom:6px">Link de instalação <span style="opacity:.62">(recomendado)</span></div>
+  <div class="token-box" id="installationLink" style="font-size:12px;word-break:break-all"></div>
+</div>
+<div class="callout" style="margin-top:10px">
+  Envie esse link por WhatsApp, e-mail ou outro canal. Ao abrir, o funcionário baixa um Setup já autorizado para esta empresa — sem e-mail, senha ou configuração manual.
 </div>
 
 <details style="margin-top:14px">
-  <summary style="cursor:pointer;font-weight:600">Outras formas de instalar</summary>
-  <div style="margin-top:12px">
-    <div style="font-size:12px;opacity:.72;margin-bottom:6px">Link direto de instalação</div>
-    <div class="token-box" id="installationLink" style="font-size:12px;word-break:break-all"></div>
+  <summary style="cursor:pointer;font-weight:600">Ou instalar usando código</summary>
+  <div style="margin-top:14px">
+    <div style="font-size:12px;opacity:.72;margin-bottom:6px">Código de instalação</div>
+    <div class="token-box" id="installationCode" style="font-size:22px;font-weight:700;letter-spacing:2px;text-align:center"></div>
+  </div>
+  <div class="callout" style="margin-top:10px">
+    No computador do funcionário, acesse <strong id="installPageAddress"></strong>, digite o código acima e clique em <strong>Validar código e baixar</strong>. Não é necessário entrar na conta da empresa.
   </div>
 </details>
 
@@ -34,8 +32,8 @@
 
 <div class="modal-actions" style="flex-wrap:wrap">
   <button class="btn" type="button" id="closeToken">Fechar</button>
-  <button class="btn" type="button" id="downloadHere">Baixar Setup</button>
+  <button class="btn" type="button" id="downloadHere">Baixar neste computador</button>
   <button class="btn" type="button" id="showInstallQr">Mostrar QR Code</button>
-  <button class="btn" type="button" id="copyInstallLink">Copiar link</button>
-  <button class="btn primary" type="button" id="copyInstallCode">Copiar código</button>
+  <button class="btn" type="button" id="copyInstallCode">Copiar código</button>
+  <button class="btn primary" type="button" id="copyInstallLink">Copiar link de instalação</button>
 </div>

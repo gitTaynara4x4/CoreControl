@@ -124,3 +124,43 @@
 @media(max-width:500px){.reactive-head,.reactive-timeline,.reactive-bottom{padding-left:18px;padding-right:18px}.loss-result>strong{font-size:28px}.hero-pain-quote span{font-size:12px}}
 
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+/* Fluxo público de instalação — funcionário não usa login da empresa. */
+.header-install-link{white-space:nowrap}
+.install-body{min-height:100vh;background:#f7f9fc}
+.install-header{border-bottom:1px solid #e5eaf1;background:#fff}
+.install-header-inner{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.install-header-actions{display:flex;align-items:center;gap:8px}
+.install-main{padding:76px 0 56px}
+.install-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,520px);gap:72px;align-items:center}
+.install-copy{max-width:620px}
+.install-copy h1{margin:13px 0 18px;color:var(--ink);font-size:clamp(38px,5vw,62px);line-height:1.02;letter-spacing:-.05em}
+.install-copy>p{margin:0;color:var(--muted);font-size:17px;line-height:1.72}
+.install-security-note{margin-top:30px;padding:18px;border:1px solid #dfe7f2;border-radius:16px;display:flex;gap:13px;background:#fff}
+.install-security-note>span{width:28px;height:28px;flex:0 0 28px;border-radius:50%;display:grid;place-items:center;background:#edf7f2;color:#18794e;font-size:13px;font-weight:800}
+.install-security-note strong{display:block;color:var(--ink);font-size:13px}
+.install-security-note p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.6}
+.install-card{padding:30px;border:1px solid #e0e6ef;border-radius:20px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.1)}
+.install-card-heading{display:flex;align-items:flex-start;gap:13px;margin-bottom:24px}
+.install-step{width:34px;height:34px;flex:0 0 34px;border-radius:10px;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue);font-size:11px;font-weight:800}
+.install-card-heading h2{margin:0;color:var(--ink);font-size:20px;letter-spacing:-.025em}
+.install-card-heading p{margin:4px 0 0;color:var(--muted);font-size:10px}
+.install-card form label{display:block;margin-bottom:7px;color:#4d5c71;font-size:10px;font-weight:700}
+.install-code-input{width:100%;height:58px;padding:0 15px;border:1px solid #cfd9e7;border-radius:11px;outline:none;background:#fbfcfe;color:var(--ink);font-size:20px;font-weight:700;letter-spacing:.08em;text-align:center;text-transform:uppercase}
+.install-code-input:focus{border-color:#89b4ff;box-shadow:0 0 0 4px rgba(23,105,255,.08);background:#fff}
+.install-card form small{display:block;margin-top:7px;color:#8a97a8;font-size:9px}
+.install-error{min-height:19px;margin:7px 0 8px}
+.install-submit{min-height:48px}
+.install-valid{margin:14px 0 10px;padding:12px 13px;border:1px solid #cce6d8;border-radius:10px;display:flex;gap:10px;background:#f3fbf7}
+.install-valid>span{color:#18794e;font-weight:800}
+.install-valid strong{display:block;color:#1f5139;font-size:11px}
+.install-valid p{margin:3px 0 0;color:#507361;font-size:9px;line-height:1.45}
+.install-divider{margin:24px 0;display:flex;align-items:center;gap:11px;color:#a1acba;font-size:9px;text-transform:uppercase;letter-spacing:.1em}
+.install-divider::before,.install-divider::after{content:"";height:1px;flex:1;background:#e9edf3}
+.install-manual h3{margin:0 0 6px;color:var(--ink);font-size:13px}
+.install-manual p{margin:0 0 13px;color:var(--muted);font-size:10px;line-height:1.6}
+.install-help{margin-top:50px;padding-top:22px;border-top:1px solid #e2e8f0;display:flex;justify-content:center;gap:7px;color:#738196;font-size:10px;text-align:center}
+.install-help strong{color:#46566d}
+.hidden{display:none!important}
+@media(max-width:900px){.install-main{padding-top:54px}.install-layout{grid-template-columns:1fr;gap:38px}.install-copy{max-width:700px}.install-card{width:min(100%,560px)}}
+@media(max-width:600px){.install-header-inner{min-height:68px}.install-header-actions .btn-ghost{display:none}.install-main{padding:42px 0}.install-copy h1{font-size:40px}.install-copy>p{font-size:14px}.install-card{padding:23px 19px;border-radius:16px}.install-code-input{font-size:17px}.install-help{flex-direction:column}.install-header .brand-full-logo{width:148px}}

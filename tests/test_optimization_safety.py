@@ -74,7 +74,7 @@ def test_optimization_screen_explains_each_profile_in_plain_language():
         "Reduz efeitos visuais e mantém desempenho e consumo equilibrados.",
         "Prepara o PC para navegador, WhatsApp, CRM e discador.",
         "Na tomada, ativa Alto desempenho; na bateria ou sem confirmação de energia, usa Equilibrado.",
-        "Desfaz as mudanças do CoreControl e volta ao estado salvo.",
+        "O computador volta ao estado salvo antes da primeira otimização",
         "Nenhum arquivo ou pasta é apagado ou movido.",
         "Sem backup seguro, nenhuma alteração é iniciada.",
     ]

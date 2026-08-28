@@ -1,6 +1,5 @@
 (() => {
   const authModal = document.getElementById('authModal');
-  const downloadModal = document.getElementById('downloadModal');
   const loginForm = document.getElementById('siteLoginForm');
   const registerForm = document.getElementById('siteRegisterForm');
   const forgotForm = document.getElementById('siteForgotForm');
@@ -15,20 +14,12 @@
   const accountButton = document.getElementById('accountButton');
   const mobileAccountButton = document.getElementById('mobileAccountButton');
 
-  const downloadForm = document.getElementById('downloadForm');
-  const passwordInput = document.getElementById('downloadPassword');
-  const downloadError = document.getElementById('downloadError');
-  const unlockButton = document.getElementById('unlockButton');
-  const closeDownloadButton = document.getElementById('closeModal');
-  const togglePassword = document.getElementById('togglePassword');
   const toast = document.getElementById('toast');
   const menuButton = document.getElementById('menuButton');
   const mobileNav = document.getElementById('mobileNav');
 
   let currentUser = null;
-  let pendingDownload = false;
-  let manualDownloadBox = null;
-  let manualDownloadLink = null;
+  let pendingInstall = false;
   let resetToken = '';
 
   function showToast(message, isError = false) {
@@ -112,70 +103,7 @@
   function closeAuthModal() {
     authModal.classList.remove('open');
     authModal.setAttribute('aria-hidden', 'true');
-    if (!downloadModal.classList.contains('open')) document.body.style.overflow = '';
-  }
-
-  function ensureManualDownloadBox() {
-    if (manualDownloadBox && manualDownloadLink) return;
-    manualDownloadBox = document.createElement('div');
-    manualDownloadBox.id = 'manualDownloadBox';
-    manualDownloadBox.hidden = true;
-    manualDownloadBox.className = 'manual-download-box';
-    const message = document.createElement('p');
-    message.textContent = 'Acesso liberado. Caso o navegador não inicie automaticamente, use o botão abaixo.';
-    manualDownloadLink = document.createElement('a');
-    manualDownloadLink.className = 'btn btn-primary btn-full';
-    manualDownloadLink.textContent = 'Baixar instalador do CoreControl';
-    manualDownloadLink.setAttribute('download', 'CoreControlSetup.exe');
-    manualDownloadBox.append(message, manualDownloadLink);
-    downloadForm.insertAdjacentElement('afterend', manualDownloadBox);
-  }
-
-  function resetDownloadState() {
-    downloadError.textContent = '';
-    downloadForm.hidden = false;
-    passwordInput.value = '';
-    if (manualDownloadBox) manualDownloadBox.hidden = true;
-    if (manualDownloadLink) manualDownloadLink.removeAttribute('href');
-  }
-
-  function openDownloadModal() {
-    if (!currentUser) {
-      pendingDownload = true;
-      openAuthModal('login');
-      showToast('Entre ou crie sua empresa antes de baixar.');
-      return;
-    }
-    ensureManualDownloadBox();
-    resetDownloadState();
-    downloadModal.classList.add('open');
-    downloadModal.setAttribute('aria-hidden', 'false');
-    document.body.style.overflow = 'hidden';
-    window.setTimeout(() => passwordInput.focus(), 40);
-  }
-
-  function closeDownloadModal() {
-    downloadModal.classList.remove('open');
-    downloadModal.setAttribute('aria-hidden', 'true');
     document.body.style.overflow = '';
-  }
-
-  function startDownload(downloadUrl, filename) {
-    const safeFilename = filename || 'CoreControlSetup.exe';
-    manualDownloadLink.href = downloadUrl;
-    manualDownloadLink.setAttribute('download', safeFilename);
-    manualDownloadLink.textContent = `Baixar ${safeFilename}`;
-    manualDownloadBox.hidden = false;
-    downloadForm.hidden = true;
-
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = safeFilename;
-    link.rel = 'noopener';
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
   }
 
   async function finishAuthentication(data, message) {
@@ -186,9 +114,9 @@
     updateAccountButtons();
     closeAuthModal();
     showToast(message);
-    if (pendingDownload) {
-      pendingDownload = false;
-      openDownloadModal();
+    if (pendingInstall) {
+      pendingInstall = false;
+      window.location.href = '/instalar';
     }
   }
 
@@ -309,40 +237,15 @@
     }
   });
 
-  downloadForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    downloadError.textContent = '';
-    unlockButton.disabled = true;
-    unlockButton.textContent = 'Validando…';
-    try {
-      const data = await api('/api/public/download-ticket', {
-        method: 'POST',
-        body: JSON.stringify({ password: passwordInput.value })
-      });
-      if (!data.download_url) throw new Error('O servidor não retornou o endereço do instalador.');
-      startDownload(data.download_url, data.filename);
-      showToast('Senha validada. O instalador foi liberado.');
-    } catch (err) {
-      downloadError.textContent = err.message;
-      if (/login|autentica|sessão/i.test(err.message)) {
-        currentUser = null;
-        updateAccountButtons();
-      }
-      passwordInput.select();
-      showToast(err.message, true);
-    } finally {
-      unlockButton.disabled = false;
-      unlockButton.textContent = 'Validar e baixar';
-    }
-  });
-
-  document.querySelectorAll('.js-download').forEach(button => button.addEventListener('click', openDownloadModal));
+  document.querySelectorAll('.js-download').forEach(button => button.addEventListener('click', () => {
+    window.location.href = '/instalar';
+  }));
   document.querySelectorAll('.js-register-download').forEach(button => button.addEventListener('click', () => {
     if (currentUser) {
-      openDownloadModal();
+      window.location.href = '/instalar';
       return;
     }
-    pendingDownload = true;
+    pendingInstall = true;
     openAuthModal('register');
   }));
   loginTab.addEventListener('click', () => setAuthMode('login'));
@@ -358,13 +261,9 @@
     setAuthMode('login');
   });
   closeAuthButton.addEventListener('click', closeAuthModal);
-  closeDownloadButton.addEventListener('click', closeDownloadModal);
   authModal.addEventListener('click', event => { if (event.target === authModal) closeAuthModal(); });
-  downloadModal.addEventListener('click', event => { if (event.target === downloadModal) closeDownloadModal(); });
   document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    if (downloadModal.classList.contains('open')) closeDownloadModal();
-    else if (authModal.classList.contains('open')) closeAuthModal();
+    if (event.key === 'Escape' && authModal.classList.contains('open')) closeAuthModal();
   });
 
   function accountAction() {
@@ -373,13 +272,6 @@
   }
   accountButton?.addEventListener('click', accountAction);
   mobileAccountButton?.addEventListener('click', accountAction);
-
-  togglePassword.addEventListener('click', () => {
-    const reveal = passwordInput.type === 'password';
-    passwordInput.type = reveal ? 'text' : 'password';
-    togglePassword.textContent = reveal ? 'Ocultar' : 'Mostrar';
-    passwordInput.focus();
-  });
 
   menuButton.addEventListener('click', () => {
     const open = mobileNav.classList.toggle('open');

@@ -43,17 +43,17 @@
       await CT.openModalTemplate('enrollment-token');
 
       const installationUrl = new URL(data.installation_url, window.location.origin).href;
-      const setupUrl = new URL(data.setup_url || '/instalar', window.location.origin).href;
+      const installPageUrl = new URL(data.install_page_url || '/instalar', window.location.origin).href;
       const qrUrl = new URL(data.qr_url, window.location.origin).href;
 
       CT.$('#tokenCompanyName').textContent = companyName;
       CT.$('#installationCode').textContent = data.installation_code;
       CT.$('#installationLink').textContent = installationUrl;
-      CT.$('#genericSetupAddress').textContent = setupUrl;
+      CT.$('#installPageAddress').textContent = installPageUrl;
       CT.$('#tokenExpiration').textContent = `Válido até ${CT.fmtDate(data.expires_at)} • uso único.`;
       CT.$('#closeToken').onclick = CT.closeModal;
 
-      CT.$('#downloadHere').onclick = () => window.location.assign(setupUrl);
+      CT.$('#downloadHere').onclick = () => window.location.assign(installationUrl);
       CT.$('#copyInstallCode').onclick = async () => {
         await navigator.clipboard.writeText(data.installation_code);
         CT.toast('Código de instalação copiado.');
@@ -78,7 +78,7 @@
   CT.openEnrollmentOptions = function openEnrollmentOptions(companyId, companyName) {
     CT.openModal(`
       <h2>Adicionar computador</h2>
-      <p>Gere um código temporário para <strong>${CT.esc(companyName)}</strong>. O funcionário não precisa receber login ou senha da empresa.</p>
+      <p>Gere uma autorização temporária para <strong>${CT.esc(companyName)}</strong>. Você poderá enviar um link pronto ou apenas o código, sem compartilhar login ou senha da empresa.</p>
       <form id="enrollmentOptionsForm" class="stack">
         <label>Validade do código
           <select id="enrollmentValidity" required>
@@ -90,7 +90,7 @@
         <div class="callout">O código é de uso único. Assim que um computador for vinculado, código, link e QR Code deixam de funcionar.</div>
         <div class="modal-actions">
           <button class="btn" type="button" id="cancelEnrollmentOptions">Cancelar</button>
-          <button class="btn primary" type="submit">Gerar código de instalação</button>
+          <button class="btn primary" type="submit">Gerar link e código</button>
         </div>
       </form>`);
     CT.$('#cancelEnrollmentOptions').onclick = CT.closeModal;
