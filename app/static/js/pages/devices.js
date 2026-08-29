@@ -61,6 +61,110 @@
     return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
   }
 
+  const activityAssets = new Map();
+  let activityLastDevice = null;
+
+  function activityProcessKey(name) {
+    return String(name || '').trim().replace(/\.exe$/i, '').toLowerCase();
+  }
+
+  function activityFriendlyName(name, providedName) {
+    const provided = String(providedName || '').trim();
+    if (provided) return provided;
+    const clean = String(name || '').trim().replace(/\.exe$/i, '');
+    const aliases = {
+      chrome: 'Google Chrome',
+      msedge: 'Microsoft Edge',
+      firefox: 'Mozilla Firefox',
+      opera: 'Opera',
+      opera_gx: 'Opera GX',
+      spotify: 'Spotify',
+      anydesk: 'AnyDesk',
+      teamviewer: 'TeamViewer',
+      code: 'Visual Studio Code',
+      whatsapp: 'WhatsApp',
+      discord: 'Discord',
+      slack: 'Slack',
+      explorer: 'Explorador de Arquivos',
+      systemsettings: 'Configurações',
+      applicationframehost: 'Aplicativos do Windows',
+      textinputhost: 'Microsoft Text Input',
+      searchhost: 'Pesquisa do Windows',
+      searchapp: 'Pesquisa do Windows',
+      startmenuexperiencehost: 'Menu Iniciar',
+      taskmgr: 'Gerenciador de Tarefas',
+      notepad: 'Bloco de Notas',
+      calculatorapp: 'Calculadora',
+      calc: 'Calculadora',
+      powershell: 'PowerShell',
+      pwsh: 'PowerShell',
+      cmd: 'Prompt de Comando',
+      'nvidia overlay': 'NVIDIA Overlay',
+      nvidiaoverlay: 'NVIDIA Overlay',
+      'nvidia share': 'NVIDIA Overlay',
+    };
+    return aliases[activityProcessKey(clean)] || clean || 'Aplicativo';
+  }
+
+  function activityIconData(value) {
+    const icon = String(value || '').trim();
+    if (icon.length > 32000 || !/^data:image\/png;base64,[a-z0-9+/=]+$/i.test(icon)) return '';
+    return icon;
+  }
+
+  function activityRememberAssets(result) {
+    const assets = result?.app_assets || {};
+    Object.entries(assets).forEach(([key, raw]) => {
+      const process = raw?.process_name || key;
+      const processKey = activityProcessKey(process);
+      if (!processKey) return;
+      const previous = activityAssets.get(processKey) || {};
+      activityAssets.set(processKey, {
+        process_name: process,
+        display_name: activityFriendlyName(process, raw?.display_name || previous.display_name),
+        icon_data: activityIconData(raw?.icon_data) || previous.icon_data || '',
+      });
+    });
+    (result?.apps || []).forEach((app) => {
+      const processKey = activityProcessKey(app?.process_name);
+      if (!processKey) return;
+      const previous = activityAssets.get(processKey) || {};
+      activityAssets.set(processKey, {
+        process_name: app.process_name,
+        display_name: activityFriendlyName(app.process_name, app.display_name || previous.display_name),
+        icon_data: previous.icon_data || '',
+      });
+    });
+  }
+
+  function activityGlyph(processName) {
+    const key = activityProcessKey(processName);
+    if (key === 'systemsettings') return '⚙';
+    if (key === 'chrome' || key === 'msedge' || key === 'firefox' || key === 'opera' || key === 'opera_gx') return '◉';
+    if (key === 'spotify') return '♫';
+    if (key === 'anydesk' || key === 'teamviewer') return '↔';
+    if (key.includes('nvidia')) return 'N';
+    const name = activityFriendlyName(processName);
+    return (name.match(/[A-ZÀ-Ý0-9]/i)?.[0] || '•').toUpperCase();
+  }
+
+  function activityAppIcon(processName, focused = false, extraClass = '') {
+    const asset = activityAssets.get(activityProcessKey(processName));
+    const icon = activityIconData(asset?.icon_data);
+    const classes = ['activity-app-icon', focused ? 'focused' : '', extraClass].filter(Boolean).join(' ');
+    if (icon) {
+      return `<span class="${classes}" aria-hidden="true"><img src="${icon}" alt=""></span>`;
+    }
+    return `<span class="${classes} fallback" aria-hidden="true"><b>${CT.esc(activityGlyph(processName))}</b></span>`;
+  }
+
+  function activityBrowserProcess(browser) {
+    const key = String(browser || '').trim().toLowerCase();
+    if (key === 'edge') return 'msedge';
+    if (key === 'opera') return 'opera';
+    return key || 'browser';
+  }
+
   function activitySegments(history) {
     const samples = (history || []).filter((sample) => sample?.activity?.process_name && sample.recorded_at);
     const segments = [];
@@ -97,10 +201,11 @@
       target.innerHTML = `<div class="activity-empty">${activityVersionSupported(device.agent_version) ? 'Aguardando a próxima amostra de atividade do computador.' : 'Atualize o CoreControl Agent para 0.6.0 ou superior para receber atividade.'}</div>`;
       return;
     }
+    const asset = activityAssets.get(activityProcessKey(activity.process_name));
     target.innerHTML = `
       <div class="activity-current-main">
-        <span class="activity-current-icon">●</span>
-        <div class="activity-current-copy"><strong>${CT.esc(activity.process_name)}</strong><span>${CT.esc(activity.window_title || 'Janela em primeiro plano')}</span></div>
+        ${activityAppIcon(activity.process_name, true, 'activity-current-icon')}
+        <div class="activity-current-copy"><strong>${CT.esc(activityFriendlyName(activity.process_name, asset?.display_name))}</strong><span>${CT.esc(activity.window_title || 'Janela em primeiro plano')}</span></div>
         <span class="activity-current-meta">Em uso · ${CT.fmtDate(device.telemetry.recorded_at)}</span>
       </div>`;
   }
@@ -109,11 +214,15 @@
     const target = CT.$('#activityTimeline');
     if (!target) return;
     const items = activitySegments(history);
-    target.innerHTML = items.length ? items.map((item) => `
+    target.innerHTML = items.length ? items.map((item) => {
+      const asset = activityAssets.get(activityProcessKey(item.process));
+      return `
       <div class="activity-event ${item.current ? 'current' : ''}">
-        <i></i><div><strong>${CT.esc(item.process)}</strong><small>${CT.esc(item.title)}</small></div>
+        ${activityAppIcon(item.process, item.current, 'activity-event-icon')}
+        <div><strong>${CT.esc(activityFriendlyName(item.process, asset?.display_name))}</strong><small>${CT.esc(item.title)}</small></div>
         <time>${activityDuration(item.seconds)}</time>
-      </div>`).join('') : '<div class="activity-empty">A linha do tempo aparecerá quando o Agent registrar mudanças de aplicativo.</div>';
+      </div>`;
+    }).join('') : '<div class="activity-empty">A linha do tempo aparecerá quando o Agent registrar mudanças de aplicativo.</div>';
   }
 
   function renderActivitySnapshot(snapshot) {
@@ -143,12 +252,22 @@
     }
     const apps = command.result?.apps || [];
     const browserTabs = command.result?.browser_tabs || [];
+    activityRememberAssets(command.result || {});
     status.textContent = command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}` : 'Atualizado';
-    const tabsHtml = browserTabs.length ? `<div class="activity-browser-block"><div class="activity-browser-title">Abas do navegador</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Página</th><th>Site</th><th>Status</th></tr></thead><tbody>${browserTabs.map((tab) => `
-      <tr><td><div class="activity-app-name"><i class="${tab.active ? 'focused' : ''}"></i><span>${CT.esc(tab.title || 'Página')}</span></div></td><td><div class="activity-window-title" title="${CT.esc(tab.url || '')}">${CT.esc(tab.domain || '—')}</div></td><td>${tab.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`).join('')}</tbody></table></div></div>` : '';
-    const appsHtml = apps.length ? `<div class="activity-browser-title">Aplicativos com janela aberta</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Aplicativo</th><th>Janela</th><th>CPU</th><th>Memória</th><th>Status</th></tr></thead><tbody>${apps.slice(0, 14).map((app) => `
-      <tr><td><div class="activity-app-name"><i class="${app.focused ? 'focused' : ''}"></i><span>${CT.esc(app.process_name || '—')}</span></div></td><td><div class="activity-window-title" title="${CT.esc(app.window_title || '')}">${CT.esc(app.window_title || '—')}</div></td><td>${CT.fmtNum(app.cpu_percent, 1)}%</td><td>${CT.fmtNum(app.memory_mb, 0)} MB</td><td>${app.focused ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aberto</span>'}</td></tr>`).join('')}</tbody></table></div>` : '';
+    const tabsHtml = browserTabs.length ? `<div class="activity-browser-block"><div class="activity-browser-title">Abas do navegador</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Página</th><th>Site</th><th>Status</th></tr></thead><tbody>${browserTabs.map((tab) => {
+      const browserProcess = activityBrowserProcess(tab.browser);
+      return `<tr><td><div class="activity-app-name">${activityAppIcon(browserProcess, tab.active)}<span>${CT.esc(tab.title || 'Página')}</span></div></td><td><div class="activity-window-title" title="${CT.esc(tab.url || '')}">${CT.esc(tab.domain || '—')}</div></td><td>${tab.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
+    }).join('')}</tbody></table></div></div>` : '';
+    const appsHtml = apps.length ? `<div class="activity-browser-title">Aplicativos com janela aberta</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Aplicativo</th><th>Janela</th><th>CPU</th><th>Memória</th><th>Status</th></tr></thead><tbody>${apps.slice(0, 14).map((app) => {
+      const asset = activityAssets.get(activityProcessKey(app.process_name));
+      const displayName = activityFriendlyName(app.process_name, app.display_name || asset?.display_name);
+      return `<tr><td><div class="activity-app-name">${activityAppIcon(app.process_name, app.focused)}<span title="${CT.esc(displayName)}">${CT.esc(displayName)}</span></div></td><td><div class="activity-window-title" title="${CT.esc(app.window_title || '')}">${CT.esc(app.window_title || '—')}</div></td><td>${CT.fmtNum(app.cpu_percent, 1)}%</td><td>${CT.fmtNum(app.memory_mb, 0)} MB</td><td>${app.focused ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aberto</span>'}</td></tr>`;
+    }).join('')}</tbody></table></div>` : '';
     area.innerHTML = tabsHtml + appsHtml || '<div class="activity-empty">Nenhuma atividade visível foi encontrada.</div>';
+    if (activityLastDevice) {
+      renderActivityCurrent(activityLastDevice);
+      renderActivityTimeline(activityLastDevice.history);
+    }
   }
 
   async function loadActivitySnapshot(deviceId) {
@@ -188,6 +307,8 @@
   CT.registerPage('device', async function renderDevice() {
     const device = await CT.api(`/devices/${CT.state.selectedDevice}`);
     CT.state.selectedDevice = device.id;
+    activityLastDevice = device;
+    activityAssets.clear();
     await CT.mountPage('device');
 
     CT.$('#pageTitle').textContent = device.name;

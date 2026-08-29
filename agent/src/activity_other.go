@@ -13,6 +13,7 @@ type foregroundActivity struct {
 
 type activityApplication struct {
 	ProcessName string  `json:"process_name"`
+	DisplayName string  `json:"display_name,omitempty"`
 	WindowTitle string  `json:"window_title"`
 	PID         int     `json:"pid"`
 	CPUPercent  float64 `json:"cpu_percent"`
@@ -20,10 +21,17 @@ type activityApplication struct {
 	Focused     bool    `json:"focused"`
 }
 
+type activityAppAsset struct {
+	ProcessName string `json:"process_name"`
+	DisplayName string `json:"display_name"`
+	IconData    string `json:"icon_data,omitempty"`
+}
+
 type activitySnapshotResult struct {
-	CapturedAt string                `json:"captured_at"`
-	Foreground foregroundActivity    `json:"foreground"`
-	Apps       []activityApplication `json:"apps"`
+	CapturedAt string                      `json:"captured_at"`
+	Foreground foregroundActivity          `json:"foreground"`
+	Apps       []activityApplication       `json:"apps"`
+	AppAssets  map[string]activityAppAsset `json:"app_assets,omitempty"`
 }
 
 func collectForegroundActivity() foregroundActivity {

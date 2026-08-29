@@ -25,6 +25,7 @@ type foregroundActivity struct {
 
 type activityApplication struct {
 	ProcessName string  `json:"process_name"`
+	DisplayName string  `json:"display_name,omitempty"`
 	WindowTitle string  `json:"window_title"`
 	PID         int     `json:"pid"`
 	CPUPercent  float64 `json:"cpu_percent"`
@@ -33,10 +34,11 @@ type activityApplication struct {
 }
 
 type activitySnapshotResult struct {
-	CapturedAt  string                `json:"captured_at"`
-	Foreground  foregroundActivity    `json:"foreground"`
-	Apps        []activityApplication `json:"apps"`
-	BrowserTabs []agentBrowserTab     `json:"browser_tabs,omitempty"`
+	CapturedAt  string                      `json:"captured_at"`
+	Foreground  foregroundActivity          `json:"foreground"`
+	Apps        []activityApplication       `json:"apps"`
+	AppAssets   map[string]activityAppAsset `json:"app_assets,omitempty"`
+	BrowserTabs []agentBrowserTab           `json:"browser_tabs,omitempty"`
 }
 
 type agentWindowInfo struct {
@@ -124,6 +126,7 @@ func collectActivitySnapshot() activitySnapshotResult {
 	browserTabs := loadAgentBrowserTabs()
 	cpuCache := map[int]float64{}
 	apps := make([]activityApplication, 0, len(windows))
+	assets := map[string]activityAppAsset{}
 	seen := map[string]bool{}
 	var foreground foregroundActivity
 	for _, window := range windows {
@@ -141,8 +144,15 @@ func collectActivitySnapshot() activitySnapshotResult {
 			cpu = agentProcessCPU(window.PID)
 			cpuCache[window.PID] = cpu
 		}
+		assetKey := strings.ToLower(name)
+		asset, hasAsset := assets[assetKey]
+		if !hasAsset {
+			asset = activityAssetForProcess(window.PID, name)
+			assets[assetKey] = asset
+		}
 		item := activityApplication{
 			ProcessName: name,
+			DisplayName: asset.DisplayName,
 			WindowTitle: window.Title,
 			PID:         window.PID,
 			CPUPercent:  round2(cpu),
@@ -174,7 +184,7 @@ func collectActivitySnapshot() activitySnapshotResult {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	foreground.CapturedAt = now
-	return activitySnapshotResult{CapturedAt: now, Foreground: foreground, Apps: apps, BrowserTabs: browserTabs}
+	return activitySnapshotResult{CapturedAt: now, Foreground: foreground, Apps: apps, AppAssets: assets, BrowserTabs: browserTabs}
 }
 
 func collectAgentWindows() []agentWindowInfo {

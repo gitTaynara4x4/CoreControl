@@ -614,7 +614,7 @@ html[data-theme="dark"] .update-policy-form input,html[data-theme="dark"] .updat
 .activity-card{min-width:0}
 .activity-current{margin-top:4px;padding:13px 14px;border:1px solid var(--border);border-radius:11px;background:var(--bg-soft)}
 .activity-current-main{display:flex;align-items:center;gap:12px;min-width:0}
-.activity-current-icon{width:36px;height:36px;flex:0 0 36px;border-radius:9px;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue);font-size:15px;font-weight:750}
+.activity-current-icon{width:36px!important;height:36px!important;flex:0 0 36px!important;border-radius:10px!important;font-size:15px!important}
 .activity-current-copy{min-width:0;flex:1}
 .activity-current-copy strong{display:block;font-size:11.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .activity-current-copy span{display:block;margin-top:3px;font-size:9.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -629,23 +629,31 @@ html[data-theme="dark"] .update-policy-form input,html[data-theme="dark"] .updat
 .activity-table th,.activity-table td{padding:8px 7px;font-size:9px}
 .activity-table th:first-child,.activity-table td:first-child{padding-left:0}
 .activity-table th:last-child,.activity-table td:last-child{padding-right:0}
-.activity-app-name{display:flex;align-items:center;gap:7px;min-width:0}
-.activity-app-name i{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#b8c2d0}
-.activity-app-name i.focused{background:#25ad65}
-.activity-app-name span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.activity-app-name{display:flex;align-items:center;gap:8px;min-width:0}
+.activity-app-name>span:last-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.activity-app-icon{position:relative;width:24px;height:24px;flex:0 0 24px;border-radius:6px;display:grid;place-items:center;background:#f2f5f9;border:1px solid #e3e8f0;overflow:visible;color:#65758d}
+.activity-app-icon img{display:block;width:20px;height:20px;object-fit:contain;border-radius:4px}
+.activity-app-icon.fallback b{font-size:11px;line-height:1;font-weight:750;color:#52647d}
+.activity-app-icon.focused::after{content:"";position:absolute;right:-2px;bottom:-2px;width:7px;height:7px;border-radius:50%;background:#25ad65;border:2px solid var(--card)}
+.activity-current-icon.activity-app-icon img{width:28px;height:28px}
+.activity-current-icon.activity-app-icon.fallback b{font-size:16px}
+.activity-current-icon.activity-app-icon.focused::after{width:8px;height:8px;right:-2px;bottom:-2px}
 .activity-window-title{max-width:330px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
 .activity-timeline{display:grid;gap:5px;margin-top:4px}
-.activity-event{padding:8px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:8px;align-items:start}
+.activity-event{padding:8px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:9px;align-items:center}
 .activity-event:last-child{border-bottom:0}
-.activity-event>i{width:7px;height:7px;margin-top:4px;border-radius:50%;background:#8795aa}
-.activity-event.current>i{background:#25ad65}
+.activity-event-icon{width:22px;height:22px;flex-basis:22px;border-radius:6px}
+.activity-event-icon img{width:18px;height:18px}
+.activity-event-icon.fallback b{font-size:9px}
 .activity-event strong{display:block;font-size:9.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .activity-event small{display:block;margin-top:2px;font-size:8.4px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .activity-event time{font-size:8.2px;color:var(--muted);white-space:nowrap}
 .activity-empty{padding:26px 8px;text-align:center;font-size:9px;line-height:1.5;color:var(--muted)}
 html[data-theme="dark"] .activity-current{background:#242424;border-color:#3a3a3a}
 html[data-theme="dark"] .activity-layout>div{background:#2a2a2a;border-color:#3a3a3a}
-html[data-theme="dark"] .activity-current-icon{background:#343434;color:#f5f5f5}
+html[data-theme="dark"] .activity-app-icon{background:#303030;border-color:#444;color:#e8e8e8}
+html[data-theme="dark"] .activity-app-icon.fallback b{color:#e8e8e8}
+html[data-theme="dark"] .activity-app-icon.focused::after{border-color:#2a2a2a}
 @media(max-width:950px){.activity-layout{grid-template-columns:1fr}}
 
 
