@@ -79,10 +79,11 @@ var (
 )
 
 var (
-	themeWindowBrush syscall.Handle
-	themeWhiteBrush  syscall.Handle
-	themeEditBrush   syscall.Handle
-	themeInfoBrush   syscall.Handle
+	themeWindowBrush  syscall.Handle
+	themeWhiteBrush   syscall.Handle
+	themeEditBrush    syscall.Handle
+	themeInfoBrush    syscall.Handle
+	themeSuccessBrush syscall.Handle
 )
 
 func colorRef(r, g, b byte) uintptr {
@@ -105,6 +106,10 @@ func ensureThemeResources() {
 	if themeInfoBrush == 0 {
 		brush, _, _ := procCreateSolidBrush.Call(colorRef(248, 251, 255))
 		themeInfoBrush = syscall.Handle(brush)
+	}
+	if themeSuccessBrush == 0 {
+		brush, _, _ := procCreateSolidBrush.Call(colorRef(245, 252, 248))
+		themeSuccessBrush = syscall.Handle(brush)
 	}
 }
 
@@ -244,6 +249,27 @@ func drawShieldIcon(hdc uintptr, cx, cy int32, color uintptr) {
 	strokedLine(hdc, cx-8, cy-5, cx, cy-9, color, 2)
 }
 
+func paintCompletedTheme(hdc uintptr, client RECT) {
+	// Cabeçalho limpo para a marca.
+	header := RECT{Left: 0, Top: 0, Right: client.Right, Bottom: 140}
+	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&header)), uintptr(themeWhiteBrush))
+
+	// Card principal da conclusão.
+	roundedPanel(hdc, 40, 146, client.Right-40, client.Bottom-22, colorRef(255, 255, 255), colorRef(229, 233, 240), 20)
+
+	// Confirmação visual forte.
+	drawCheckIcon(hdc, client.Right/2, 198)
+
+	// Resumo da empresa e computador.
+	roundedPanel(hdc, 86, 326, client.Right-86, 468, colorRef(248, 251, 255), colorRef(205, 222, 250), 16)
+	drawBuildingIcon(hdc, 108, 383)
+	drawComputerIcon(hdc, 108, 445, colorRef(20, 100, 222))
+
+	// Agente ativo em segundo plano.
+	roundedPanel(hdc, 86, 482, client.Right-86, 562, colorRef(245, 252, 248), colorRef(193, 232, 211), 16)
+	drawShieldIcon(hdc, 106, 522, colorRef(18, 151, 91))
+}
+
 func paintDashboardTheme(hdc uintptr, client RECT) {
 	// Cabeçalho totalmente limpo para a marca centralizada.
 	header := RECT{Left: 0, Top: 0, Right: client.Right, Bottom: 140}
@@ -297,6 +323,10 @@ func paintTheme(hwnd syscall.Handle) {
 		paintDashboardTheme(hdc, client)
 		return
 	}
+	if app != nil && app.mode == "completed" {
+		paintCompletedTheme(hdc, client)
+		return
+	}
 
 	// Demais etapas mantêm o layout compacto original.
 	header := RECT{Left: 0, Top: 0, Right: client.Right, Bottom: 112}
@@ -313,19 +343,29 @@ func staticControlColor(hdc uintptr, hwnd syscall.Handle) uintptr {
 	textColor := colorRef(37, 48, 67)
 
 	if app != nil {
-		if hwnd == app.companyCaption || hwnd == app.companyLabel || hwnd == app.status || hwnd == app.secureTitle || hwnd == app.secureText {
+		if hwnd == app.companyCaption || hwnd == app.companyLabel || hwnd == app.status || hwnd == app.secureTitle || hwnd == app.secureText ||
+			hwnd == app.completeCompanyCap || hwnd == app.completeCompany || hwnd == app.completeDeviceCap || hwnd == app.completeDevice {
 			background = colorRef(248, 251, 255)
 			brush = themeInfoBrush
+		}
+		if hwnd == app.completeStatusTitle || hwnd == app.completeStatusText {
+			background = colorRef(245, 252, 248)
+			brush = themeSuccessBrush
 		}
 		switch hwnd {
 		case app.brand:
 			textColor = colorRef(15, 48, 96)
-		case app.subtitle, app.verifiedDescription, app.companyCaption, app.identityHelp, app.secureText, app.footerText:
+		case app.subtitle, app.verifiedDescription, app.companyCaption, app.identityHelp, app.secureText, app.footerText,
+			app.completeText, app.completeCompanyCap, app.completeDeviceCap, app.completeFooter:
 			textColor = colorRef(91, 105, 129)
-		case app.verifiedLabel, app.companyLabel, app.identityTitle, app.secureTitle:
+		case app.verifiedLabel, app.companyLabel, app.identityTitle, app.secureTitle, app.completeTitle, app.completeCompany, app.completeDevice:
 			textColor = colorRef(13, 43, 87)
 		case app.status:
 			textColor = colorRef(54, 72, 104)
+		case app.completeStatusTitle:
+			textColor = colorRef(20, 112, 70)
+		case app.completeStatusText:
+			textColor = colorRef(65, 104, 84)
 		}
 	}
 
@@ -365,7 +405,7 @@ func drawOwnerButton(dis *DRAWITEMSTRUCT) {
 	textColor := colorRef(24, 55, 103)
 
 	switch id {
-	case idLoginButton, idRegisterButton, idInstall:
+	case idLoginButton, idRegisterButton, idInstall, idFinish:
 		fill = colorRef(9, 101, 238)
 		border = colorRef(9, 101, 238)
 		textColor = colorRef(255, 255, 255)

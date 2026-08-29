@@ -92,6 +92,7 @@ const (
 	idInstall          = 204
 	idOpenCentral      = 206
 	idLogout           = 207
+	idFinish           = 208
 )
 
 var (
@@ -244,6 +245,7 @@ type App struct {
 	codeGroup           []syscall.Handle
 	registerGroup       []syscall.Handle
 	dashboardGroup      []syscall.Handle
+	completedGroup      []syscall.Handle
 	client              *http.Client
 	serverURL           string
 	enrollmentToken     string
@@ -266,6 +268,15 @@ type App struct {
 	secureTitle         syscall.Handle
 	secureText          syscall.Handle
 	footerText          syscall.Handle
+	completeTitle       syscall.Handle
+	completeText        syscall.Handle
+	completeCompanyCap  syscall.Handle
+	completeCompany     syscall.Handle
+	completeDeviceCap   syscall.Handle
+	completeDevice      syscall.Handle
+	completeStatusTitle syscall.Handle
+	completeStatusText  syscall.Handle
+	completeFooter      syscall.Handle
 	logoBitmap          syscall.Handle
 }
 
@@ -632,6 +643,48 @@ func buildUI() {
 	a.add(idOpenCentral, createControl("BUTTON", "Abrir painel web", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 0, 0, 1, 1, a.hwnd, idOpenCentral), &a.dashboardGroup)
 	a.add(idLogout, createControl("BUTTON", "Trocar conta", WS_CHILD|WS_TABSTOP|BS_OWNERDRAW, 0, 0, 1, 1, a.hwnd, idLogout), &a.dashboardGroup)
 
+	// -------------------------------------------------------------------------
+	// Conclusão da instalação por código/link. Mantemos a janela aberta até que
+	// a pessoa clique em Concluir, para nunca parecer que o instalador apenas
+	// desapareceu. O agente continua rodando silenciosamente em segundo plano.
+	// -------------------------------------------------------------------------
+	a.completedGroup = append(a.completedGroup, a.dashboardLogo)
+	a.completeTitle = createControl("STATIC", "CoreControl instalado com sucesso", WS_CHILD|SS_CENTER, 110, 236, 540, 36, a.hwnd, 0)
+	applyFont(a.completeTitle, a.sectionFont)
+	a.completedGroup = append(a.completedGroup, a.completeTitle)
+
+	a.completeText = createControl("STATIC", "Este computador já está vinculado e protegido pelo CoreControl.", WS_CHILD|SS_CENTER, 90, 278, 580, 28, a.hwnd, 0)
+	applyFont(a.completeText, a.smallFont)
+	a.completedGroup = append(a.completedGroup, a.completeText)
+
+	a.completeCompanyCap = createControl("STATIC", "Empresa", WS_CHILD, 126, 348, 150, 20, a.hwnd, 0)
+	applyFont(a.completeCompanyCap, a.smallFont)
+	a.completedGroup = append(a.completedGroup, a.completeCompanyCap)
+	a.completeCompany = createControl("STATIC", "", WS_CHILD, 126, 373, 510, 28, a.hwnd, 0)
+	applyFont(a.completeCompany, a.buttonFont)
+	a.completedGroup = append(a.completedGroup, a.completeCompany)
+
+	a.completeDeviceCap = createControl("STATIC", "Computador", WS_CHILD, 126, 410, 150, 20, a.hwnd, 0)
+	applyFont(a.completeDeviceCap, a.smallFont)
+	a.completedGroup = append(a.completedGroup, a.completeDeviceCap)
+	a.completeDevice = createControl("STATIC", "", WS_CHILD, 126, 435, 510, 28, a.hwnd, 0)
+	applyFont(a.completeDevice, a.buttonFont)
+	a.completedGroup = append(a.completedGroup, a.completeDevice)
+
+	a.completeStatusTitle = createControl("STATIC", "Ativo em segundo plano", WS_CHILD, 126, 493, 420, 22, a.hwnd, 0)
+	applyFont(a.completeStatusTitle, a.buttonFont)
+	a.completedGroup = append(a.completedGroup, a.completeStatusTitle)
+	a.completeStatusText = createControl("STATIC", "Você não precisa abrir nada. O agente já está enviando as informações para a empresa.", WS_CHILD, 126, 519, 500, 38, a.hwnd, 0)
+	applyFont(a.completeStatusText, a.smallFont)
+	a.completedGroup = append(a.completedGroup, a.completeStatusText)
+
+	a.add(idFinish, createControl("BUTTON", "Concluir", WS_CHILD|WS_TABSTOP|BS_DEFPUSHBUTTON|BS_OWNERDRAW, 86, 579, 588, 54, a.hwnd, idFinish), &a.completedGroup)
+	applyFont(a.controls[idFinish], a.buttonFont)
+
+	a.completeFooter = createControl("STATIC", "CoreControl está instalado e funcionando neste computador.", WS_CHILD|SS_CENTER, 130, 645, 500, 24, a.hwnd, 0)
+	applyFont(a.completeFooter, a.smallFont)
+	a.completedGroup = append(a.completedGroup, a.completeFooter)
+
 	a.showMode("login")
 }
 
@@ -642,6 +695,9 @@ func (a *App) resizeForMode(mode string) {
 	case "dashboard":
 		width = 760
 		height = 950
+	case "completed":
+		width = 760
+		height = 720
 	case "code":
 		height = 560
 	case "register":
@@ -665,11 +721,21 @@ func (a *App) showMode(mode string) {
 	for _, h := range a.dashboardGroup {
 		show(h, false)
 	}
+	for _, h := range a.completedGroup {
+		show(h, false)
+	}
 
 	a.resizeForMode(mode)
 	forceRedraw(a.hwnd)
 
 	switch mode {
+	case "completed":
+		show(a.brand, false)
+		show(a.subtitle, false)
+		for _, h := range a.completedGroup {
+			show(h, true)
+		}
+		procSetFocus.Call(uintptr(a.controls[idFinish]))
 	case "dashboard":
 		show(a.brand, false)
 		show(a.subtitle, false)
@@ -734,6 +800,8 @@ func (a *App) handleCommand(id int) {
 		a.openCentral()
 	case idLogout:
 		a.logout()
+	case idFinish:
+		procDestroyWindow.Call(uintptr(a.hwnd))
 	}
 }
 
@@ -920,7 +988,7 @@ func (a *App) isClickableControl(hwnd syscall.Handle) bool {
 	}
 	id, _, _ := procGetDlgCtrlID.Call(uintptr(hwnd))
 	switch int(id) {
-	case idLoginButton, idUseInstallCode, idValidateCode, idCodeBack, idShowRegister, idForgotPassword, idRegisterButton, idShowLogin, idInstall, idOpenCentral, idLogout:
+	case idLoginButton, idUseInstallCode, idValidateCode, idCodeBack, idShowRegister, idForgotPassword, idRegisterButton, idShowLogin, idInstall, idOpenCentral, idLogout, idFinish:
 		return true
 	default:
 		return false
@@ -1069,12 +1137,21 @@ func (a *App) installCurrentEnrollment() {
 
 	a.enrollmentToken = ""
 	setText(a.status, "CoreControl instalado e conectado com sucesso.")
-	message(
-		"CoreControl instalado",
-		fmt.Sprintf("Empresa: %s\nComputador: %s\n\nPronto. Este computador já está vinculado e o agente começou a enviar as informações técnicas.\n\nNenhum login ou senha da empresa foi armazenado neste computador.", resp.CompanyName, name),
-		MB_OK|MB_ICONINFORMATION,
-	)
-	procDestroyWindow.Call(uintptr(a.hwnd))
+	a.showCompletion(resp.CompanyName, name)
+}
+
+func (a *App) showCompletion(company, device string) {
+	company = strings.TrimSpace(company)
+	if company == "" {
+		company = "Empresa vinculada"
+	}
+	device = strings.TrimSpace(device)
+	if device == "" {
+		device = "Este computador"
+	}
+	setText(a.completeCompany, company)
+	setText(a.completeDevice, device)
+	a.showMode("completed")
 }
 
 func (a *App) writeEnrollmentFiles(machine Machine, name, sector, location string, resp InstallResponse, coreBytes, agentBytes []byte) error {
@@ -1142,6 +1219,14 @@ func (a *App) writeEnrollmentFiles(machine Machine, name, sector, location strin
 	cmd := hiddenCommand(agentPath, "-config", configPath)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("não foi possível iniciar o agente: %w", err)
+	}
+
+	// Start() confirma apenas que o Windows aceitou criar o processo. Aguarda um
+	// instante e verifica se o agente realmente permaneceu em execução antes de
+	// mostrar a instalação como concluída.
+	time.Sleep(800 * time.Millisecond)
+	if !setupProcessExists("corecontrolagent.exe") && !setupProcessExists("coretuneragent.exe") {
+		return errors.New("o CoreControl foi instalado, mas o agente não permaneceu em execução")
 	}
 	return nil
 }

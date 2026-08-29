@@ -51,3 +51,12 @@ def test_setup_repaints_between_wizard_steps_without_ghosting():
     assert "RDW_ALLCHILDREN" in theme_source
     assert 'createControl("STATIC", "Aguardando login"' not in SETUP_SOURCE
     assert 'createControl("STATIC", "Entre com sua conta para continuar."' not in SETUP_SOURCE
+
+
+def test_enrollment_installation_keeps_visible_completion_screen():
+    assert '"CoreControl instalado com sucesso"' in SETUP_SOURCE
+    assert '"Ativo em segundo plano"' in SETUP_SOURCE
+    assert '"Você não precisa abrir nada. O agente já está enviando as informações para a empresa."' in SETUP_SOURCE
+    assert 'a.showCompletion(resp.CompanyName, name)' in SETUP_SOURCE
+    assert 'case idFinish:' in SETUP_SOURCE
+    assert 'setupProcessExists("corecontrolagent.exe")' in SETUP_SOURCE
