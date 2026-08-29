@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 import json
 from datetime import timedelta
 from typing import Annotated
-
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
