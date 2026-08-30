@@ -28,7 +28,7 @@ def test_agent_snapshot_carries_cached_executable_icons():
 
 def test_agent_version_bumped_for_activity_icon_support():
     main = read("agent/src/main.go")
-    assert 'const agentVersion = "0.8.4"' in main
+    assert 'const agentVersion = "0.8.5"' in main
 
 
 def test_device_panel_renders_real_icons_and_friendly_names():

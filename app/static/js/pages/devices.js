@@ -69,6 +69,10 @@
     return activityVersionAtLeast(version, '0.8.3');
   }
 
+  function activityBrowserTabsVersionSupported(version) {
+    return activityVersionAtLeast(version, '0.8.5');
+  }
+
   function activityDuration(seconds) {
     let value = Math.max(0, Math.round(Number(seconds) || 0));
     if (value < 60) return `${value}s`;
@@ -94,6 +98,7 @@
       firefox: 'Mozilla Firefox',
       opera: 'Opera',
       opera_gx: 'Opera GX',
+      brave: 'Brave',
       spotify: 'Spotify',
       anydesk: 'AnyDesk',
       teamviewer: 'TeamViewer',
@@ -182,7 +187,12 @@
     const key = String(browser || '').trim().toLowerCase();
     if (key === 'edge') return 'msedge';
     if (key === 'opera') return 'opera';
+    if (key === 'brave') return 'brave';
     return key || 'browser';
+  }
+
+  function activityBrowserName(browser) {
+    return activityFriendlyName(activityBrowserProcess(browser));
   }
 
   function activitySegments(history) {
@@ -277,14 +287,16 @@
     const iconCount = assetsList.filter((asset) => Boolean(activityIconData(asset?.icon_data))).length;
     const appRowsWithIcon = apps.filter((app) => Boolean(activityIconData(activityAssets.get(activityProcessKey(app?.process_name))?.icon_data))).length;
     const realIcons = iconCount > 0;
+    const tabSuffix = browserTabs.length ? ` · ${browserTabs.length} aba${browserTabs.length === 1 ? '' : 's'}` : '';
     status.textContent = !realIcons && (apps.length || browserTabs.length)
-      ? 'Atualizado · 0 ícones recebidos'
-      : realIcons && apps.length ? `Atualizado · ${appRowsWithIcon}/${apps.length} janelas com ícone`
-      : realIcons ? `Atualizado · ${iconCount} ícone(s) real(is)`
-      : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}` : 'Atualizado';
-    const tabsHtml = browserTabs.length ? `<div class="activity-browser-block"><div class="activity-browser-title">Abas do navegador</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Página</th><th>Site</th><th>Status</th></tr></thead><tbody>${browserTabs.map((tab) => {
+      ? `Atualizado · 0 ícones recebidos${tabSuffix}`
+      : realIcons && apps.length ? `Atualizado · ${appRowsWithIcon}/${apps.length} janelas com ícone${tabSuffix}`
+      : realIcons ? `Atualizado · ${iconCount} ícone(s) real(is)${tabSuffix}`
+      : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}${tabSuffix}` : `Atualizado${tabSuffix}`;
+    const tabsHtml = browserTabs.length ? `<div class="activity-browser-block"><div class="activity-browser-title">Abas abertas do navegador <span class="activity-count">${browserTabs.length}</span></div><div class="table-wrap activity-browser-scroll"><table class="activity-table activity-browser-table"><thead><tr><th>Navegador</th><th>Página</th><th>Site</th><th>Status</th></tr></thead><tbody>${browserTabs.map((tab) => {
       const browserProcess = activityBrowserProcess(tab.browser);
-      return `<tr><td><div class="activity-app-name">${activityAppIcon(browserProcess, tab.active)}<span>${CT.esc(tab.title || 'Página')}</span></div></td><td><div class="activity-window-title" title="${CT.esc(tab.url || '')}">${CT.esc(tab.domain || '—')}</div></td><td>${tab.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
+      const browserName = activityBrowserName(tab.browser);
+      return `<tr><td><div class="activity-app-name">${activityAppIcon(browserProcess, tab.active)}<span>${CT.esc(browserName)}</span></div></td><td><div class="activity-window-title activity-tab-title" title="${CT.esc(tab.title || '')}">${CT.esc(tab.title || 'Página')}</div></td><td><div class="activity-window-title" title="${CT.esc(tab.url || '')}">${CT.esc(tab.domain || '—')}</div></td><td>${tab.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
     }).join('')}</tbody></table></div></div>` : '';
     const appsHtml = apps.length ? `<div class="activity-browser-title">Aplicativos com janela aberta <span class="activity-count">${apps.length}</span></div><div class="table-wrap activity-table-scroll"><table class="activity-table"><thead><tr><th>Aplicativo</th><th>Janela</th><th>CPU</th><th>Memória</th><th>Status</th></tr></thead><tbody>${apps.map((app) => {
       const asset = activityAssets.get(activityProcessKey(app.process_name));
@@ -367,12 +379,15 @@
     activityButton.onclick = () => requestActivitySnapshot(device);
     loadActivitySnapshot(device.id).then((snapshot) => {
       const result = snapshot?.command?.result || {};
-      const hasApps = (result.apps || []).length > 0 || (result.browser_tabs || []).length > 0;
+      const apps = result.apps || [];
+      const browserTabs = result.browser_tabs || [];
+      const hasApps = apps.length > 0 || browserTabs.length > 0;
       const missingIcons = hasApps && !activityResultHasRealIcons(result);
-      // Depois de atualizar o Agent, um snapshot antigo (0.6–0.8.1) pode continuar
-      // salvo no servidor sem app_assets. Gera uma coleta nova automaticamente
-      // uma única vez ao abrir a tela para não manter os placeholders antigos.
-      if (device.online && activityIconVersionSupported(device.agent_version) && snapshot?.command?.status === 'succeeded' && missingIcons) {
+      const hasBrowserWindow = apps.some((app) => ['chrome', 'msedge', 'opera', 'opera_gx', 'brave'].includes(activityProcessKey(app?.process_name)));
+      const missingBrowserTabs = activityBrowserTabsVersionSupported(device.agent_version) && hasBrowserWindow && browserTabs.length === 0;
+      // Depois de atualizar o Agent, um snapshot antigo pode continuar salvo no
+      // servidor sem ícones/abas. Faz uma nova coleta automaticamente uma vez.
+      if (device.online && snapshot?.command?.status === 'succeeded' && ((activityIconVersionSupported(device.agent_version) && missingIcons) || missingBrowserTabs)) {
         requestActivitySnapshot(device);
       }
     });

@@ -666,3 +666,12 @@ html[data-theme="dark"] .activity-app-icon.focused::after{border-color:#2a2a2a}
 .activity-table-scroll .activity-table thead th{position:sticky;top:0;z-index:2;background:var(--card)}
 .activity-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;margin-left:5px;padding:0 6px;border-radius:999px;background:var(--bg-soft);color:var(--muted);font-size:9px;font-weight:650;vertical-align:1px}
 html[data-theme="dark"] .activity-table-scroll .activity-table thead th{background:#2a2a2a}
+
+/* Abas reais dos navegadores: lista completa com scroll independente. */
+.activity-browser-scroll{max-height:390px;overflow:auto;scrollbar-gutter:stable}
+.activity-browser-scroll .activity-table thead th{position:sticky;top:0;z-index:2;background:var(--card)}
+.activity-browser-table th:nth-child(1){width:160px}
+.activity-browser-table th:nth-child(3){width:170px}
+.activity-browser-table th:nth-child(4){width:90px}
+.activity-tab-title{max-width:440px;color:var(--ink)}
+html[data-theme="dark"] .activity-browser-scroll .activity-table thead th{background:#2a2a2a}
