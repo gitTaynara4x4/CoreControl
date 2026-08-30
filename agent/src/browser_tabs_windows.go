@@ -161,6 +161,7 @@ namespace CoreControl {
 }
 '@;
 }
+[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);
 $fg=[CoreControl.NativeUser32]::GetForegroundWindow().ToInt64();
 $root=[System.Windows.Automation.AutomationElement]::RootElement;
 $wins=$root.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition);
@@ -168,9 +169,9 @@ $out=New-Object System.Collections.Generic.List[object];
 $tabCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::TabItem);
 foreach($w in $wins){
   try {
-    $pid=[int]$w.Current.ProcessId;
-    if($pid -le 0){ continue }
-    $p=Get-Process -Id $pid -ErrorAction SilentlyContinue;
+    $processId=[int]$w.Current.ProcessId;
+    if($processId -le 0){ continue }
+    $p=Get-Process -Id $processId -ErrorAction SilentlyContinue;
     if(-not $p){ continue }
     $process=([string]$p.ProcessName).ToLowerInvariant();
     $browser='';
