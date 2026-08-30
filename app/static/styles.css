@@ -660,3 +660,9 @@ html[data-theme="dark"] .activity-app-icon.focused::after{border-color:#2a2a2a}
 .activity-browser-block + .activity-browser-title{margin-top:18px}
 .activity-browser-title{font-size:12px;font-weight:700;color:var(--text,#182033);margin:0 0 8px}
 .activity-browser-block{margin-bottom:4px}
+
+/* Lista completa de janelas abertas: rolagem interna sem cortar resultados. */
+.activity-table-scroll{max-height:520px;overflow:auto;scrollbar-gutter:stable}
+.activity-table-scroll .activity-table thead th{position:sticky;top:0;z-index:2;background:var(--card)}
+.activity-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;margin-left:5px;padding:0 6px;border-radius:999px;background:var(--bg-soft);color:var(--muted);font-size:9px;font-weight:650;vertical-align:1px}
+html[data-theme="dark"] .activity-table-scroll .activity-table thead th{background:#2a2a2a}

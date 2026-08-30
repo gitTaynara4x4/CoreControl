@@ -275,16 +275,18 @@
     activityRememberAssets(command.result || {});
     const assetsList = Object.values(command.result?.app_assets || {});
     const iconCount = assetsList.filter((asset) => Boolean(activityIconData(asset?.icon_data))).length;
+    const appRowsWithIcon = apps.filter((app) => Boolean(activityIconData(activityAssets.get(activityProcessKey(app?.process_name))?.icon_data))).length;
     const realIcons = iconCount > 0;
     status.textContent = !realIcons && (apps.length || browserTabs.length)
       ? 'Atualizado · 0 ícones recebidos'
-      : realIcons ? `Atualizado · ${iconCount}/${Math.max(apps.length, assetsList.length)} ícones reais`
+      : realIcons && apps.length ? `Atualizado · ${appRowsWithIcon}/${apps.length} janelas com ícone`
+      : realIcons ? `Atualizado · ${iconCount} ícone(s) real(is)`
       : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}` : 'Atualizado';
     const tabsHtml = browserTabs.length ? `<div class="activity-browser-block"><div class="activity-browser-title">Abas do navegador</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Página</th><th>Site</th><th>Status</th></tr></thead><tbody>${browserTabs.map((tab) => {
       const browserProcess = activityBrowserProcess(tab.browser);
       return `<tr><td><div class="activity-app-name">${activityAppIcon(browserProcess, tab.active)}<span>${CT.esc(tab.title || 'Página')}</span></div></td><td><div class="activity-window-title" title="${CT.esc(tab.url || '')}">${CT.esc(tab.domain || '—')}</div></td><td>${tab.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
     }).join('')}</tbody></table></div></div>` : '';
-    const appsHtml = apps.length ? `<div class="activity-browser-title">Aplicativos com janela aberta</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Aplicativo</th><th>Janela</th><th>CPU</th><th>Memória</th><th>Status</th></tr></thead><tbody>${apps.slice(0, 14).map((app) => {
+    const appsHtml = apps.length ? `<div class="activity-browser-title">Aplicativos com janela aberta <span class="activity-count">${apps.length}</span></div><div class="table-wrap activity-table-scroll"><table class="activity-table"><thead><tr><th>Aplicativo</th><th>Janela</th><th>CPU</th><th>Memória</th><th>Status</th></tr></thead><tbody>${apps.map((app) => {
       const asset = activityAssets.get(activityProcessKey(app.process_name));
       const displayName = activityFriendlyName(app.process_name, app.display_name || asset?.display_name);
       return `<tr><td><div class="activity-app-name">${activityAppIcon(app.process_name, app.focused)}<span title="${CT.esc(displayName)}">${CT.esc(displayName)}</span></div></td><td><div class="activity-window-title" title="${CT.esc(app.window_title || '')}">${CT.esc(app.window_title || '—')}</div></td><td>${CT.fmtNum(app.cpu_percent, 1)}%</td><td>${CT.fmtNum(app.memory_mb, 0)} MB</td><td>${app.focused ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aberto</span>'}</td></tr>`;

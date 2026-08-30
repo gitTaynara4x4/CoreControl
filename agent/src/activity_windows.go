@@ -42,10 +42,11 @@ type activitySnapshotResult struct {
 }
 
 type agentWindowInfo struct {
-	PID     int
-	Title   string
-	Focused bool
-	HWND    uintptr
+	PID         int
+	ProcessName string
+	Title       string
+	Focused     bool
+	HWND        uintptr
 }
 
 type agentProcessInfo struct {
@@ -123,6 +124,11 @@ func collectForegroundActivity() foregroundActivity {
 
 func collectActivitySnapshot() activitySnapshotResult {
 	windows := collectAgentWindows()
+	// EnumWindows enxerga as janelas de nível superior, mas no Windows 11 várias
+	// pastas podem ficar abertas como abas dentro de uma única janela do Explorer.
+	// Complementamos a coleta com UI Automation para que cada aba/pasta apareça
+	// separadamente no painel.
+	windows = append(windows, collectExplorerFolderTabs()...)
 	processes := agentProcessMap()
 	browserTabs := loadAgentBrowserTabs()
 	cpuCache := map[int]float64{}
@@ -131,7 +137,10 @@ func collectActivitySnapshot() activitySnapshotResult {
 	seen := map[string]bool{}
 	var foreground foregroundActivity
 	for _, window := range windows {
-		name := strings.TrimSpace(processes[window.PID])
+		name := strings.TrimSpace(window.ProcessName)
+		if name == "" {
+			name = strings.TrimSpace(processes[window.PID])
+		}
 		if name == "" {
 			continue
 		}
@@ -180,8 +189,11 @@ func collectActivitySnapshot() activitySnapshotResult {
 		}
 		return apps[i].MemoryMB > apps[j].MemoryMB
 	})
-	if len(apps) > 24 {
-		apps = apps[:24]
+	// Mantém um limite apenas de segurança para payloads absurdos. O limite
+	// anterior de 24 escondia janelas legítimas em estações com muito trabalho
+	// aberto.
+	if len(apps) > 200 {
+		apps = apps[:200]
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	foreground.CapturedAt = now
