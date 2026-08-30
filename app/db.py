@@ -35,6 +35,9 @@ _RUNTIME_COLUMNS: dict[str, dict[str, str]] = {
     },
     "enrollment_tokens": {
         "code_hash": "VARCHAR(64) NULL",
+        # Nullable para manter compatibilidade com autorizações antigas. Em
+        # instalações existentes o vínculo lógico é validado pela API.
+        "device_id": "INTEGER NULL",
     },
 }
 
@@ -63,6 +66,12 @@ def apply_runtime_migrations() -> None:
                 text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS ix_enrollment_tokens_code_hash "
                     "ON enrollment_tokens (code_hash)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_enrollment_tokens_device_id "
+                    "ON enrollment_tokens (device_id)"
                 )
             )
 

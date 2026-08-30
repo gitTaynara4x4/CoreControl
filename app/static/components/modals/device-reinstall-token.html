@@ -1,0 +1,45 @@
+<h2>Reinstalar / atualizar CoreControl</h2>
+<p>
+  Envie este link para a pessoa que está no computador
+  <strong id="reinstallDeviceName"></strong>, da empresa <strong id="reinstallCompanyName"></strong>.
+  Ela não precisa receber login nem senha.
+</p>
+
+<div class="callout" id="tokenExpiration" style="margin-top:12px"></div>
+
+<div class="callout" style="margin-top:10px">
+  <strong>O computador continuará sendo o mesmo no painel.</strong><br>
+  O Setup atualiza/reinstala os componentes e o Agent, mantendo nome, empresa, setor, local e histórico já existentes. O link é bloqueado se for executado em outro computador.
+</div>
+
+<div style="margin-top:16px">
+  <div style="font-size:12px;font-weight:650;margin-bottom:6px">Link de reinstalação <span style="opacity:.62">(recomendado)</span></div>
+  <div class="token-box" id="installationLink" style="font-size:12px;word-break:break-all"></div>
+</div>
+<div class="callout" style="margin-top:10px">
+  Envie o link por WhatsApp, e-mail ou outro canal. Ao abrir, a pessoa baixa o CoreControl Setup já autorizado para atualizar exatamente este computador.
+</div>
+
+<details style="margin-top:14px">
+  <summary style="cursor:pointer;font-weight:600">Ou reinstalar usando código</summary>
+  <div style="margin-top:14px">
+    <div style="font-size:12px;opacity:.72;margin-bottom:6px">Código de reinstalação</div>
+    <div class="token-box" id="installationCode" style="font-size:22px;font-weight:700;letter-spacing:2px;text-align:center"></div>
+  </div>
+  <div class="callout" style="margin-top:10px">
+    No computador correto, acesse <strong id="installPageAddress"></strong>, digite o código acima e clique em <strong>Validar código e baixar</strong>.
+  </div>
+</details>
+
+<div id="installationQrPanel" class="hidden" style="margin-top:14px;text-align:center">
+  <img id="installationQr" alt="QR Code de reinstalação" style="width:220px;height:220px;max-width:100%;background:#fff;padding:10px;border-radius:12px">
+  <div style="font-size:12px;opacity:.72;margin-top:6px">O QR Code abre o mesmo link e também é de uso único.</div>
+</div>
+
+<div class="modal-actions" style="flex-wrap:wrap">
+  <button class="btn" type="button" id="closeToken">Fechar</button>
+  <button class="btn" type="button" id="downloadHere">Baixar neste computador</button>
+  <button class="btn" type="button" id="showInstallQr">Mostrar QR Code</button>
+  <button class="btn" type="button" id="copyInstallCode">Copiar código</button>
+  <button class="btn primary" type="button" id="copyInstallLink">Copiar link para enviar</button>
+</div>

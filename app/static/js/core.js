@@ -3,7 +3,7 @@
 
   const CT = window.CoreTuner = window.CoreTuner || {};
 
-  CT.VERSION = '20260828-install-flow-v2';
+  CT.VERSION = '20260830-device-reinstall-v1';
   CT.state = {
     user: null,
     page: 'overview',

@@ -408,6 +408,12 @@
     remoteButton.disabled = !device.remote?.available;
     remoteButton.addEventListener('click', () => CT.openRemoteSession(device.id));
     CT.$('#backDevices').onclick = () => CT.navigate('devices');
+    const reinstallDeviceBtn = CT.$('#reinstallDeviceBtn');
+    if (['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role)) {
+      reinstallDeviceBtn.classList.remove('hidden');
+      reinstallDeviceBtn.onclick = () => CT.openDeviceReinstallOptions(device);
+    }
+
     const editDeviceBtn = CT.$('#editDeviceBtn');
     if (['global_admin', 'platform_admin', 'company_admin'].includes(CT.state.user.role)) {
       editDeviceBtn.classList.remove('hidden');

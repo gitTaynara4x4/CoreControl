@@ -61,6 +61,10 @@ class EnrollmentToken(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False, index=True)
+    # Quando preenchido, a autorização é exclusiva para reinstalar/atualizar
+    # um computador já cadastrado. Isso evita que o mesmo código crie outra
+    # máquina caso seja aberto por engano em um PC diferente.
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=True, index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     code_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

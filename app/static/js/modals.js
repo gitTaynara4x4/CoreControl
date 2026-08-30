@@ -75,6 +75,73 @@
     }
   };
 
+  CT.createDeviceReinstallToken = async function createDeviceReinstallToken(device, validMinutes) {
+    try {
+      const minutes = Number(validMinutes) || 30;
+      const data = await CT.api(`/devices/${device.id}/reinstall-token?valid_minutes=${minutes}`, { method: 'POST' });
+      await CT.openModalTemplate('device-reinstall-token');
+
+      const installationUrl = new URL(data.installation_url, window.location.origin).href;
+      const installPageUrl = new URL(data.install_page_url || '/instalar', window.location.origin).href;
+      const qrUrl = new URL(data.qr_url, window.location.origin).href;
+
+      CT.$('#reinstallDeviceName').textContent = data.device_name || device.name || 'este computador';
+      CT.$('#reinstallCompanyName').textContent = device.company_name || '';
+      CT.$('#installationCode').textContent = data.installation_code;
+      CT.$('#installationLink').textContent = installationUrl;
+      CT.$('#installPageAddress').textContent = installPageUrl;
+      CT.$('#tokenExpiration').textContent = `Válido até ${CT.fmtDate(data.expires_at)} • uso único • somente neste computador.`;
+      CT.$('#closeToken').onclick = CT.closeModal;
+
+      CT.$('#downloadHere').onclick = () => window.location.assign(installationUrl);
+      CT.$('#copyInstallCode').onclick = async () => {
+        await navigator.clipboard.writeText(data.installation_code);
+        CT.toast('Código de reinstalação copiado.');
+      };
+      CT.$('#copyInstallLink').onclick = async () => {
+        await navigator.clipboard.writeText(installationUrl);
+        CT.toast('Link de reinstalação copiado.');
+      };
+      CT.$('#showInstallQr').onclick = () => {
+        const panel = CT.$('#installationQrPanel');
+        const image = CT.$('#installationQr');
+        const opening = panel.classList.contains('hidden');
+        panel.classList.toggle('hidden', !opening);
+        if (opening && !image.src) image.src = qrUrl;
+        CT.$('#showInstallQr').textContent = opening ? 'Ocultar QR Code' : 'Mostrar QR Code';
+      };
+    } catch (error) {
+      CT.toast(error.message, true);
+    }
+  };
+
+  CT.openDeviceReinstallOptions = function openDeviceReinstallOptions(device) {
+    CT.openModal(`
+      <h2>Reinstalar / atualizar CoreControl</h2>
+      <p>Gere uma autorização temporária para <strong>${CT.esc(device.name)}</strong>. O vínculo, nome e histórico deste computador serão mantidos.</p>
+      <form id="deviceReinstallOptionsForm" class="stack">
+        <label>Validade do link/código
+          <select id="deviceReinstallValidity" required>
+            <option value="30" selected>30 minutos</option>
+            <option value="120">2 horas</option>
+            <option value="1440">24 horas</option>
+          </select>
+        </label>
+        <div class="callout">Esta autorização é exclusiva para este computador. Se for aberta em outro PC, o CoreControl não cria outro equipamento e não altera o cadastro existente.</div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="cancelDeviceReinstall">Cancelar</button>
+          <button class="btn primary" type="submit">Gerar link de reinstalação</button>
+        </div>
+      </form>`);
+    CT.$('#cancelDeviceReinstall').onclick = CT.closeModal;
+    CT.$('#deviceReinstallOptionsForm').onsubmit = async (event) => {
+      event.preventDefault();
+      const minutes = Number(CT.$('#deviceReinstallValidity').value) || 30;
+      CT.closeModal();
+      await CT.createDeviceReinstallToken(device, minutes);
+    };
+  };
+
   CT.openEnrollmentOptions = function openEnrollmentOptions(companyId, companyName) {
     CT.openModal(`
       <h2>Adicionar computador</h2>
