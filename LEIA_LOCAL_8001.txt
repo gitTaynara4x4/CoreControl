@@ -1,0 +1,19 @@
+CORECONTROL LOCAL - PORTA 8001
+
+Este patch altera SOMENTE os inicializadores locais.
+Nao altera .env, Dockerfile, configuracao da VPS, Agent ou instalador.
+
+Mais simples no PowerShell:
+  .\RODAR_LOCAL_8001.ps1
+
+Ou:
+  .\Iniciar_CoreControl_Local.ps1
+
+Endereco:
+  http://127.0.0.1:8001
+
+API:
+  http://127.0.0.1:8001/api/docs
+
+Observacao:
+O problema dos icones e independente da porta 8001 e nao foi alterado neste patch.

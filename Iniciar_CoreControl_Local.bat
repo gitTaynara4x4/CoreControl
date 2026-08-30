@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ==========================================
-echo       CoreControl - Local
+echo       CoreControl - Local :8001
 echo ==========================================
 echo.
 
@@ -25,8 +25,18 @@ echo Instalando ou conferindo dependencias...
 python -m pip install --disable-pip-version-check -r requirements.txt
 if errorlevel 1 goto :error
 
+rem IMPORTANTE: estas variaveis valem SOMENTE para esta janela/local.
+rem Nao alteram o .env usado na VPS.
+set "CORETUNER_ENV=development"
+set "CORETUNER_DEV_WEB=1"
+set "CORETUNER_PUBLIC_URL=http://127.0.0.1:8001"
+set "CORETUNER_SERVER_URL=http://127.0.0.1:8001"
+set "CORETUNER_PORT=8001"
+set "PORT=8001"
+
 echo.
-echo Iniciando em http://127.0.0.1:8002
+echo Iniciando em http://127.0.0.1:8001
+echo API docs: http://127.0.0.1:8001/api/docs
 echo Para encerrar, pressione CTRL+C.
 echo.
 python run.py

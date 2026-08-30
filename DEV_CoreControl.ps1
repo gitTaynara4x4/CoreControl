@@ -2,7 +2,8 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 $env:CORETUNER_DEV = "1"
-$env:CORETUNER_SERVER_URL = "http://127.0.0.1:8002"
+$env:CORETUNER_SERVER_URL = "http://127.0.0.1:8001"
+$env:CORETUNER_PUBLIC_URL = "http://127.0.0.1:8001"
 $env:CORETUNER_DATA_DIR = Join-Path $PSScriptRoot ".dev\CoreTuner"
 
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {

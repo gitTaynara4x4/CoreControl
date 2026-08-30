@@ -66,7 +66,7 @@
   }
 
   function activityIconVersionSupported(version) {
-    return activityVersionAtLeast(version, '0.8.2');
+    return activityVersionAtLeast(version, '0.8.3');
   }
 
   function activityDuration(seconds) {
@@ -273,9 +273,12 @@
     const apps = command.result?.apps || [];
     const browserTabs = command.result?.browser_tabs || [];
     activityRememberAssets(command.result || {});
-    const realIcons = activityResultHasRealIcons(command.result || {});
+    const assetsList = Object.values(command.result?.app_assets || {});
+    const iconCount = assetsList.filter((asset) => Boolean(activityIconData(asset?.icon_data))).length;
+    const realIcons = iconCount > 0;
     status.textContent = !realIcons && (apps.length || browserTabs.length)
-      ? 'Atualizado · aguardando ícones'
+      ? 'Atualizado · 0 ícones recebidos'
+      : realIcons ? `Atualizado · ${iconCount}/${Math.max(apps.length, assetsList.length)} ícones reais`
       : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}` : 'Atualizado';
     const tabsHtml = browserTabs.length ? `<div class="activity-browser-block"><div class="activity-browser-title">Abas do navegador</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Página</th><th>Site</th><th>Status</th></tr></thead><tbody>${browserTabs.map((tab) => {
       const browserProcess = activityBrowserProcess(tab.browser);

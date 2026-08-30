@@ -4,13 +4,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -144,6 +148,18 @@ func activityAssetForProcess(pid int, processName string, hwnd uintptr) activity
 		} else if iconData := activityExtractExecutableIconData(path); iconData != "" {
 			asset.IconData = iconData
 			asset.IconSource = "executable-resource"
+		}
+	}
+
+	// Fallback final: usa o próprio Windows PowerShell/.NET para extrair o
+	// ícone associado ao processo. Em algumas máquinas o HICON retornado pelas
+	// APIs Win32 não preserva um bitmap rasterizável, embora o Explorer mostre
+	// o ícone normalmente. System.Drawing.Icon.ExtractAssociatedIcon resolve
+	// exatamente esse caso para Chrome, Spotify, AnyDesk, VS Code etc.
+	if asset.IconData == "" {
+		if iconData := activityPowerShellProcessIconData(pid, path); iconData != "" {
+			asset.IconData = iconData
+			asset.IconSource = "powershell-associated"
 		}
 	}
 
@@ -304,6 +320,40 @@ func activityExtractExecutableIconData(path string) string {
 		return activityHIconData(smallIcon)
 	}
 	return ""
+}
+
+func activityPowerShellProcessIconData(pid int, executablePath string) string {
+	if pid <= 0 && strings.TrimSpace(executablePath) == "" {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// O caminho/PID vão por variáveis de ambiente para não haver problema de
+	// escaping com espaços, acentos ou caracteres especiais no nome da pasta.
+	script := `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Drawing; $p=$env:CORECONTROL_ICON_PATH; if ([string]::IsNullOrWhiteSpace($p) -and $env:CORECONTROL_ICON_PID) { try { $p=(Get-Process -Id ([int]$env:CORECONTROL_ICON_PID) -ErrorAction Stop).Path } catch {} }; if ([string]::IsNullOrWhiteSpace($p) -or -not (Test-Path -LiteralPath $p)) { exit 2 }; $ico=[System.Drawing.Icon]::ExtractAssociatedIcon($p); if ($null -eq $ico) { exit 3 }; try { $bmp=$ico.ToBitmap(); try { $ms=New-Object System.IO.MemoryStream; try { $bmp.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png); [Console]::Out.Write([Convert]::ToBase64String($ms.ToArray())) } finally { $ms.Dispose() } } finally { $bmp.Dispose() } } finally { $ico.Dispose() }`
+	cmd := hiddenCommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.Env = append(os.Environ(),
+		"CORECONTROL_ICON_PATH="+strings.TrimSpace(executablePath),
+		"CORECONTROL_ICON_PID="+fmt.Sprintf("%d", pid),
+	)
+	out, err := cmd.Output()
+	if err != nil || ctx.Err() != nil {
+		return ""
+	}
+	b64 := strings.TrimSpace(string(out))
+	if b64 == "" || len(b64) > activityMaxIconBytes*2 {
+		return ""
+	}
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil || len(raw) < 8 || len(raw) > activityMaxIconBytes {
+		return ""
+	}
+	if !bytes.Equal(raw[:8], []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}) {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(raw)
 }
 
 func activityHIconData(icon syscall.Handle) string {
