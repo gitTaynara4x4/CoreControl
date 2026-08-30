@@ -108,7 +108,7 @@
 
   function activityIconData(value) {
     const icon = String(value || '').trim();
-    if (icon.length > 32000 || !/^data:image\/png;base64,[a-z0-9+/=]+$/i.test(icon)) return '';
+    if (icon.length > 131072 || !/^data:image\/png;base64,[a-z0-9+/=]+$/i.test(icon)) return '';
     return icon;
   }
 

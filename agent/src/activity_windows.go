@@ -45,6 +45,7 @@ type agentWindowInfo struct {
 	PID     int
 	Title   string
 	Focused bool
+	HWND    uintptr
 }
 
 type agentProcessInfo struct {
@@ -147,7 +148,7 @@ func collectActivitySnapshot() activitySnapshotResult {
 		assetKey := strings.ToLower(name)
 		asset, hasAsset := assets[assetKey]
 		if !hasAsset {
-			asset = activityAssetForProcess(window.PID, name)
+			asset = activityAssetForProcess(window.PID, name, window.HWND)
 			assets[assetKey] = asset
 		}
 		item := activityApplication{
@@ -213,7 +214,7 @@ func collectAgentWindows() []agentWindowInfo {
 		if pid == 0 {
 			return 1
 		}
-		items = append(items, agentWindowInfo{PID: int(pid), Title: title, Focused: hwnd == foreground})
+		items = append(items, agentWindowInfo{PID: int(pid), Title: title, Focused: hwnd == foreground, HWND: hwnd})
 		return 1
 	})
 	activityEnumWindows.Call(callback, 0)

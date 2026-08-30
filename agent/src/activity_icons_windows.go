@@ -15,12 +15,19 @@ import (
 )
 
 const (
-	activitySHGFIIcon    = 0x000000100
-	activityDIBRGBColors = 0
-	activityBINone       = 0
-	activityDINormal     = 0x0003
-	activityIconSize     = 32
-	activityMaxIconBytes = 20 * 1024
+	activitySHGFIIcon       = 0x000000100
+	activityDIBRGBColors    = 0
+	activityBINone          = 0
+	activityDINormal        = 0x0003
+	activityIconSize        = 32
+	activityMaxIconBytes    = 64 * 1024
+	activityWMGetIcon       = 0x007F
+	activityIconSmall       = 0
+	activityIconBig         = 1
+	activityIconSmall2      = 2
+	activityGCLPHIcon       = -14
+	activityGCLPHIconSmall  = -34
+	activitySMTOAbortIfHung = 0x0002
 )
 
 type activitySHFileInfoW struct {
@@ -54,6 +61,7 @@ type activityAppAsset struct {
 	ProcessName string `json:"process_name"`
 	DisplayName string `json:"display_name"`
 	IconData    string `json:"icon_data,omitempty"`
+	IconSource  string `json:"icon_source,omitempty"`
 }
 
 var (
@@ -63,6 +71,7 @@ var (
 
 	activityQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
 	activitySHGetFileInfoW             = activityIconShell32.NewProc("SHGetFileInfoW")
+	activityExtractIconExW             = activityIconShell32.NewProc("ExtractIconExW")
 	activityCreateCompatibleDC         = activityIconGDI32.NewProc("CreateCompatibleDC")
 	activityDeleteDC                   = activityIconGDI32.NewProc("DeleteDC")
 	activityCreateDIBSection           = activityIconGDI32.NewProc("CreateDIBSection")
@@ -70,34 +79,58 @@ var (
 	activityDeleteObject               = activityIconGDI32.NewProc("DeleteObject")
 	activityDrawIconEx                 = activityIconUser32.NewProc("DrawIconEx")
 	activityDestroyIcon                = activityIconUser32.NewProc("DestroyIcon")
+	activitySendMessageTimeoutW        = activityIconUser32.NewProc("SendMessageTimeoutW")
+	activityGetClassLongPtrW           = activityIconUser32.NewProc("GetClassLongPtrW")
 
 	activityIconCacheMu sync.Mutex
-	activityIconCache   = map[string]string{}
+	activityIconCache   = map[string]activityAppAsset{}
 )
 
-func activityAssetForProcess(pid int, processName string) activityAppAsset {
+// activityAssetForProcess tenta primeiro o ícone da própria janela. Isso é mais
+// confiável para Chrome, Spotify, AnyDesk e também para apps empacotados/UWP.
+// Se a janela não expuser um HICON, usamos o executável como fallback.
+func activityAssetForProcess(pid int, processName string, hwnd uintptr) activityAppAsset {
 	processName = strings.TrimSpace(strings.TrimSuffix(processName, ".exe"))
 	asset := activityAppAsset{
 		ProcessName: processName,
 		DisplayName: friendlyActivityProcessName(processName),
 	}
+
 	path := activityProcessExecutablePath(pid)
-	if path == "" {
-		return asset
+	cacheKey := strings.ToLower(strings.TrimSpace(path))
+	if cacheKey == "" {
+		cacheKey = "process:" + strings.ToLower(processName)
 	}
-	key := strings.ToLower(path)
+
 	activityIconCacheMu.Lock()
-	iconData, cached := activityIconCache[key]
+	cached, ok := activityIconCache[cacheKey]
 	activityIconCacheMu.Unlock()
-	if cached {
+	if ok && cached.IconData != "" {
+		cached.ProcessName = processName
+		cached.DisplayName = asset.DisplayName
+		return cached
+	}
+
+	if iconData := activityWindowIconData(hwnd); iconData != "" {
 		asset.IconData = iconData
-		return asset
+		asset.IconSource = "window"
+	} else if path != "" {
+		if iconData := activityExecutableIconData(path); iconData != "" {
+			asset.IconData = iconData
+			asset.IconSource = "executable-shell"
+		} else if iconData := activityExtractExecutableIconData(path); iconData != "" {
+			asset.IconData = iconData
+			asset.IconSource = "executable-resource"
+		}
 	}
-	iconData = activityExecutableIconData(path)
-	activityIconCacheMu.Lock()
-	activityIconCache[key] = iconData
-	activityIconCacheMu.Unlock()
-	asset.IconData = iconData
+
+	// Não memorize falhas. Alguns aplicativos só passam a expor o ícone depois
+	// que a janela termina de inicializar; uma coleta posterior deve tentar de novo.
+	if asset.IconData != "" {
+		activityIconCacheMu.Lock()
+		activityIconCache[cacheKey] = asset
+		activityIconCacheMu.Unlock()
+	}
 	return asset
 }
 
@@ -125,6 +158,43 @@ func activityProcessExecutablePath(pid int) string {
 	return strings.TrimSpace(syscall.UTF16ToString(buffer[:size]))
 }
 
+func activityWindowIconData(hwnd uintptr) string {
+	if hwnd == 0 {
+		return ""
+	}
+
+	// WM_GETICON cobre a maioria dos aplicativos Win32/Chromium/Electron.
+	for _, kind := range []uintptr{activityIconBig, activityIconSmall2, activityIconSmall} {
+		var icon uintptr
+		ok, _, _ := activitySendMessageTimeoutW.Call(
+			hwnd,
+			activityWMGetIcon,
+			kind,
+			0,
+			activitySMTOAbortIfHung,
+			250,
+			uintptr(unsafe.Pointer(&icon)),
+		)
+		if ok != 0 && icon != 0 {
+			if data := activityHIconData(syscall.Handle(icon)); data != "" {
+				return data
+			}
+		}
+	}
+
+	// Algumas janelas não respondem WM_GETICON, mas mantêm o ícone na classe.
+	for _, index := range []int32{activityGCLPHIcon, activityGCLPHIconSmall} {
+		idx := index
+		icon, _, _ := activityGetClassLongPtrW.Call(hwnd, uintptr(int64(idx)))
+		if icon != 0 {
+			if data := activityHIconData(syscall.Handle(icon)); data != "" {
+				return data
+			}
+		}
+	}
+	return ""
+}
+
 func activityExecutableIconData(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -146,6 +216,51 @@ func activityExecutableIconData(path string) string {
 		return ""
 	}
 	defer activityDestroyIcon.Call(uintptr(info.HIcon))
+	return activityHIconData(info.HIcon)
+}
+
+func activityExtractExecutableIconData(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	pathPtr, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return ""
+	}
+	var largeIcon syscall.Handle
+	var smallIcon syscall.Handle
+	count, _, _ := activityExtractIconExW.Call(
+		uintptr(unsafe.Pointer(pathPtr)),
+		0,
+		uintptr(unsafe.Pointer(&largeIcon)),
+		uintptr(unsafe.Pointer(&smallIcon)),
+		1,
+	)
+	if count == 0 {
+		return ""
+	}
+	if largeIcon != 0 {
+		defer activityDestroyIcon.Call(uintptr(largeIcon))
+	}
+	if smallIcon != 0 {
+		defer activityDestroyIcon.Call(uintptr(smallIcon))
+	}
+	if largeIcon != 0 {
+		if data := activityHIconData(largeIcon); data != "" {
+			return data
+		}
+	}
+	if smallIcon != 0 {
+		return activityHIconData(smallIcon)
+	}
+	return ""
+}
+
+func activityHIconData(icon syscall.Handle) string {
+	if icon == 0 {
+		return ""
+	}
 
 	dc, _, _ := activityCreateCompatibleDC.Call(0)
 	if dc == 0 {
@@ -184,7 +299,7 @@ func activityExecutableIconData(path string) string {
 		dc,
 		0,
 		0,
-		uintptr(info.HIcon),
+		uintptr(icon),
 		activityIconSize,
 		activityIconSize,
 		0,
@@ -211,10 +326,8 @@ func activityExecutableIconData(path string) string {
 		for x := 0; x < activityIconSize; x++ {
 			offset := (y*activityIconSize + x) * 4
 			b, g, r, a := raw[offset], raw[offset+1], raw[offset+2], raw[offset+3]
-			if !hasAlpha {
-				if r != 0 || g != 0 || b != 0 {
-					a = 255
-				}
+			if !hasAlpha && (r != 0 || g != 0 || b != 0) {
+				a = 255
 			}
 			img.SetNRGBA(x, y, color.NRGBA{R: r, G: g, B: b, A: a})
 		}

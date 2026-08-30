@@ -12,6 +12,9 @@ def test_agent_snapshot_carries_cached_executable_icons():
     icons = read("agent/src/activity_icons_windows.go")
     assert 'AppAssets   map[string]activityAppAsset `json:"app_assets,omitempty"`' in activity
     assert "SHGetFileInfoW" in icons
+    assert "SendMessageTimeoutW" in icons
+    assert "GetClassLongPtrW" in icons
+    assert "ExtractIconExW" in icons
     assert "CreateDIBSection" in icons
     assert '"data:image/png;base64,"' in icons
     assert "activityIconCache" in icons
@@ -19,7 +22,7 @@ def test_agent_snapshot_carries_cached_executable_icons():
 
 def test_agent_version_bumped_for_activity_icon_support():
     main = read("agent/src/main.go")
-    assert 'const agentVersion = "0.8.0"' in main
+    assert 'const agentVersion = "0.8.1"' in main
 
 
 def test_device_panel_renders_real_icons_and_friendly_names():

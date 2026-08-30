@@ -1,26 +1,13 @@
-CORECONTROL COMPLETO — v0.4.11
+CoreControl - correção dos ícones reais dos aplicativos
 
-Projeto completo com:
-- backend FastAPI;
-- banco SQLite local ou PostgreSQL em produção;
-- site público e painel multiempresa;
-- CoreControlSetup.exe;
-- CoreControl.exe;
-- CoreControlAgent.exe;
-- integração automática com MeshCentral;
-- recuperação de senha por e-mail;
-- testes automatizados.
+Versão do Agent: 0.8.1
 
-ALTERAÇÕES DE INTERFACE E PRIVACIDADE
-- o instalador identifica apenas a empresa vinculada, o usuário e esta máquina;
-- quantidade de computadores, online e offline não aparecem no instalador;
-- o aplicativo local não mostra outros computadores da empresa;
-- a página Administração foi removida do aplicativo local;
-- a visão completa da empresa continua no painel web, conforme as permissões;
-- relatórios locais contêm somente dados deste computador;
-- menus e botões clicáveis exibem cursor de mão e realce de hover.
+Alteração principal:
+- tenta capturar primeiro o ícone real da própria janela (WM_GETICON / classe da janela);
+- se não houver, tenta o ícone do executável via Shell;
+- último fallback: extrai o recurso de ícone diretamente do .exe;
+- falhas não ficam cacheadas, permitindo nova tentativa na próxima coleta;
+- frontend aceita ícones PNG maiores e recebeu novo cache-busting.
 
-ACESSO REMOTO
-O backend e o instalador continuam aceitando identificadores MeshCentral antigos de 32 bytes e atuais de 48 bytes. O agente remoto é baixado para o grupo correto da empresa durante a instalação.
-
-Para produção, mantenha senhas e chaves apenas nas variáveis protegidas do EasyPanel. Não publique .env preenchido.
+IMPORTANTE:
+Depois de substituir estes arquivos no projeto/servidor, execute novamente o CoreControl Setup no computador monitorado para que o CoreControlAgent.exe instalado seja atualizado para 0.8.1. Um Agent antigo já em execução não é substituído apenas ao atualizar o painel web.
