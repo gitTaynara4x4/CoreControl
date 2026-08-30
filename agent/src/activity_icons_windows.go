@@ -16,6 +16,7 @@ import (
 
 const (
 	activitySHGFIIcon       = 0x000000100
+	activitySHGFISmallIcon  = 0x000000001
 	activityDIBRGBColors    = 0
 	activityBINone          = 0
 	activityDINormal        = 0x0003
@@ -57,6 +58,24 @@ type activityBitmapInfo struct {
 	Colors [1]uint32
 }
 
+type activityIconInfo struct {
+	Icon     int32
+	XHotspot uint32
+	YHotspot uint32
+	HbmMask  syscall.Handle
+	HbmColor syscall.Handle
+}
+
+type activityBitmap struct {
+	Type       int32
+	Width      int32
+	Height     int32
+	WidthBytes int32
+	Planes     uint16
+	BitsPixel  uint16
+	Bits       uintptr
+}
+
 type activityAppAsset struct {
 	ProcessName string `json:"process_name"`
 	DisplayName string `json:"display_name"`
@@ -81,6 +100,10 @@ var (
 	activityDestroyIcon                = activityIconUser32.NewProc("DestroyIcon")
 	activitySendMessageTimeoutW        = activityIconUser32.NewProc("SendMessageTimeoutW")
 	activityGetClassLongPtrW           = activityIconUser32.NewProc("GetClassLongPtrW")
+	activityGetIconInfo                = activityIconUser32.NewProc("GetIconInfo")
+	activityGetObjectW                 = activityIconGDI32.NewProc("GetObjectW")
+	activityGetDIBits                  = activityIconGDI32.NewProc("GetDIBits")
+	activityExtractAssociatedIconW     = activityIconShell32.NewProc("ExtractAssociatedIconW")
 
 	activityIconCacheMu sync.Mutex
 	activityIconCache   = map[string]activityAppAsset{}
@@ -204,19 +227,45 @@ func activityExecutableIconData(path string) string {
 	if err != nil {
 		return ""
 	}
-	var info activitySHFileInfoW
-	ret, _, _ := activitySHGetFileInfoW.Call(
-		uintptr(unsafe.Pointer(pathPtr)),
-		0,
-		uintptr(unsafe.Pointer(&info)),
-		unsafe.Sizeof(info),
-		activitySHGFIIcon,
-	)
-	if ret == 0 || info.HIcon == 0 {
+	// Alguns shells devolvem um HICON diferente para LARGE e SMALL. Tentamos
+	// ambos porque há aplicações em que apenas um deles é rasterizável.
+	for _, flags := range []uintptr{activitySHGFIIcon, activitySHGFIIcon | activitySHGFISmallIcon} {
+		var info activitySHFileInfoW
+		ret, _, _ := activitySHGetFileInfoW.Call(
+			uintptr(unsafe.Pointer(pathPtr)),
+			0,
+			uintptr(unsafe.Pointer(&info)),
+			unsafe.Sizeof(info),
+			flags,
+		)
+		if ret == 0 || info.HIcon == 0 {
+			continue
+		}
+		data := activityHIconData(info.HIcon)
+		activityDestroyIcon.Call(uintptr(info.HIcon))
+		if data != "" {
+			return data
+		}
+	}
+	return activityAssociatedExecutableIconData(path)
+}
+
+func activityAssociatedExecutableIconData(path string) string {
+	buffer, err := syscall.UTF16FromString(strings.TrimSpace(path))
+	if err != nil || len(buffer) == 0 {
 		return ""
 	}
-	defer activityDestroyIcon.Call(uintptr(info.HIcon))
-	return activityHIconData(info.HIcon)
+	var index uint16
+	icon, _, _ := activityExtractAssociatedIconW.Call(
+		0,
+		uintptr(unsafe.Pointer(&buffer[0])),
+		uintptr(unsafe.Pointer(&index)),
+	)
+	if icon == 0 {
+		return ""
+	}
+	defer activityDestroyIcon.Call(icon)
+	return activityHIconData(syscall.Handle(icon))
 }
 
 func activityExtractExecutableIconData(path string) string {
@@ -261,6 +310,40 @@ func activityHIconData(icon syscall.Handle) string {
 	if icon == 0 {
 		return ""
 	}
+	// Primeiro lê o bitmap de cor do próprio HICON. Isso evita uma falha que
+	// ocorre em algumas máquinas quando DrawIconEx é usado em um DIBSection.
+	if data := activityHIconBitmapData(icon); data != "" {
+		return data
+	}
+	return activityHIconDrawData(icon)
+}
+
+func activityHIconBitmapData(icon syscall.Handle) string {
+	var info activityIconInfo
+	ok, _, _ := activityGetIconInfo.Call(uintptr(icon), uintptr(unsafe.Pointer(&info)))
+	if ok == 0 {
+		return ""
+	}
+	if info.HbmMask != 0 {
+		defer activityDeleteObject.Call(uintptr(info.HbmMask))
+	}
+	if info.HbmColor != 0 {
+		defer activityDeleteObject.Call(uintptr(info.HbmColor))
+	}
+	if info.HbmColor == 0 {
+		return ""
+	}
+
+	var bitmap activityBitmap
+	got, _, _ := activityGetObjectW.Call(
+		uintptr(info.HbmColor),
+		unsafe.Sizeof(bitmap),
+		uintptr(unsafe.Pointer(&bitmap)),
+	)
+	width, height := int(bitmap.Width), int(bitmap.Height)
+	if got == 0 || width <= 0 || height <= 0 || width > 256 || height > 256 {
+		return ""
+	}
 
 	dc, _, _ := activityCreateCompatibleDC.Call(0)
 	if dc == 0 {
@@ -268,7 +351,63 @@ func activityHIconData(icon syscall.Handle) string {
 	}
 	defer activityDeleteDC.Call(dc)
 
-	var pixelPtr uintptr
+	raw := make([]byte, width*height*4)
+	bmi := activityBitmapInfo{Header: activityBitmapInfoHeader{
+		Size:        uint32(unsafe.Sizeof(activityBitmapInfoHeader{})),
+		Width:       int32(width),
+		Height:      -int32(height),
+		Planes:      1,
+		BitCount:    32,
+		Compression: activityBINone,
+		SizeImage:   uint32(len(raw)),
+	}}
+	lines, _, _ := activityGetDIBits.Call(
+		dc,
+		uintptr(info.HbmColor),
+		0,
+		uintptr(height),
+		uintptr(unsafe.Pointer(&raw[0])),
+		uintptr(unsafe.Pointer(&bmi)),
+		activityDIBRGBColors,
+	)
+	if lines == 0 {
+		return ""
+	}
+
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	hasAlpha := false
+	for i := 3; i < len(raw); i += 4 {
+		if raw[i] != 0 {
+			hasAlpha = true
+			break
+		}
+	}
+	// Sem alpha, o bitmap de cor sozinho não preserva corretamente a máscara
+	// do HICON; nesse caso deixamos o caminho DrawIconEx fazer a composição.
+	if !hasAlpha {
+		return ""
+	}
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			o := (y*width + x) * 4
+			img.SetNRGBA(x, y, color.NRGBA{R: raw[o+2], G: raw[o+1], B: raw[o], A: raw[o+3]})
+		}
+	}
+	return activityEncodeIconPNG(img)
+}
+
+func activityHIconDrawData(icon syscall.Handle) string {
+	if icon == 0 {
+		return ""
+	}
+
+	dc, _, _ := activityCreateCompatibleDC.Call(0)
+	if dc == 0 {
+		return ""
+	}
+	defer activityDeleteDC.Call(dc)
+
+	var pixelPtr unsafe.Pointer
 	bitmapInfo := activityBitmapInfo{Header: activityBitmapInfoHeader{
 		Size:        uint32(unsafe.Sizeof(activityBitmapInfoHeader{})),
 		Width:       activityIconSize,
@@ -286,7 +425,7 @@ func activityHIconData(icon syscall.Handle) string {
 		0,
 		0,
 	)
-	if bitmap == 0 || pixelPtr == 0 {
+	if bitmap == 0 || pixelPtr == nil {
 		return ""
 	}
 	defer activityDeleteObject.Call(bitmap)
@@ -312,7 +451,7 @@ func activityHIconData(icon syscall.Handle) string {
 
 	rawSize := activityIconSize * activityIconSize * 4
 	raw := make([]byte, rawSize)
-	copy(raw, unsafe.Slice((*byte)(unsafe.Pointer(pixelPtr)), rawSize))
+	copy(raw, unsafe.Slice((*byte)(pixelPtr), rawSize))
 
 	img := image.NewNRGBA(image.Rect(0, 0, activityIconSize, activityIconSize))
 	hasAlpha := false
@@ -333,6 +472,13 @@ func activityHIconData(icon syscall.Handle) string {
 		}
 	}
 
+	return activityEncodeIconPNG(img)
+}
+
+func activityEncodeIconPNG(img image.Image) string {
+	if img == nil {
+		return ""
+	}
 	var encoded bytes.Buffer
 	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
 	if err := encoder.Encode(&encoded, img); err != nil || encoded.Len() == 0 || encoded.Len() > activityMaxIconBytes {

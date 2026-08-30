@@ -16,13 +16,16 @@ def test_agent_snapshot_carries_cached_executable_icons():
     assert "GetClassLongPtrW" in icons
     assert "ExtractIconExW" in icons
     assert "CreateDIBSection" in icons
+    assert "GetIconInfo" in icons
+    assert "GetDIBits" in icons
+    assert "ExtractAssociatedIconW" in icons
     assert '"data:image/png;base64,"' in icons
     assert "activityIconCache" in icons
 
 
 def test_agent_version_bumped_for_activity_icon_support():
     main = read("agent/src/main.go")
-    assert 'const agentVersion = "0.8.1"' in main
+    assert 'const agentVersion = "0.8.2"' in main
 
 
 def test_device_panel_renders_real_icons_and_friendly_names():
@@ -30,6 +33,8 @@ def test_device_panel_renders_real_icons_and_friendly_names():
     styles = read("app/static/styles.css")
     assert "activityRememberAssets" in script
     assert "activityAppIcon" in script
+    assert "activityResultHasRealIcons" in script
+    assert "activityIconVersionSupported" in script
     assert "Google Chrome" in script
     assert "Configurações" in script
     assert "Microsoft Text Input" in script

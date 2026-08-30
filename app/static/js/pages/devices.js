@@ -47,10 +47,26 @@
     }
   });
 
+  function activityVersionAtLeast(version, minimum) {
+    const parse = (value) => {
+      const parts = String(value || '').replace(/^v/i, '').split('.').slice(0, 3).map((piece) => Number.parseInt(piece, 10) || 0);
+      while (parts.length < 3) parts.push(0);
+      return parts;
+    };
+    const current = parse(version);
+    const wanted = parse(minimum);
+    for (let index = 0; index < 3; index += 1) {
+      if (current[index] !== wanted[index]) return current[index] > wanted[index];
+    }
+    return true;
+  }
+
   function activityVersionSupported(version) {
-    const parts = String(version || '').replace(/^v/i, '').split('.').slice(0, 3).map((piece) => Number.parseInt(piece, 10) || 0);
-    while (parts.length < 3) parts.push(0);
-    return parts[0] > 0 || parts[1] > 6 || (parts[1] === 6 && parts[2] >= 0);
+    return activityVersionAtLeast(version, '0.6.0');
+  }
+
+  function activityIconVersionSupported(version) {
+    return activityVersionAtLeast(version, '0.8.2');
   }
 
   function activityDuration(seconds) {
@@ -135,6 +151,10 @@
         icon_data: previous.icon_data || '',
       });
     });
+  }
+
+  function activityResultHasRealIcons(result) {
+    return Object.values(result?.app_assets || {}).some((asset) => Boolean(activityIconData(asset?.icon_data)));
   }
 
   function activityGlyph(processName) {
@@ -253,7 +273,10 @@
     const apps = command.result?.apps || [];
     const browserTabs = command.result?.browser_tabs || [];
     activityRememberAssets(command.result || {});
-    status.textContent = command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}` : 'Atualizado';
+    const realIcons = activityResultHasRealIcons(command.result || {});
+    status.textContent = !realIcons && (apps.length || browserTabs.length)
+      ? 'Atualizado · aguardando ícones'
+      : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}` : 'Atualizado';
     const tabsHtml = browserTabs.length ? `<div class="activity-browser-block"><div class="activity-browser-title">Abas do navegador</div><div class="table-wrap"><table class="activity-table"><thead><tr><th>Página</th><th>Site</th><th>Status</th></tr></thead><tbody>${browserTabs.map((tab) => {
       const browserProcess = activityBrowserProcess(tab.browser);
       return `<tr><td><div class="activity-app-name">${activityAppIcon(browserProcess, tab.active)}<span>${CT.esc(tab.title || 'Página')}</span></div></td><td><div class="activity-window-title" title="${CT.esc(tab.url || '')}">${CT.esc(tab.domain || '—')}</div></td><td>${tab.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
@@ -337,7 +360,17 @@
     activityButton.disabled = !device.online || !activityVersionSupported(device.agent_version);
     activityButton.title = !activityVersionSupported(device.agent_version) ? 'Atualize o CoreControl Agent para 0.6.0 ou superior.' : !device.online ? 'O computador precisa estar online.' : '';
     activityButton.onclick = () => requestActivitySnapshot(device);
-    loadActivitySnapshot(device.id);
+    loadActivitySnapshot(device.id).then((snapshot) => {
+      const result = snapshot?.command?.result || {};
+      const hasApps = (result.apps || []).length > 0 || (result.browser_tabs || []).length > 0;
+      const missingIcons = hasApps && !activityResultHasRealIcons(result);
+      // Depois de atualizar o Agent, um snapshot antigo (0.6–0.8.1) pode continuar
+      // salvo no servidor sem app_assets. Gera uma coleta nova automaticamente
+      // uma única vez ao abrir a tela para não manter os placeholders antigos.
+      if (device.online && activityIconVersionSupported(device.agent_version) && snapshot?.command?.status === 'succeeded' && missingIcons) {
+        requestActivitySnapshot(device);
+      }
+    });
 
     CT.$('#deviceHistoryCount').textContent = `Últimas ${device.history.length} amostras recebidas.`;
     CT.$('#deviceCompanyName').textContent = device.company_name;
