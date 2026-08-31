@@ -82,6 +82,7 @@
   }
 
   const activityAssets = new Map();
+  const activityExpandedGroups = new Set();
   let activityLastDevice = null;
 
   function activityProcessKey(name) {
@@ -185,14 +186,142 @@
 
   function activityBrowserProcess(browser) {
     const key = String(browser || '').trim().toLowerCase();
-    if (key === 'edge') return 'msedge';
-    if (key === 'opera') return 'opera';
-    if (key === 'brave') return 'brave';
+    if (key === 'chrome' || key === 'google chrome') return 'chrome';
+    if (key === 'edge' || key === 'msedge' || key === 'microsoft edge') return 'msedge';
+    if (key === 'opera' || key === 'opera gx' || key === 'opera_gx') return key === 'opera' ? 'opera' : 'opera_gx';
+    if (key === 'brave' || key === 'brave-browser') return 'brave';
     return key || 'browser';
   }
 
   function activityBrowserName(browser) {
     return activityFriendlyName(activityBrowserProcess(browser));
+  }
+
+  function activityBrowserKey(value) {
+    const key = activityProcessKey(value);
+    if (key === 'msedge' || key === 'edge') return 'edge';
+    if (key === 'opera' || key === 'opera_gx') return 'opera';
+    if (key === 'brave' || key === 'brave-browser') return 'brave';
+    if (key === 'chrome' || key === 'google chrome') return 'chrome';
+    return key;
+  }
+
+  function activityGroupedApplications(apps, browserTabs) {
+    const groups = new Map();
+    (apps || []).forEach((app, index) => {
+      const processKey = activityProcessKey(app?.process_name) || `pid-${app?.pid || index}`;
+      if (!groups.has(processKey)) {
+        groups.set(processKey, {
+          key: processKey,
+          process_name: app?.process_name || processKey,
+          apps: [],
+          tabs: [],
+          order: index,
+        });
+      }
+      groups.get(processKey).apps.push(app);
+    });
+
+    (browserTabs || []).forEach((tab, index) => {
+      const browserKey = activityBrowserKey(tab?.browser);
+      if (!browserKey) return;
+      let group = Array.from(groups.values()).find((candidate) => activityBrowserKey(candidate.process_name) === browserKey);
+      if (!group) {
+        const processName = activityBrowserProcess(tab.browser);
+        const processKey = activityProcessKey(processName) || `${browserKey}-browser`;
+        group = { key: processKey, process_name: processName, apps: [], tabs: [], order: (apps || []).length + index };
+        groups.set(processKey, group);
+      }
+      group.tabs.push(tab);
+    });
+
+    return Array.from(groups.values()).sort((left, right) => {
+      const leftFocused = left.apps.some((app) => app?.focused) || left.tabs.some((tab) => tab?.active);
+      const rightFocused = right.apps.some((app) => app?.focused) || right.tabs.some((tab) => tab?.active);
+      if (leftFocused !== rightFocused) return leftFocused ? -1 : 1;
+      return left.order - right.order;
+    });
+  }
+
+  function activityUniqueProcessMetric(apps, field) {
+    const seen = new Set();
+    let total = 0;
+    (apps || []).forEach((app, index) => {
+      const pid = Number(app?.pid) || 0;
+      const key = pid > 0 ? `pid:${pid}` : `row:${index}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      total += Number(app?.[field]) || 0;
+    });
+    return total;
+  }
+
+  function activityGroupChildren(group) {
+    if (group.tabs.length) {
+      return group.tabs.map((tab) => ({ type: 'tab', tab }));
+    }
+    if (group.apps.length <= 1) return [];
+    let rows = group.apps;
+    if (activityProcessKey(group.process_name) === 'explorer') {
+      const specific = rows.filter((app) => {
+        const title = String(app?.window_title || '').trim().toLowerCase();
+        return title && title !== 'explorador de arquivos' && title !== 'file explorer';
+      });
+      if (specific.length) rows = specific;
+    }
+    return rows.map((app) => ({ type: 'window', app }));
+  }
+
+  function activityRenderGroupRows(group, index) {
+    const processKey = activityProcessKey(group.process_name);
+    const asset = activityAssets.get(processKey);
+    const leadApp = group.apps.find((app) => app?.focused) || group.apps[0] || {};
+    const activeTab = group.tabs.find((tab) => tab?.active);
+    const displayName = activityFriendlyName(group.process_name, leadApp.display_name || asset?.display_name);
+    const focused = Boolean(leadApp.focused || activeTab);
+    const children = activityGroupChildren(group);
+    const expanded = children.length > 0 && activityExpandedGroups.has(group.key);
+    const countText = children.length > 0 ? ` <span class="activity-group-number">(${children.length})</span>` : '';
+    const toggle = children.length > 0
+      ? `<button type="button" class="activity-group-toggle ${expanded ? 'expanded' : ''}" data-activity-toggle="${CT.esc(group.key)}" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="${expanded ? 'Recolher' : 'Expandir'} ${CT.esc(displayName)}"><span aria-hidden="true">›</span></button>`
+      : '<span class="activity-group-toggle-spacer" aria-hidden="true"></span>';
+    const title = activeTab?.title || leadApp.window_title || (children.length ? `${children.length} itens abertos` : '—');
+    const cpu = activityUniqueProcessMetric(group.apps, 'cpu_percent');
+    const memory = activityUniqueProcessMetric(group.apps, 'memory_mb');
+    const parent = `<tr class="activity-group-parent" data-activity-parent="${CT.esc(group.key)}"><td><div class="activity-app-name activity-group-app">${toggle}${activityAppIcon(group.process_name, focused)}<span class="activity-group-label" title="${CT.esc(displayName)}">${CT.esc(displayName)}${countText}</span></div></td><td><div class="activity-window-title" title="${CT.esc(title)}">${CT.esc(title)}</div></td><td>${CT.fmtNum(cpu, 1)}%</td><td>${CT.fmtNum(memory, 0)} MB</td><td>${focused ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aberto</span>'}</td></tr>`;
+
+    const childRows = children.map((child, childIndex) => {
+      const hidden = expanded ? '' : ' hidden';
+      if (child.type === 'tab') {
+        const tab = child.tab || {};
+        const pageTitle = String(tab.title || 'Página').trim() || 'Página';
+        const site = String(tab.domain || '').trim() || (tab.url ? String(tab.url).trim() : 'Aba do navegador');
+        return `<tr class="activity-tree-child" data-activity-child="${CT.esc(group.key)}"${hidden}><td><div class="activity-child-app"><span class="activity-tree-branch" aria-hidden="true"></span>${activityAppIcon(group.process_name, Boolean(tab.active), 'activity-child-icon')}<span title="${CT.esc(pageTitle)}">${CT.esc(pageTitle)}</span></div></td><td><div class="activity-child-context" title="${CT.esc(tab.url || site)}">${CT.esc(site)}</div></td><td class="activity-child-metric">—</td><td class="activity-child-metric">—</td><td>${tab.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
+      }
+      const app = child.app || {};
+      const windowTitle = String(app.window_title || `Janela ${childIndex + 1}`).trim();
+      const childLabel = processKey === 'explorer' ? windowTitle : windowTitle;
+      return `<tr class="activity-tree-child" data-activity-child="${CT.esc(group.key)}"${hidden}><td><div class="activity-child-app"><span class="activity-tree-branch" aria-hidden="true"></span>${activityAppIcon(group.process_name, Boolean(app.focused), 'activity-child-icon')}<span title="${CT.esc(childLabel)}">${CT.esc(childLabel)}</span></div></td><td><div class="activity-child-context">${processKey === 'explorer' ? 'Pasta aberta' : 'Janela aberta'}</div></td><td>${CT.fmtNum(app.cpu_percent, 1)}%</td><td>${CT.fmtNum(app.memory_mb, 0)} MB</td><td>${app.focused ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aberto</span>'}</td></tr>`;
+    }).join('');
+    return parent + childRows;
+  }
+
+  function activityBindGroupToggles(area) {
+    area.querySelectorAll('[data-activity-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const key = button.dataset.activityToggle || '';
+        if (!key) return;
+        const expanded = !activityExpandedGroups.has(key);
+        if (expanded) activityExpandedGroups.add(key);
+        else activityExpandedGroups.delete(key);
+        button.classList.toggle('expanded', expanded);
+        button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        button.setAttribute('aria-label', `${expanded ? 'Recolher' : 'Expandir'} grupo`);
+        area.querySelectorAll('[data-activity-child]').forEach((row) => {
+          if (row.dataset.activityChild === key) row.hidden = !expanded;
+        });
+      });
+    });
   }
 
   function activitySegments(history) {
@@ -293,17 +422,10 @@
       : realIcons && apps.length ? `Atualizado · ${appRowsWithIcon}/${apps.length} janelas com ícone${tabSuffix}`
       : realIcons ? `Atualizado · ${iconCount} ícone(s) real(is)${tabSuffix}`
       : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}${tabSuffix}` : `Atualizado${tabSuffix}`;
-    const tabsHtml = browserTabs.length ? `<div class="activity-browser-block"><div class="activity-browser-title">Abas abertas do navegador <span class="activity-count">${browserTabs.length}</span></div><div class="table-wrap activity-browser-scroll"><table class="activity-table activity-browser-table"><thead><tr><th>Navegador</th><th>Página</th><th>Site</th><th>Status</th></tr></thead><tbody>${browserTabs.map((tab) => {
-      const browserProcess = activityBrowserProcess(tab.browser);
-      const browserName = activityBrowserName(tab.browser);
-      return `<tr><td><div class="activity-app-name">${activityAppIcon(browserProcess, tab.active)}<span>${CT.esc(browserName)}</span></div></td><td><div class="activity-window-title activity-tab-title" title="${CT.esc(tab.title || '')}">${CT.esc(tab.title || 'Página')}</div></td><td><div class="activity-window-title" title="${CT.esc(tab.url || '')}">${CT.esc(tab.domain || '—')}</div></td><td>${tab.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
-    }).join('')}</tbody></table></div></div>` : '';
-    const appsHtml = apps.length ? `<div class="activity-browser-title">Aplicativos com janela aberta <span class="activity-count">${apps.length}</span></div><div class="table-wrap activity-table-scroll"><table class="activity-table"><thead><tr><th>Aplicativo</th><th>Janela</th><th>CPU</th><th>Memória</th><th>Status</th></tr></thead><tbody>${apps.map((app) => {
-      const asset = activityAssets.get(activityProcessKey(app.process_name));
-      const displayName = activityFriendlyName(app.process_name, app.display_name || asset?.display_name);
-      return `<tr><td><div class="activity-app-name">${activityAppIcon(app.process_name, app.focused)}<span title="${CT.esc(displayName)}">${CT.esc(displayName)}</span></div></td><td><div class="activity-window-title" title="${CT.esc(app.window_title || '')}">${CT.esc(app.window_title || '—')}</div></td><td>${CT.fmtNum(app.cpu_percent, 1)}%</td><td>${CT.fmtNum(app.memory_mb, 0)} MB</td><td>${app.focused ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aberto</span>'}</td></tr>`;
-    }).join('')}</tbody></table></div>` : '';
-    area.innerHTML = tabsHtml + appsHtml || '<div class="activity-empty">Nenhuma atividade visível foi encontrada.</div>';
+    const groups = activityGroupedApplications(apps, browserTabs);
+    const appsHtml = groups.length ? `<div class="activity-browser-title activity-grouped-title">Aplicativos com janela aberta <span class="activity-count">${groups.length}</span><small>Clique na seta para ver todas as abas e janelas agrupadas.</small></div><div class="table-wrap activity-table-scroll"><table class="activity-table activity-grouped-table"><thead><tr><th>Aplicativo</th><th>Janela</th><th>CPU</th><th>Memória</th><th>Status</th></tr></thead><tbody>${groups.map((group, index) => activityRenderGroupRows(group, index)).join('')}</tbody></table></div>` : '';
+    area.innerHTML = appsHtml || '<div class="activity-empty">Nenhuma atividade visível foi encontrada.</div>';
+    activityBindGroupToggles(area);
     if (activityLastDevice) {
       renderActivityCurrent(activityLastDevice);
       renderActivityTimeline(activityLastDevice.history);
@@ -349,6 +471,7 @@
     CT.state.selectedDevice = device.id;
     activityLastDevice = device;
     activityAssets.clear();
+    activityExpandedGroups.clear();
     await CT.mountPage('device');
 
     CT.$('#pageTitle').textContent = device.name;

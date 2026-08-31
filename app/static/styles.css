@@ -675,3 +675,37 @@ html[data-theme="dark"] .activity-table-scroll .activity-table thead th{backgrou
 .activity-browser-table th:nth-child(4){width:90px}
 .activity-tab-title{max-width:440px;color:var(--ink)}
 html[data-theme="dark"] .activity-browser-scroll .activity-table thead th{background:#2a2a2a}
+
+/* ===== Atividade agrupada estilo Gerenciador de Tarefas ===== */
+.activity-grouped-title{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.activity-grouped-title small{margin-left:7px;font-size:8.4px;font-weight:500;color:var(--muted)}
+.activity-grouped-table th:first-child{width:255px}
+.activity-grouped-table th:nth-child(3){width:70px}
+.activity-grouped-table th:nth-child(4){width:82px}
+.activity-grouped-table th:nth-child(5){width:82px}
+.activity-group-parent td{background:var(--card);transition:background .12s ease}
+.activity-group-parent:hover td{background:var(--bg-soft)}
+.activity-group-app{gap:6px}
+.activity-group-toggle,.activity-group-toggle-spacer{width:20px;height:24px;flex:0 0 20px}
+.activity-group-toggle{display:grid;place-items:center;padding:0;border:0;border-radius:5px;background:transparent;color:var(--muted);cursor:pointer}
+.activity-group-toggle:hover{background:var(--bg-soft);color:var(--ink)}
+.activity-group-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.activity-group-toggle>span{display:block;font-size:20px;line-height:1;transform:rotate(0deg);transform-origin:center;transition:transform .13s ease}
+.activity-group-toggle.expanded>span{transform:rotate(90deg)}
+.activity-group-label{font-weight:620;color:var(--ink)}
+.activity-group-number{font-weight:620;color:var(--muted)}
+.activity-tree-child td{background:color-mix(in srgb,var(--bg-soft) 56%,var(--card));border-top-color:transparent}
+.activity-tree-child:hover td{background:var(--bg-soft)}
+.activity-child-app{position:relative;display:flex;align-items:center;gap:7px;min-width:0;padding-left:27px}
+.activity-child-app>span:last-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.activity-tree-branch{position:absolute;left:7px;top:-9px;width:13px;height:22px;border-left:1px solid var(--border-strong);border-bottom:1px solid var(--border-strong);border-bottom-left-radius:5px}
+.activity-child-icon{width:19px!important;height:19px!important;flex-basis:19px!important;border-radius:5px!important}
+.activity-child-icon img{width:15px!important;height:15px!important}
+.activity-child-icon.fallback b{font-size:8px!important}
+.activity-child-icon.focused::after{width:6px;height:6px;border-width:1.5px}
+.activity-child-context{max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:8.7px}
+.activity-child-metric{color:var(--muted)}
+html[data-theme="dark"] .activity-group-parent td{background:#2a2a2a}
+html[data-theme="dark"] .activity-group-parent:hover td,html[data-theme="dark"] .activity-group-toggle:hover,html[data-theme="dark"] .activity-tree-child:hover td{background:#303030}
+html[data-theme="dark"] .activity-tree-child td{background:#272727}
+@media(max-width:760px){.activity-grouped-title small{width:100%;margin:2px 0 0}.activity-grouped-table th:first-child{width:210px}.activity-child-app{padding-left:22px}}
