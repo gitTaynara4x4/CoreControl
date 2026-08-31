@@ -35,48 +35,26 @@ type agentBrowserState struct {
 	Browsers  map[string]agentBrowserStored `json:"browsers"`
 }
 
-// loadAgentBrowserTabs prioritizes the native browser bridge when available,
+// loadAgentBrowserTabs first uses the native browser bridge when available,
 // because it can provide the real URL/domain. For browsers without a recent
-// bridge snapshot it tries two read-only Windows accessibility paths:
-// UI Automation first and MSAA/IAccessible as a compatibility fallback.
-//
-// Chromium versions differ in how the tab strip is exposed. Some builds map
-// tabs directly to UIA ControlType.TabItem while others only expose the legacy
-// ROLE_SYSTEM_PAGETAB role. Using both paths makes the collection much closer
-// to what Task Manager/assistive technologies can see without reading page
-// contents, keystrokes, cookies or passwords.
+// bridge snapshot, it falls back to Windows UI Automation and reads the tab
+// strip directly from Chrome/Edge/Opera. This means the Agent can enumerate
+// open tabs even when the CoreControl browser extension was never installed.
 func loadAgentBrowserTabs() []agentBrowserTab {
 	bridgeTabs, bridgeBrowsers := loadBrowserBridgeTabs()
-	visibleBrowsers := visibleAgentBrowserKeys()
+	uiaTabs := collectBrowserTabsUIA()
 
-	out := make([]agentBrowserTab, 0, len(bridgeTabs)+32)
+	out := make([]agentBrowserTab, 0, len(bridgeTabs)+len(uiaTabs))
 	out = append(out, bridgeTabs...)
-
-	missing := missingAgentBrowsers(visibleBrowsers, bridgeBrowsers)
-	if len(missing) > 0 {
-		uiaByBrowser := browserTabsByBrowser(collectBrowserTabsUIA(), missing)
-		needMSAA := map[string]bool{}
-		for browser := range missing {
-			// If UIA saw no tab (the failure observed on Luiza's Chrome) or only
-			// one tab, ask MSAA too. A real single-tab browser is harmless here;
-			// we simply keep whichever accessibility path returns the fuller list.
-			if len(uiaByBrowser[browser]) <= 1 {
-				needMSAA[browser] = true
-			}
+	for _, tab := range uiaTabs {
+		browser := normalizeAgentBrowser(tab.Browser)
+		if browser == "" || bridgeBrowsers[browser] {
+			// A fresh native bridge snapshot is more complete and includes URL.
+			continue
 		}
-
-		msaaByBrowser := map[string][]agentBrowserTab{}
-		if len(needMSAA) > 0 {
-			msaaByBrowser = browserTabsByBrowser(collectBrowserTabsMSAA(), needMSAA)
-		}
-
-		for browser := range missing {
-			chosen := uiaByBrowser[browser]
-			if len(msaaByBrowser[browser]) > len(chosen) {
-				chosen = msaaByBrowser[browser]
-			}
-			out = append(out, chosen...)
-		}
+		tab.Browser = browser
+		tab.Source = "windows-uia"
+		out = append(out, tab)
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
@@ -92,47 +70,6 @@ func loadAgentBrowserTabs() []agentBrowserTab {
 		out = out[:500]
 	}
 	return out
-}
-
-func visibleAgentBrowserKeys() map[string]bool {
-	result := map[string]bool{}
-	processes := agentProcessMap()
-	for _, window := range collectAgentWindows() {
-		name := strings.TrimSpace(window.ProcessName)
-		if name == "" {
-			name = strings.TrimSpace(processes[window.PID])
-		}
-		if key := normalizeAgentBrowser(name); key != "" {
-			result[key] = true
-		}
-	}
-	return result
-}
-
-func browserTabsByBrowser(tabs []agentBrowserTab, allowed map[string]bool) map[string][]agentBrowserTab {
-	result := map[string][]agentBrowserTab{}
-	for _, tab := range tabs {
-		browser := normalizeAgentBrowser(tab.Browser)
-		if browser == "" || (allowed != nil && !allowed[browser]) {
-			continue
-		}
-		tab.Browser = browser
-		if strings.TrimSpace(tab.Source) == "" {
-			tab.Source = "windows-accessibility"
-		}
-		result[browser] = append(result[browser], tab)
-	}
-	return result
-}
-
-func missingAgentBrowsers(wanted, found map[string]bool) map[string]bool {
-	result := map[string]bool{}
-	for browser := range wanted {
-		if !found[browser] {
-			result[browser] = true
-		}
-	}
-	return result
 }
 
 func loadBrowserBridgeTabs() ([]agentBrowserTab, map[string]bool) {
@@ -229,6 +166,7 @@ $fg=[CoreControl.NativeUser32]::GetForegroundWindow().ToInt64();
 $root=[System.Windows.Automation.AutomationElement]::RootElement;
 $wins=$root.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition);
 $out=New-Object System.Collections.Generic.List[object];
+$tabCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::TabItem);
 foreach($w in $wins){
   try {
     $processId=[int]$w.Current.ProcessId;
@@ -243,32 +181,55 @@ foreach($w in $wins){
     elseif($process -eq 'brave'){ $browser='brave' }
     if([string]::IsNullOrWhiteSpace($browser)){ continue }
 
-    # Newer Chromium builds do not always map the tab role directly to
-    # ControlType.TabItem. Scan the accessibility descendants and accept both
-    # the modern UIA type and the legacy ROLE_SYSTEM_PAGETAB (37).
-    $nodes=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition);
-    if(-not $nodes -or $nodes.Count -eq 0){ continue }
+    $tabs=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,$tabCondition);
+    if(-not $tabs -or $tabs.Count -eq 0){ continue }
     $windowActive=([int64]$w.Current.NativeWindowHandle -eq $fg);
-    foreach($node in $nodes){
+    $windowRect=$w.Current.BoundingRectangle;
+    $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker;
+    foreach($tab in $tabs){
       try {
-        $isTab=($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::TabItem);
-        $legacy=$null;
-        if(-not $isTab -and $node.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern,[ref]$legacy)){
-          try { $isTab=([int]$legacy.Current.Role -eq 37) } catch {}
+        # Chromium exposes ARIA role="tab" elements from the web page as
+        # UIAutomation TabItem too. Only accept elements that belong to the
+        # browser chrome/tab strip, never descendants of the page Document.
+        $insidePage=$false;
+        $ancestor=$walker.GetParent($tab);
+        $depth=0;
+        while($ancestor -ne $null -and $depth -lt 20){
+          try {
+            if($ancestor.Current.ControlType -eq [System.Windows.Automation.ControlType]::Document){
+              $insidePage=$true;
+              break;
+            }
+            $ancestorClass=([string]$ancestor.Current.ClassName);
+            if($ancestorClass -match 'Chrome_RenderWidgetHostHWND|Internet Explorer_Server'){
+              $insidePage=$true;
+              break;
+            }
+            if($ancestor.Current.NativeWindowHandle -eq $w.Current.NativeWindowHandle -and $ancestor.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window){
+              break;
+            }
+          } catch {}
+          $ancestor=$walker.GetParent($ancestor);
+          $depth++;
         }
-        if(-not $isTab){ continue }
-        $name=([string]$node.Current.Name).Trim();
-        if([string]::IsNullOrWhiteSpace($name) -and $legacy){
-          try { $name=([string]$legacy.Current.Name).Trim() } catch {}
+        if($insidePage){ continue }
+
+        # Extra guard: normal horizontal Chromium tabs live in the browser's
+        # top chrome. It prevents unusual accessibility trees from leaking
+        # page widgets even when they do not expose a Document ancestor.
+        $tabRect=$tab.Current.BoundingRectangle;
+        if($tabRect.Width -le 1 -or $tabRect.Height -le 1){ continue }
+        if($windowRect.Height -gt 0){
+          $chromeBand=[Math]::Min(260.0,[Math]::Max(140.0,$windowRect.Height * 0.24));
+          if($tabRect.Top -gt ($windowRect.Top + $chromeBand)){ continue }
         }
+
+        $name=([string]$tab.Current.Name).Trim();
         if([string]::IsNullOrWhiteSpace($name)){ continue }
         $selected=$false;
         $pattern=$null;
-        if($node.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)){
+        if($tab.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)){
           try { $selected=[bool]$pattern.Current.IsSelected } catch {}
-        }
-        if(-not $selected -and $legacy){
-          try { $selected=(([int]$legacy.Current.State -band 2) -ne 0) } catch {}
         }
         $out.Add([pscustomobject]@{browser=$browser;title=$name;active=([bool]($windowActive -and $selected))});
       } catch {}
@@ -277,179 +238,33 @@ foreach($w in $wins){
 }
 [Console]::Out.Write((ConvertTo-Json -InputObject @($out) -Compress -Depth 3));`
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 	cmd := hiddenCommandContext(ctx, powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodePowerShell(script))
 	raw, err := cmd.Output()
 	if err != nil || ctx.Err() != nil {
 		return nil
 	}
-	return decodeBrowserUITabs(raw, "windows-uia")
-}
-
-// collectBrowserTabsMSAA is the compatibility fallback for Chromium builds
-// whose tab strip is not surfaced as regular UI Automation TabItem elements.
-// It uses the Windows accessibility API (oleacc/IAccessible) and reads only
-// ROLE_SYSTEM_PAGETAB names and selection state from visible browser windows.
-func collectBrowserTabsMSAA() []agentBrowserTab {
-	powershell, err := exec.LookPath("powershell.exe")
-	if err != nil {
-		return nil
-	}
-
-	const script = `$ErrorActionPreference='SilentlyContinue';
-Add-Type -AssemblyName Accessibility;
-if(-not ('CoreControl.AccessibleBrowserTabs' -as [type])){
-Add-Type -ReferencedAssemblies 'Accessibility.dll' -TypeDefinition @'
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Text;
-using Accessibility;
-
-namespace CoreControl {
-  public sealed class AccessibleTabInfo {
-    public string browser { get; set; }
-    public string title { get; set; }
-    public bool active { get; set; }
-  }
-
-  public static class AccessibleBrowserTabs {
-    private const uint OBJID_CLIENT = 0xFFFFFFFC;
-    private const int ROLE_SYSTEM_PAGETAB = 0x25;
-    private const int STATE_SYSTEM_SELECTED = 0x2;
-    private const int STATE_SYSTEM_FOCUSED = 0x4;
-    private const int MaxNodesPerWindow = 12000;
-    private const int MaxDepth = 22;
-
-    private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
-
-    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
-    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
-    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
-    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-    [DllImport("oleacc.dll")] private static extern int AccessibleObjectFromWindow(IntPtr hwnd, uint objectId, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out IAccessible accessible);
-    [DllImport("oleacc.dll")] private static extern int AccessibleChildren(IAccessible container, int childStart, int childCount, [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex=2)] object[] children, out int obtained);
-
-    public static AccessibleTabInfo[] Collect() {
-      var result = new List<AccessibleTabInfo>();
-      IntPtr foreground = GetForegroundWindow();
-      EnumWindows(delegate(IntPtr hwnd, IntPtr _) {
-        try {
-          if (!IsWindowVisible(hwnd)) return true;
-          uint pid;
-          GetWindowThreadProcessId(hwnd, out pid);
-          if (pid == 0) return true;
-          string process = "";
-          try { process = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant(); } catch { return true; }
-          string browser = NormalizeBrowser(process);
-          if (browser == null) return true;
-
-          Guid iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
-          IAccessible root;
-          if (AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, ref iid, out root) < 0 || root == null) return true;
-          int seen = 0;
-          Walk(root, 0, browser, hwnd == foreground, result, ref seen, 0);
-        } catch { }
-        return true;
-      }, IntPtr.Zero);
-      return result.ToArray();
-    }
-
-    private static string NormalizeBrowser(string process) {
-      if (process == "chrome") return "chrome";
-      if (process == "msedge") return "edge";
-      if (process == "opera" || process == "opera_gx") return "opera";
-      if (process == "brave") return "brave";
-      return null;
-    }
-
-    private static void Walk(IAccessible acc, int selfChildId, string browser, bool windowActive, List<AccessibleTabInfo> result, ref int seen, int depth) {
-      if (acc == null || depth > MaxDepth || seen >= MaxNodesPerWindow) return;
-      seen++;
-      Inspect(acc, selfChildId, browser, windowActive, result);
-
-      int count = 0;
-      try { count = acc.accChildCount; } catch { return; }
-      if (count <= 0) return;
-      count = Math.Min(count, MaxNodesPerWindow - seen);
-      if (count <= 0) return;
-      object[] children = new object[count];
-      int obtained = 0;
-      try {
-        if (AccessibleChildren(acc, 0, count, children, out obtained) < 0 || obtained <= 0) return;
-      } catch { return; }
-
-      for (int i = 0; i < obtained && seen < MaxNodesPerWindow; i++) {
-        object child = children[i];
-        if (child == null) continue;
-        IAccessible childAcc = child as IAccessible;
-        if (childAcc != null) {
-          Walk(childAcc, 0, browser, windowActive, result, ref seen, depth + 1);
-          continue;
-        }
-        int childId;
-        try { childId = Convert.ToInt32(child); } catch { continue; }
-        seen++;
-        Inspect(acc, childId, browser, windowActive, result);
-        try {
-          IAccessible nested = acc.get_accChild(childId) as IAccessible;
-          if (nested != null) Walk(nested, 0, browser, windowActive, result, ref seen, depth + 1);
-        } catch { }
-      }
-    }
-
-    private static void Inspect(IAccessible acc, int childId, string browser, bool windowActive, List<AccessibleTabInfo> result) {
-      int role;
-      try { role = Convert.ToInt32(acc.get_accRole(childId)); } catch { return; }
-      if (role != ROLE_SYSTEM_PAGETAB) return;
-      string name = "";
-      try { name = (acc.get_accName(childId) ?? "").Trim(); } catch { }
-      if (String.IsNullOrWhiteSpace(name)) return;
-      int state = 0;
-      try { state = Convert.ToInt32(acc.get_accState(childId)); } catch { }
-      bool selected = (state & (STATE_SYSTEM_SELECTED | STATE_SYSTEM_FOCUSED)) != 0;
-      result.Add(new AccessibleTabInfo { browser = browser, title = name, active = windowActive && selected });
-    }
-  }
-}
-'@;
-}
-[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);
-$items=[CoreControl.AccessibleBrowserTabs]::Collect();
-[Console]::Out.Write((ConvertTo-Json -InputObject @($items) -Compress -Depth 3));`
-
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	cmd := hiddenCommandContext(ctx, powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodePowerShell(script))
-	raw, err := cmd.Output()
-	if err != nil || ctx.Err() != nil {
-		return nil
-	}
-	return decodeBrowserUITabs(raw, "windows-msaa")
-}
-
-func decodeBrowserUITabs(raw []byte, source string) []agentBrowserTab {
 	text := strings.TrimSpace(string(raw))
 	if text == "" || text == "null" {
 		return nil
 	}
+
 	var items []browserUITab
 	if json.Unmarshal([]byte(text), &items) != nil {
 		return nil
 	}
 	out := make([]agentBrowserTab, 0, len(items))
 	// Do not deduplicate by title: users can legitimately keep two tabs with
-	// the same page title. Each accessibility page-tab object represents an
-	// open tab and should remain visible in CoreControl.
+	// the same page title (for example two YouTube tabs). Each UI Automation
+	// TabItem represents an open tab and should remain visible in CoreControl.
 	for _, item := range items {
 		browser := normalizeAgentBrowser(item.Browser)
 		title := strings.TrimSpace(item.Title)
 		if browser == "" || title == "" {
 			continue
 		}
-		out = append(out, agentBrowserTab{Browser: browser, Title: title, Active: item.Active, Source: source})
+		out = append(out, agentBrowserTab{Browser: browser, Title: title, Active: item.Active, Source: "windows-uia"})
 	}
 	return out
 }
