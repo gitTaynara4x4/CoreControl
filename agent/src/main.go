@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.8.7"
+const agentVersion = "0.8.9"
 
 type Config struct {
 	ServerURL         string `json:"server_url"`
@@ -164,7 +164,7 @@ func main() {
 	logger.Printf("CoreControl Agent %s iniciado", agentVersion)
 
 	if *onceFlag {
-		if err := agent.runCycle(); err != nil {
+		if _, err := agent.runCycle(); err != nil {
 			logger.Printf("falha: %v", err)
 		}
 		return
@@ -176,7 +176,8 @@ func main() {
 	}
 	backoff := 5 * time.Second
 	for {
-		if err := agent.runCycle(); err != nil {
+		deviceUID, err := agent.runCycle()
+		if err != nil {
 			logger.Printf("ciclo não enviado: %v", err)
 			time.Sleep(backoff)
 			if backoff < 5*time.Minute {
@@ -185,7 +186,7 @@ func main() {
 			continue
 		}
 		backoff = 5 * time.Second
-		time.Sleep(interval)
+		agent.waitForNextTelemetry(interval, deviceUID)
 	}
 }
 
@@ -284,17 +285,17 @@ func (a *Agent) validateServerURL() error {
 	return errors.New("HTTPS é obrigatório; HTTP só é aceito em teste local ou com allow_insecure_http=true")
 }
 
-func (a *Agent) runCycle() error {
+func (a *Agent) runCycle() (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	snapshot, err := collectSnapshot()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if a.cfg.AgentSecret == "" {
 		if a.cfg.EnrollmentToken == "" {
-			return errors.New("o agente ainda não foi vinculado e não há enrollment_token")
+			return "", errors.New("o agente ainda não foi vinculado e não há enrollment_token")
 		}
 		name := strings.TrimSpace(a.cfg.Name)
 		if name == "" {
@@ -316,16 +317,16 @@ func (a *Agent) runCycle() error {
 		}
 		var resp enrollResponse
 		if err := a.postJSON("/api/agent/enroll", req, "", &resp); err != nil {
-			return fmt.Errorf("vinculação falhou: %w", err)
+			return "", fmt.Errorf("vinculação falhou: %w", err)
 		}
 		if resp.AgentSecret == "" {
-			return errors.New("servidor não devolveu credencial do agente")
+			return "", errors.New("servidor não devolveu credencial do agente")
 		}
 		a.cfg.AgentSecret = resp.AgentSecret
 		a.cfg.DeviceID = resp.DeviceID
 		a.cfg.EnrollmentToken = ""
 		if err := saveConfig(a.configPath, a.cfg); err != nil {
-			return fmt.Errorf("vinculado, mas não foi possível salvar credencial: %w", err)
+			return "", fmt.Errorf("vinculado, mas não foi possível salvar credencial: %w", err)
 		}
 		a.logger.Printf("computador vinculado com sucesso; device_id=%d", resp.DeviceID)
 	}
@@ -357,13 +358,39 @@ func (a *Agent) runCycle() error {
 		},
 	}
 	if err := a.postJSON("/api/agent/telemetry", payload, a.cfg.AgentSecret, nil); err != nil {
-		return fmt.Errorf("telemetria falhou: %w", err)
+		return "", fmt.Errorf("telemetria falhou: %w", err)
 	}
 	a.logger.Printf("telemetria enviada; cpu=%s ram=%s disco=%s", ptrText(snapshot.CPUPercent), ptrText(snapshot.MemoryPercent), ptrText(snapshot.DiskPercent))
 	if err := a.pollAndExecuteCommand(snapshot.DeviceUID); err != nil {
 		a.logger.Printf("fila de comandos: %v", err)
 	}
-	return nil
+	return snapshot.DeviceUID, nil
+}
+
+const commandPollInterval = 5 * time.Second
+
+func (a *Agent) waitForNextTelemetry(interval time.Duration, deviceUID string) {
+	if interval <= 0 {
+		return
+	}
+	deadline := time.NewTimer(interval)
+	ticker := time.NewTicker(commandPollInterval)
+	defer deadline.Stop()
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline.C:
+			return
+		case <-ticker.C:
+			if strings.TrimSpace(deviceUID) == "" || a.cfg.AgentSecret == "" {
+				continue
+			}
+			if err := a.pollAndExecuteCommand(deviceUID); err != nil {
+				a.logger.Printf("fila de comandos (poll rápido): %v", err)
+			}
+		}
+	}
 }
 
 func (a *Agent) pollAndExecuteCommand(deviceUID string) error {

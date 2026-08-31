@@ -1,17 +1,29 @@
-# CoreControl — abas reais do navegador sem elementos internos da página (Agent 0.8.7)
+# CoreControl v10.1 — correção da regressão sem perder evoluções
 
-Corrige o caso em que páginas como Disney+ expõem componentes internos com ARIA/UI Automation
-do tipo `TabItem` e o Agent os confundia com abas reais do Chrome.
+Este pacote corrige o erro da v10 anterior.
 
-O Agent agora:
-- rejeita `TabItem` que esteja dentro do `Document`/área renderizada da página;
-- rejeita elementos descendentes de `Chrome_RenderWidgetHostHWND`;
-- usa uma segunda proteção por posição, limitada à faixa superior do navegador;
-- continua preservando abas reais repetidas;
-- não usa blacklist por texto ("SUGESTÕES", "DETALHES" etc.), então a correção vale para
-  Disney+, CRMs, dashboards e outros sites que possuam abas internas.
+A v10 anterior foi montada sobre uma base antiga do Agent 0.8.6/0.8.7 e, ao substituir
+`main.go` e `browser_tabs_windows.go`, acabou removendo melhorias mais novas que já estavam
+no Agent 0.8.8.
 
-Versão do Agent: 0.8.7
+Esta v10.1 parte da versão mais nova (0.8.8) e aplica SOMENTE o filtro de abas internas
+de sites, gerando o Agent 0.8.9.
 
-Como mudou o Agent, o computador monitorado precisa receber a atualização uma vez pelo fluxo
-"Reinstalar / atualizar CoreControl". O cadastro, histórico e vínculo do computador são mantidos.
+Preservado:
+- polling rápido de comandos a cada 5 segundos;
+- atualização de aplicativos sem esperar o ciclo normal de telemetria;
+- compatibilidade UI Automation + MSAA;
+- fallback de detecção de abas;
+- Browser Bridge;
+- ícones reais dos aplicativos;
+- abas reais do navegador;
+- todas as melhorias do Agent 0.8.8.
+
+Corrigido:
+- widgets internos de páginas como Disney+ "SUGESTÕES", "DETALHES", "EXTRAS" e "VERSÕES"
+  não devem mais ser tratados como abas do Chrome.
+
+Este ZIP não contém HTML, CSS ou JavaScript e portanto não sobrescreve as melhorias visuais
+(seta expansível, favicons e CSS clean) já aplicadas na Central.
+
+Depois de substituir os arquivos, a Luiza precisa atualizar/reinstalar o Agent uma vez para 0.8.9.
