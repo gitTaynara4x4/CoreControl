@@ -1,12 +1,14 @@
-# CoreControl — correção da seta expansível (v8.1)
+# CoreControl — favicons nas abas do navegador (v9)
 
-A v8 anterior atualizou o HTML/CSS, mas o arquivo `app/static/js/pages/devices.js` não foi incluído no ZIP. Por isso a mensagem "Clique na seta..." aparecia, porém nenhuma seta era renderizada.
+Esta correção melhora a lista de abas abertas no painel do CoreControl.
 
-Esta correção inclui o JavaScript real do agrupamento:
-- seta `>` à esquerda dos aplicativos que possuem abas/janelas filhas;
-- Chrome/Edge/Opera/Brave mostram a quantidade de abas quando `browser_tabs` chega do Agent;
-- aplicativos com várias janelas também podem ser expandidos;
-- estado expandido permanece entre atualizações da tabela;
-- nenhuma alteração no Agent: se a Luiza já estiver no Agent 0.8.6, não precisa reinstalar.
+O que foi alterado:
+- cada aba do navegador agora tenta mostrar o favicon real do site;
+- exemplos: Gmail, YouTube, Google Maps, Instagram, Google Imagens, Segware Cloud;
+- se o site não tiver favicon acessível, o sistema faz fallback automático para o ícone do navegador;
+- localhost, páginas internas e domínios sem favicon continuam com o ícone do Chrome/Edge/Opera.
 
-Depois de substituir os arquivos na Central/VPS, reinicie a Central e faça Ctrl+F5.
+Observações:
+- esta mudança é somente no painel/Central;
+- não exige reinstalar o Agent no PC da Luiza, desde que ela já esteja na versão 0.8.6;
+- depois de substituir os arquivos na Central/VPS, reinicie a Central e faça Ctrl+F5 no navegador.

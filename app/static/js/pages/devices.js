@@ -157,7 +157,7 @@
       ? group.tabs.map((tab) => {
           const title = tab?.title || 'Página';
           const context = tab?.domain || tab?.url || 'Aba do navegador';
-          return `<tr class="activity-tree-child" data-activity-child="${encodedKey}" ${expanded ? '' : 'hidden'}><td><div class="activity-child-app"><span class="activity-tree-branch" aria-hidden="true"></span>${activityAppIcon(group.process_name, Boolean(tab?.active), 'activity-child-icon')}<span title="${CT.esc(title)}">${CT.esc(title)}</span></div></td><td><div class="activity-child-context" title="${CT.esc(tab?.url || context)}">${CT.esc(context)}</div></td><td class="activity-child-metric">—</td><td class="activity-child-metric">—</td><td>${tab?.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
+          return `<tr class="activity-tree-child" data-activity-child="${encodedKey}" ${expanded ? '' : 'hidden'}><td><div class="activity-child-app"><span class="activity-tree-branch" aria-hidden="true"></span>${activityTabIcon(tab, group.process_name, Boolean(tab?.active), 'activity-child-icon')}<span title="${CT.esc(title)}">${CT.esc(title)}</span></div></td><td><div class="activity-child-context" title="${CT.esc(tab?.url || context)}">${CT.esc(context)}</div></td><td class="activity-child-metric">—</td><td class="activity-child-metric">—</td><td>${tab?.active ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aba aberta</span>'}</td></tr>`;
         }).join('')
       : group.apps.map((app) => {
           const title = app?.window_title || 'Janela';
@@ -295,6 +295,40 @@
     return activityFriendlyName(activityBrowserProcess(browser));
   }
 
+  function activityTabFaviconSource(tab) {
+    const direct = [tab?.favicon_url, tab?.favicon, tab?.icon_url, tab?.icon]
+      .map((value) => String(value || '').trim())
+      .find((value) => Boolean(value));
+    if (direct && /^https?:\/\//i.test(direct)) return direct;
+
+    const rawUrl = String(tab?.url || '').trim();
+    if (/^https?:\/\//i.test(rawUrl)) {
+      try {
+        const parsed = new URL(rawUrl);
+        if (parsed.hostname && !/^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname)) {
+          return `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(parsed.origin)}`;
+        }
+      } catch (_) {}
+    }
+
+    const domain = String(tab?.domain || '').trim().replace(/^\.+/, '');
+    if (domain && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) {
+      return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(domain)}`;
+    }
+
+    return '';
+  }
+
+  function activityTabIcon(tab, browserProcess, focused = false, extraClass = '') {
+    const classes = ['activity-app-icon', focused ? 'focused' : '', extraClass].filter(Boolean).join(' ');
+    const favicon = activityTabFaviconSource(tab);
+    if (!favicon) {
+      return activityAppIcon(browserProcess, focused, extraClass);
+    }
+    const glyph = CT.esc(activityGlyph(browserProcess));
+    return `<span class="${classes}" aria-hidden="true"><img src="${CT.esc(favicon)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'; this.parentNode.classList.add('fallback'); const fallback=this.parentNode.querySelector('b'); if (fallback) fallback.hidden=false;"><b hidden>${glyph}</b></span>`;
+  }
+
   function activitySegments(history) {
     const samples = (history || []).filter((sample) => sample?.activity?.process_name && sample.recorded_at);
     const segments = [];
@@ -355,10 +389,31 @@
     }).join('') : '<div class="activity-empty">A linha do tempo aparecerá quando o Agent registrar mudanças de aplicativo.</div>';
   }
 
-  function activityRenderSuccessfulCommand(command, statusText = null) {
+  function renderActivitySnapshot(snapshot) {
     const status = CT.$('#activitySnapshotStatus');
     const area = CT.$('#activityAppsArea');
-    if (!status || !area || !command) return;
+    if (!status || !area) return;
+    const command = snapshot?.command;
+    if (!snapshot?.agent_supports_activity) {
+      status.textContent = 'Agent antigo';
+      area.innerHTML = '<div class="activity-empty">Execute novamente o CoreControl Setup para instalar o Agent 0.6.0 ou superior.</div>';
+      return;
+    }
+    if (!command) {
+      status.textContent = 'Ainda não consultado';
+      area.innerHTML = '<div class="activity-empty">Clique em “Atualizar aplicativos” para consultar as janelas abertas neste computador.</div>';
+      return;
+    }
+    if (['queued', 'running'].includes(command.status)) {
+      status.textContent = command.status === 'running' ? 'Coletando...' : 'Na fila...';
+      area.innerHTML = '<div class="activity-empty">O Agent vai devolver a lista na próxima comunicação com a Central.</div>';
+      return;
+    }
+    if (command.status === 'failed') {
+      status.textContent = 'Falhou';
+      area.innerHTML = `<div class="activity-empty">${CT.esc(command.error || 'Não foi possível consultar os aplicativos.')}</div>`;
+      return;
+    }
 
     const apps = command.result?.apps || [];
     const browserTabs = command.result?.browser_tabs || [];
@@ -368,11 +423,11 @@
     const appRowsWithIcon = apps.filter((app) => Boolean(activityIconData(activityAssets.get(activityProcessKey(app?.process_name))?.icon_data))).length;
     const realIcons = iconCount > 0;
     const tabSuffix = browserTabs.length ? ` · ${browserTabs.length} aba${browserTabs.length === 1 ? '' : 's'}` : '';
-    status.textContent = statusText || (!realIcons && (apps.length || browserTabs.length)
+    status.textContent = !realIcons && (apps.length || browserTabs.length)
       ? `Atualizado · 0 ícones recebidos${tabSuffix}`
       : realIcons && apps.length ? `Atualizado · ${appRowsWithIcon}/${apps.length} janelas com ícone${tabSuffix}`
       : realIcons ? `Atualizado · ${iconCount} ícone(s) real(is)${tabSuffix}`
-      : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}${tabSuffix}` : `Atualizado${tabSuffix}`);
+      : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}${tabSuffix}` : `Atualizado${tabSuffix}`;
 
     const groups = activityGroupedApplications(apps, browserTabs);
     if (!groups.length) {
@@ -388,50 +443,6 @@
     }
   }
 
-  function renderActivitySnapshot(snapshot) {
-    const status = CT.$('#activitySnapshotStatus');
-    const area = CT.$('#activityAppsArea');
-    if (!status || !area) return;
-    const command = snapshot?.command;
-    const cached = snapshot?.cached_command;
-    if (!snapshot?.agent_supports_activity) {
-      status.textContent = 'Agent antigo';
-      area.innerHTML = '<div class="activity-empty">Execute novamente o CoreControl Setup para instalar o Agent 0.6.0 ou superior.</div>';
-      return;
-    }
-    if (!command) {
-      if (cached?.status === 'succeeded') {
-        activityRenderSuccessfulCommand(cached);
-        return;
-      }
-      status.textContent = 'Ainda não consultado';
-      area.innerHTML = '<div class="activity-empty">A primeira lista será carregada automaticamente em instantes.</div>';
-      return;
-    }
-    if (['queued', 'running'].includes(command.status)) {
-      if (cached?.status === 'succeeded') {
-        const when = cached.finished_at ? CT.fmtDate(cached.finished_at) : 'anterior';
-        activityRenderSuccessfulCommand(cached, `${command.status === 'running' ? 'Atualizando...' : 'Na fila...'} · exibindo ${when}`);
-      } else {
-        status.textContent = command.status === 'running' ? 'Coletando...' : 'Na fila...';
-        area.innerHTML = '<div class="activity-empty">Primeira coleta em andamento. A lista aparecerá assim que o Agent responder.</div>';
-      }
-      return;
-    }
-    if (command.status === 'failed') {
-      if (cached?.status === 'succeeded') {
-        const when = cached.finished_at ? CT.fmtDate(cached.finished_at) : 'anterior';
-        activityRenderSuccessfulCommand(cached, `Falha ao atualizar · exibindo ${when}`);
-      } else {
-        status.textContent = 'Falhou';
-        area.innerHTML = `<div class="activity-empty">${CT.esc(command.error || 'Não foi possível consultar os aplicativos.')}</div>`;
-      }
-      return;
-    }
-
-    activityRenderSuccessfulCommand(command);
-  }
-
   async function loadActivitySnapshot(deviceId) {
     try {
       const snapshot = await CT.api(`/devices/${deviceId}/activity/snapshot`);
@@ -444,14 +455,11 @@
     }
   }
 
-  async function requestActivitySnapshot(device, options = {}) {
+  async function requestActivitySnapshot(device) {
     const button = CT.$('#activityRefreshBtn');
-    const silent = Boolean(options.silent);
-    if (!button || button.disabled && !silent) return;
-    if (!silent) {
-      button.disabled = true;
-      button.textContent = 'Solicitando...';
-    }
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Solicitando...';
     try {
       const response = await CT.api(`/devices/${device.id}/activity/snapshot`, { method: 'POST' });
       renderActivitySnapshot(response);
@@ -462,12 +470,10 @@
         if (!current?.command || current.command.id !== commandId || !['queued', 'running'].includes(current.command.status)) break;
       }
     } catch (error) {
-      if (!silent) CT.toast(error.message || 'Não foi possível consultar a atividade.', 'error');
+      CT.toast(error.message || 'Não foi possível consultar a atividade.', 'error');
     } finally {
-      if (!silent) {
-        button.disabled = !device.online || !activityVersionSupported(device.agent_version);
-        button.textContent = 'Atualizar aplicativos';
-      }
+      button.disabled = !device.online || !activityVersionSupported(device.agent_version);
+      button.textContent = 'Atualizar aplicativos';
     }
   }
 
@@ -505,12 +511,18 @@
     activityButton.title = !activityVersionSupported(device.agent_version) ? 'Atualize o CoreControl Agent para 0.6.0 ou superior.' : !device.online ? 'O computador precisa estar online.' : '';
     activityButton.onclick = () => requestActivitySnapshot(device);
     loadActivitySnapshot(device.id).then((snapshot) => {
-      if (!device.online || !activityVersionSupported(device.agent_version)) return;
-
-      // Abre a tela usando imediatamente o último snapshot salvo e solicita uma
-      // atualização silenciosa em segundo plano. O backend deduplica se já houver
-      // uma coleta na fila/em execução.
-      requestActivitySnapshot(device, { silent: true });
+      const result = snapshot?.command?.result || {};
+      const apps = result.apps || [];
+      const browserTabs = result.browser_tabs || [];
+      const hasApps = apps.length > 0 || browserTabs.length > 0;
+      const missingIcons = hasApps && !activityResultHasRealIcons(result);
+      const hasBrowserWindow = apps.some((app) => ['chrome', 'msedge', 'opera', 'opera_gx', 'brave'].includes(activityProcessKey(app?.process_name)));
+      const missingBrowserTabs = activityBrowserTabsVersionSupported(device.agent_version) && hasBrowserWindow && browserTabs.length === 0;
+      // Depois de atualizar o Agent, um snapshot antigo pode continuar salvo no
+      // servidor sem ícones/abas. Faz uma nova coleta automaticamente uma vez.
+      if (device.online && snapshot?.command?.status === 'succeeded' && ((activityIconVersionSupported(device.agent_version) && missingIcons) || missingBrowserTabs)) {
+        requestActivitySnapshot(device);
+      }
     });
 
     CT.$('#deviceHistoryCount').textContent = `Últimas ${device.history.length} amostras recebidas.`;
