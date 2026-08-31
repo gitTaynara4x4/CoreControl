@@ -522,6 +522,20 @@ def _latest_activity_command(db: Session, device_id: int) -> AgentCommand | None
     )
 
 
+def _latest_successful_activity_command(db: Session, device_id: int) -> AgentCommand | None:
+    # Mantém um snapshot utilizável enquanto uma nova coleta está na fila/em execução.
+    return db.scalar(
+        select(AgentCommand)
+        .where(
+            AgentCommand.device_id == device_id,
+            AgentCommand.command_type == "activity.snapshot",
+            AgentCommand.status == "succeeded",
+        )
+        .order_by(desc(AgentCommand.finished_at), desc(AgentCommand.created_at))
+        .limit(1)
+    )
+
+
 def _activity_command_public(command: AgentCommand | None) -> dict | None:
     if not command:
         return None
@@ -564,10 +578,12 @@ def request_activity_snapshot(device_id: int, user: CurrentUser, db: Db):
             )
         )
     db.commit()
+    cached = _latest_successful_activity_command(db, device.id)
     return {
         "created": created,
         "agent_supports_activity": True,
         "command": _activity_command_public(command),
+        "cached_command": _activity_command_public(cached),
     }
 
 
@@ -577,7 +593,10 @@ def get_activity_snapshot(device_id: int, user: CurrentUser, db: Db):
     if not device:
         raise HTTPException(status_code=404, detail="Computador não encontrado")
     assert_device_access(user, device)
+    latest = _latest_activity_command(db, device.id)
+    cached = _latest_successful_activity_command(db, device.id)
     return {
         "agent_supports_activity": _agent_supports_activity(device),
-        "command": _activity_command_public(_latest_activity_command(db, device.id)),
+        "command": _activity_command_public(latest),
+        "cached_command": _activity_command_public(cached),
     }
