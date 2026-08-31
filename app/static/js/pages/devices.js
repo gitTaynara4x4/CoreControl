@@ -295,11 +295,47 @@
     return activityFriendlyName(activityBrowserProcess(browser));
   }
 
+  function activityTabKnownIcon(tab) {
+    const title = String(tab?.title || '').trim();
+    const haystack = `${title} ${String(tab?.domain || '')} ${String(tab?.url || '')}`.toLowerCase();
+
+    // O fallback por título é importante para as abas coletadas via Windows UI Automation:
+    // nesse modo o Agent enxerga todas as abas, mas o Chromium não expõe a URL das abas em segundo plano.
+    const known = [
+      { test: /(^|\s)gmail(\s|$)|caixa de entrada|@gmail\.com|mail\.google/i, domain: 'mail.google.com' },
+      { test: /google\s*(maps|mapas)|maps\.google/i, domain: 'maps.google.com' },
+      { test: /google\s*(imagens|images)|images\.google/i, domain: 'images.google.com' },
+      { test: /google\s*(agenda|calendar)|calendar\.google/i, domain: 'calendar.google.com' },
+      { test: /(contatos do google|google contacts|contacts\.google)/i, domain: 'contacts.google.com' },
+      { test: /(google drive|drive\.google)/i, domain: 'drive.google.com' },
+      { test: /youtube|youtu\.be/i, domain: 'youtube.com' },
+      { test: /instagram/i, domain: 'instagram.com' },
+      { test: /facebook/i, domain: 'facebook.com' },
+      { test: /linkedin/i, domain: 'linkedin.com' },
+      { test: /whatsapp/i, domain: 'web.whatsapp.com' },
+      { test: /github/i, domain: 'github.com' },
+      { test: /canva/i, domain: 'canva.com' },
+      { test: /segware/i, domain: 'segware.com.br' },
+    ];
+    const match = known.find((item) => item.test.test(haystack));
+    if (match) {
+      return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(match.domain)}`;
+    }
+
+    if (/corecontrol/i.test(haystack)) {
+      return '/static/corecontrol-mark.png';
+    }
+    return '';
+  }
+
   function activityTabFaviconSource(tab) {
-    const direct = [tab?.favicon_url, tab?.favicon, tab?.icon_url, tab?.icon]
+    // O Browser Bridge usa fav_icon_url. As outras grafias ficam aceitas por compatibilidade.
+    const direct = [tab?.fav_icon_url, tab?.favicon_url, tab?.favicon, tab?.icon_url, tab?.icon]
       .map((value) => String(value || '').trim())
       .find((value) => Boolean(value));
-    if (direct && /^https?:\/\//i.test(direct)) return direct;
+    if (direct && (/^https?:\/\//i.test(direct) || /^data:image\//i.test(direct) || direct.startsWith('/'))) {
+      return direct;
+    }
 
     const rawUrl = String(tab?.url || '').trim();
     if (/^https?:\/\//i.test(rawUrl)) {
@@ -316,7 +352,7 @@
       return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(domain)}`;
     }
 
-    return '';
+    return activityTabKnownIcon(tab);
   }
 
   function activityTabIcon(tab, browserProcess, focused = false, extraClass = '') {
@@ -325,8 +361,14 @@
     if (!favicon) {
       return activityAppIcon(browserProcess, focused, extraClass);
     }
-    const glyph = CT.esc(activityGlyph(browserProcess));
-    return `<span class="${classes}" aria-hidden="true"><img src="${CT.esc(favicon)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'; this.parentNode.classList.add('fallback'); const fallback=this.parentNode.querySelector('b'); if (fallback) fallback.hidden=false;"><b hidden>${glyph}</b></span>`;
+
+    const browserAsset = activityAssets.get(activityProcessKey(browserProcess));
+    const browserIcon = activityIconData(browserAsset?.icon_data);
+    const browserFallback = browserIcon
+      ? `<img class="activity-tab-browser-fallback" src="${browserIcon}" alt="" hidden>`
+      : `<b class="activity-tab-glyph-fallback" hidden>${CT.esc(activityGlyph(browserProcess))}</b>`;
+
+    return `<span class="${classes} activity-tab-site-icon" aria-hidden="true"><img class="activity-tab-favicon" src="${CT.esc(favicon)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true; const fallback=this.parentNode.querySelector('.activity-tab-browser-fallback,.activity-tab-glyph-fallback'); if(fallback) fallback.hidden=false;">${browserFallback}</span>`;
   }
 
   function activitySegments(history) {
