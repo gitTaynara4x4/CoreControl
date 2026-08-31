@@ -709,3 +709,132 @@ html[data-theme="dark"] .activity-group-parent td{background:#2a2a2a}
 html[data-theme="dark"] .activity-group-parent:hover td,html[data-theme="dark"] .activity-group-toggle:hover,html[data-theme="dark"] .activity-tree-child:hover td{background:#303030}
 html[data-theme="dark"] .activity-tree-child td{background:#272727}
 @media(max-width:760px){.activity-grouped-title small{width:100%;margin:2px 0 0}.activity-grouped-table th:first-child{width:210px}.activity-child-app{padding-left:22px}}
+
+/* ===== Atividade agrupada — visual clean estilo Gerenciador de Tarefas v9.2 ===== */
+.activity-grouped-table th:first-child{width:285px}
+.activity-grouped-table th:nth-child(2){min-width:250px}
+
+.activity-group-parent td{
+  padding-top:9px!important;
+  padding-bottom:9px!important;
+  background:var(--card);
+  border-bottom:1px solid var(--border);
+}
+.activity-group-parent:hover td{background:#fafbfd}
+.activity-group-app{gap:7px}
+
+.activity-group-toggle,
+.activity-group-toggle-spacer{
+  width:16px!important;
+  height:22px!important;
+  flex:0 0 16px!important;
+}
+.activity-group-toggle{
+  border-radius:4px;
+  color:#708197;
+}
+.activity-group-toggle:hover{
+  background:#eef2f7;
+  color:#24344d;
+}
+.activity-group-toggle>span{
+  font-size:16px!important;
+  font-weight:500;
+}
+.activity-group-label{
+  font-weight:650;
+  letter-spacing:-.01em;
+}
+.activity-group-number{
+  margin-left:2px;
+  font-size:8.8px;
+  font-weight:600;
+  color:#7b899c;
+}
+
+/* Filhos: sem "árvore" pesada; apenas recuo como o Gerenciador de Tarefas */
+.activity-tree-child td{
+  padding-top:6px!important;
+  padding-bottom:6px!important;
+  background:#fbfcfd!important;
+  border-top:0!important;
+  border-bottom:1px solid #f0f3f7!important;
+}
+.activity-tree-child:hover td{background:#f6f8fb!important}
+.activity-tree-child:last-child td{border-bottom:1px solid var(--border)!important}
+
+.activity-child-app{
+  padding-left:34px!important;
+  gap:8px!important;
+}
+.activity-tree-branch{
+  display:none!important;
+}
+
+/* Favicons: um único ícone, sem borda/caixa e sem o Chrome duplicado por baixo */
+.activity-child-icon{
+  width:20px!important;
+  height:20px!important;
+  flex:0 0 20px!important;
+  border:0!important;
+  border-radius:5px!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  overflow:visible!important;
+}
+.activity-child-icon img{
+  width:18px!important;
+  height:18px!important;
+  border-radius:4px!important;
+  object-fit:contain!important;
+}
+.activity-tab-site-icon{
+  border:0!important;
+  background:transparent!important;
+}
+.activity-tab-site-icon > img[hidden],
+.activity-tab-site-icon > b[hidden]{
+  display:none!important;
+}
+.activity-tab-site-icon .activity-tab-favicon{
+  display:block;
+}
+.activity-tab-site-icon .activity-tab-browser-fallback:not([hidden]){
+  display:block!important;
+}
+.activity-child-icon.focused::after{
+  width:6px!important;
+  height:6px!important;
+  right:-1px!important;
+  bottom:-1px!important;
+  border-width:1.5px!important;
+}
+
+.activity-child-app>span:last-child{
+  font-size:9px;
+  font-weight:500;
+  color:#26364d;
+}
+.activity-child-context{
+  font-size:8.6px!important;
+  color:#7a899d!important;
+}
+.activity-child-metric{color:#8b98aa!important}
+
+/* Dark mantém a mesma hierarquia visual, sem contraste exagerado */
+html[data-theme="dark"] .activity-group-parent td{background:#2a2a2a}
+html[data-theme="dark"] .activity-group-parent:hover td{background:#303030}
+html[data-theme="dark"] .activity-tree-child td{
+  background:#262626!important;
+  border-bottom-color:#323232!important;
+}
+html[data-theme="dark"] .activity-tree-child:hover td{background:#2d2d2d!important}
+html[data-theme="dark"] .activity-group-toggle:hover{background:#353535;color:#f1f1f1}
+html[data-theme="dark"] .activity-child-app>span:last-child{color:#e7e7e7}
+html[data-theme="dark"] .activity-child-context{color:#9d9d9d!important}
+
+@media(max-width:760px){
+  .activity-grouped-table th:first-child{width:230px}
+  .activity-child-app{padding-left:28px!important}
+}
+
