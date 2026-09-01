@@ -1057,6 +1057,7 @@ func (a *App) installCurrent() {
 }
 
 func (a *App) installCurrentEnrollment() {
+	a.installNotice = ""
 	name := strings.TrimSpace(getText(a.controls[idDeviceName]))
 	if name == "" {
 		message("CoreControl", "Informe o nome deste computador.", MB_OK|MB_ICONERROR)
@@ -1128,6 +1129,20 @@ func (a *App) installCurrentEnrollment() {
 	if err == nil {
 		err = a.writeEnrollmentFiles(machine, name, getText(a.controls[idSector]), getText(a.controls[idLocation]), resp, coreBytes, agentBytes)
 	}
+	if err == nil {
+		setText(a.status, "Configurando o acesso remoto da empresa...")
+		if resp.RemoteAgent == nil {
+			reason := strings.TrimSpace(resp.RemoteWarning)
+			if reason == "" {
+				reason = "o servidor não forneceu o agente remoto da empresa"
+			}
+			a.installNotice = "CoreControl instalado. Acesso remoto não concluído: " + reason
+		} else if remoteErr := a.installRemoteAgent(*resp.RemoteAgent, resp.DeviceID, resp.AgentSecret); remoteErr != nil {
+			a.installNotice = "CoreControl instalado. Acesso remoto não concluído: " + remoteErr.Error()
+		} else {
+			a.installNotice = "Acesso remoto instalado, vinculado à empresa correta e confirmado online."
+		}
+	}
 	enable(a.controls[idInstall], true)
 	if err != nil {
 		setText(a.status, "Instalação não concluída.")
@@ -1151,6 +1166,11 @@ func (a *App) showCompletion(company, device string) {
 	}
 	setText(a.completeCompany, company)
 	setText(a.completeDevice, device)
+	notice := strings.TrimSpace(a.installNotice)
+	if notice == "" {
+		notice = "Você não precisa abrir nada. O agente já está enviando as informações para a empresa."
+	}
+	setText(a.completeStatusText, notice)
 	a.showMode("completed")
 }
 
@@ -1342,7 +1362,7 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 				reason = "o servidor não forneceu o agente remoto da empresa"
 			}
 			a.installNotice = "O CoreControl foi instalado, mas o acesso remoto não foi concluído: " + reason
-		} else if err := a.installRemoteAgent(*resp.RemoteAgent, resp.DeviceID); err != nil {
+		} else if err := a.installRemoteAgent(*resp.RemoteAgent, resp.DeviceID, ""); err != nil {
 			a.installNotice = "O CoreControl foi instalado, mas o acesso remoto não foi concluído: " + err.Error()
 		} else {
 			a.installNotice = "Acesso remoto instalado, vinculado à empresa correta e confirmado online."
@@ -1355,7 +1375,7 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 	return nil
 }
 
-func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int) error {
+func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int, agentBearer string) error {
 	if strings.TrimSpace(info.URL) == "" || strings.TrimSpace(info.SHA256) == "" || strings.TrimSpace(info.MeshGroupHex) == "" {
 		return errors.New("o servidor retornou dados incompletos para o acesso remoto")
 	}
@@ -1364,7 +1384,7 @@ func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int) error {
 	matches := installed && remoteAgentMatches(info.MeshGroupHex, info.ServerURL)
 	if matches && running {
 		setText(a.status, "Confirmando o acesso remoto no servidor...")
-		if connected, warning := a.waitRemoteRegistration(deviceID, 90*time.Second); connected {
+		if connected, warning := a.waitRemoteRegistration(deviceID, 90*time.Second, agentBearer); connected {
 			return nil
 		} else if warning != "" {
 			return fmt.Errorf("o Mesh Agent correto está instalado, mas o servidor não confirmou a conexão: %s", warning)
@@ -1385,12 +1405,12 @@ func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int) error {
 	}
 
 	setText(a.status, "Baixando o agente remoto exclusivo desta empresa...")
-	raw, err := a.downloadComponent(ComponentInfo{
+	raw, err := a.downloadComponentWithBearer(ComponentInfo{
 		Filename: info.Filename,
 		URL:      info.URL,
 		SHA256:   info.SHA256,
 		Size:     info.Size,
-	})
+	}, agentBearer)
 	if err != nil {
 		return fmt.Errorf("falha ao baixar o agente remoto da empresa: %w", err)
 	}
@@ -1420,7 +1440,7 @@ func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int) error {
 			// distintos, gerando um falso erro mesmo quando o computador já está
 			// online no grupo correto.
 			setText(a.status, "Aguardando o computador aparecer online no servidor remoto...")
-			if connected, warning := a.waitRemoteRegistration(deviceID, 90*time.Second); connected {
+			if connected, warning := a.waitRemoteRegistration(deviceID, 90*time.Second, agentBearer); connected {
 				return nil
 			} else if warning != "" {
 				return fmt.Errorf("o agente iniciou, mas o servidor remoto não confirmou a conexão: %s", warning)
@@ -1435,12 +1455,18 @@ func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int) error {
 	return errors.New("o serviço remoto não iniciou dentro do tempo esperado")
 }
 
-func (a *App) waitRemoteRegistration(deviceID int, timeout time.Duration) (bool, string) {
+func (a *App) waitRemoteRegistration(deviceID int, timeout time.Duration, agentBearer string) (bool, string) {
 	deadline := time.Now().Add(timeout)
 	lastWarning := ""
 	for time.Now().Before(deadline) {
 		var status RemoteStatusResponse
-		err := a.request("GET", fmt.Sprintf("%s/api/devices/%d/remote-status", a.serverURL, deviceID), nil, a.token, &status)
+		endpoint := fmt.Sprintf("%s/api/devices/%d/remote-status", a.serverURL, deviceID)
+		bearer := a.token
+		if strings.TrimSpace(agentBearer) != "" {
+			endpoint = a.serverURL + "/api/agent/remote-status"
+			bearer = agentBearer
+		}
+		err := a.request("GET", endpoint, nil, bearer, &status)
 		if err == nil {
 			if status.MeshConnected && status.ServiceRunning && status.Available && strings.TrimSpace(status.MeshNodeID) != "" {
 				return true, ""
@@ -1457,6 +1483,10 @@ func (a *App) waitRemoteRegistration(deviceID int, timeout time.Duration) (bool,
 }
 
 func (a *App) downloadComponent(info ComponentInfo) ([]byte, error) {
+	return a.downloadComponentWithBearer(info, a.token)
+}
+
+func (a *App) downloadComponentWithBearer(info ComponentInfo, bearer string) ([]byte, error) {
 	if strings.TrimSpace(info.URL) == "" || strings.TrimSpace(info.SHA256) == "" {
 		return nil, errors.New("manifesto de componente inválido")
 	}
@@ -1468,8 +1498,8 @@ func (a *App) downloadComponent(info ComponentInfo) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if a.token != "" {
-		req.Header.Set("Authorization", "Bearer "+a.token)
+	if strings.TrimSpace(bearer) != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	req.Header.Set("User-Agent", "CoreTunerSetup/"+appVersion)
 	resp, err := a.client.Do(req)
