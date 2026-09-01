@@ -431,31 +431,10 @@
     }).join('') : '<div class="activity-empty">A linha do tempo aparecerá quando o Agent registrar mudanças de aplicativo.</div>';
   }
 
-  function renderActivitySnapshot(snapshot) {
+  function activityRenderSuccessfulCommand(command, statusText = null) {
     const status = CT.$('#activitySnapshotStatus');
     const area = CT.$('#activityAppsArea');
-    if (!status || !area) return;
-    const command = snapshot?.command;
-    if (!snapshot?.agent_supports_activity) {
-      status.textContent = 'Agent antigo';
-      area.innerHTML = '<div class="activity-empty">Execute novamente o CoreControl Setup para instalar o Agent 0.6.0 ou superior.</div>';
-      return;
-    }
-    if (!command) {
-      status.textContent = 'Ainda não consultado';
-      area.innerHTML = '<div class="activity-empty">Clique em “Atualizar aplicativos” para consultar as janelas abertas neste computador.</div>';
-      return;
-    }
-    if (['queued', 'running'].includes(command.status)) {
-      status.textContent = command.status === 'running' ? 'Coletando...' : 'Na fila...';
-      area.innerHTML = '<div class="activity-empty">O Agent vai devolver a lista na próxima comunicação com a Central.</div>';
-      return;
-    }
-    if (command.status === 'failed') {
-      status.textContent = 'Falhou';
-      area.innerHTML = `<div class="activity-empty">${CT.esc(command.error || 'Não foi possível consultar os aplicativos.')}</div>`;
-      return;
-    }
+    if (!status || !area || !command) return;
 
     const apps = command.result?.apps || [];
     const browserTabs = command.result?.browser_tabs || [];
@@ -465,11 +444,11 @@
     const appRowsWithIcon = apps.filter((app) => Boolean(activityIconData(activityAssets.get(activityProcessKey(app?.process_name))?.icon_data))).length;
     const realIcons = iconCount > 0;
     const tabSuffix = browserTabs.length ? ` · ${browserTabs.length} aba${browserTabs.length === 1 ? '' : 's'}` : '';
-    status.textContent = !realIcons && (apps.length || browserTabs.length)
+    status.textContent = statusText || (!realIcons && (apps.length || browserTabs.length)
       ? `Atualizado · 0 ícones recebidos${tabSuffix}`
       : realIcons && apps.length ? `Atualizado · ${appRowsWithIcon}/${apps.length} janelas com ícone${tabSuffix}`
       : realIcons ? `Atualizado · ${iconCount} ícone(s) real(is)${tabSuffix}`
-      : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}${tabSuffix}` : `Atualizado${tabSuffix}`;
+      : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}${tabSuffix}` : `Atualizado${tabSuffix}`);
 
     const groups = activityGroupedApplications(apps, browserTabs);
     if (!groups.length) {
@@ -485,6 +464,50 @@
     }
   }
 
+  function renderActivitySnapshot(snapshot) {
+    const status = CT.$('#activitySnapshotStatus');
+    const area = CT.$('#activityAppsArea');
+    if (!status || !area) return;
+    const command = snapshot?.command;
+    const cached = snapshot?.cached_command;
+    if (!snapshot?.agent_supports_activity) {
+      status.textContent = 'Agent antigo';
+      area.innerHTML = '<div class="activity-empty">Execute novamente o CoreControl Setup para instalar o Agent 0.6.0 ou superior.</div>';
+      return;
+    }
+    if (!command) {
+      if (cached?.status === 'succeeded') {
+        activityRenderSuccessfulCommand(cached);
+        return;
+      }
+      status.textContent = 'Ainda não consultado';
+      area.innerHTML = '<div class="activity-empty">A primeira lista será carregada automaticamente em instantes.</div>';
+      return;
+    }
+    if (['queued', 'running'].includes(command.status)) {
+      if (cached?.status === 'succeeded') {
+        const when = cached.finished_at ? CT.fmtDate(cached.finished_at) : 'anterior';
+        activityRenderSuccessfulCommand(cached, `${command.status === 'running' ? 'Atualizando...' : 'Na fila...'} · exibindo ${when}`);
+      } else {
+        status.textContent = command.status === 'running' ? 'Coletando...' : 'Na fila...';
+        area.innerHTML = '<div class="activity-empty">Primeira coleta em andamento. A lista aparecerá assim que o Agent responder.</div>';
+      }
+      return;
+    }
+    if (command.status === 'failed') {
+      if (cached?.status === 'succeeded') {
+        const when = cached.finished_at ? CT.fmtDate(cached.finished_at) : 'anterior';
+        activityRenderSuccessfulCommand(cached, `Falha ao atualizar · exibindo ${when}`);
+      } else {
+        status.textContent = 'Falhou';
+        area.innerHTML = `<div class="activity-empty">${CT.esc(command.error || 'Não foi possível consultar os aplicativos.')}</div>`;
+      }
+      return;
+    }
+
+    activityRenderSuccessfulCommand(command);
+  }
+
   async function loadActivitySnapshot(deviceId) {
     try {
       const snapshot = await CT.api(`/devices/${deviceId}/activity/snapshot`);
@@ -497,11 +520,14 @@
     }
   }
 
-  async function requestActivitySnapshot(device) {
+  async function requestActivitySnapshot(device, options = {}) {
     const button = CT.$('#activityRefreshBtn');
-    if (!button || button.disabled) return;
-    button.disabled = true;
-    button.textContent = 'Solicitando...';
+    const silent = Boolean(options.silent);
+    if (!button || button.disabled && !silent) return;
+    if (!silent) {
+      button.disabled = true;
+      button.textContent = 'Solicitando...';
+    }
     try {
       const response = await CT.api(`/devices/${device.id}/activity/snapshot`, { method: 'POST' });
       renderActivitySnapshot(response);
@@ -512,11 +538,52 @@
         if (!current?.command || current.command.id !== commandId || !['queued', 'running'].includes(current.command.status)) break;
       }
     } catch (error) {
-      CT.toast(error.message || 'Não foi possível consultar a atividade.', 'error');
+      if (!silent) CT.toast(error.message || 'Não foi possível consultar a atividade.', 'error');
     } finally {
-      button.disabled = !device.online || !activityVersionSupported(device.agent_version);
-      button.textContent = 'Atualizar aplicativos';
+      if (!silent) {
+        button.disabled = !device.online || !activityVersionSupported(device.agent_version);
+        button.textContent = 'Atualizar aplicativos';
+      }
     }
+  }
+
+  let activityAutoRefreshToken = 0;
+  let activityAutoRefreshInFlight = false;
+
+  function activityDevicePageStillOpen(deviceId, token) {
+    return token === activityAutoRefreshToken
+      && Number(CT.state.selectedDevice) === Number(deviceId)
+      && Boolean(CT.$('#activityAppsArea'));
+  }
+
+  async function activityRunAutomaticRefresh(device) {
+    if (activityAutoRefreshInFlight) return;
+    if (!device?.online || !activityVersionSupported(device.agent_version)) return;
+    if (!CT.$('#activityAppsArea')) return;
+
+    activityAutoRefreshInFlight = true;
+    try {
+      await requestActivitySnapshot(device, { silent: true });
+    } finally {
+      activityAutoRefreshInFlight = false;
+    }
+  }
+
+  function startActivityAutoRefresh(device) {
+    const token = ++activityAutoRefreshToken;
+    if (!device?.online || !activityVersionSupported(device.agent_version)) return;
+
+    // Atualiza imediatamente ao abrir a tela, sem apagar a última lista salva.
+    activityRunAutomaticRefresh(device);
+
+    const tick = async () => {
+      if (!activityDevicePageStillOpen(device.id, token)) return;
+      await activityRunAutomaticRefresh(device);
+      if (!activityDevicePageStillOpen(device.id, token)) return;
+      window.setTimeout(tick, 5000);
+    };
+
+    window.setTimeout(tick, 5000);
   }
 
   CT.registerPage('device', async function renderDevice() {
@@ -552,19 +619,9 @@
     activityButton.disabled = !device.online || !activityVersionSupported(device.agent_version);
     activityButton.title = !activityVersionSupported(device.agent_version) ? 'Atualize o CoreControl Agent para 0.6.0 ou superior.' : !device.online ? 'O computador precisa estar online.' : '';
     activityButton.onclick = () => requestActivitySnapshot(device);
-    loadActivitySnapshot(device.id).then((snapshot) => {
-      const result = snapshot?.command?.result || {};
-      const apps = result.apps || [];
-      const browserTabs = result.browser_tabs || [];
-      const hasApps = apps.length > 0 || browserTabs.length > 0;
-      const missingIcons = hasApps && !activityResultHasRealIcons(result);
-      const hasBrowserWindow = apps.some((app) => ['chrome', 'msedge', 'opera', 'opera_gx', 'brave'].includes(activityProcessKey(app?.process_name)));
-      const missingBrowserTabs = activityBrowserTabsVersionSupported(device.agent_version) && hasBrowserWindow && browserTabs.length === 0;
-      // Depois de atualizar o Agent, um snapshot antigo pode continuar salvo no
-      // servidor sem ícones/abas. Faz uma nova coleta automaticamente uma vez.
-      if (device.online && snapshot?.command?.status === 'succeeded' && ((activityIconVersionSupported(device.agent_version) && missingIcons) || missingBrowserTabs)) {
-        requestActivitySnapshot(device);
-      }
+    loadActivitySnapshot(device.id).then(() => {
+      if (!device.online || !activityVersionSupported(device.agent_version)) return;
+      startActivityAutoRefresh(device);
     });
 
     CT.$('#deviceHistoryCount').textContent = `Últimas ${device.history.length} amostras recebidas.`;

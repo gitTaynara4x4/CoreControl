@@ -1,29 +1,17 @@
-# CoreControl v10.1 — correção da regressão sem perder evoluções
+# CoreControl — atualização automática de aplicativos (v10.2)
 
-Este pacote corrige o erro da v10 anterior.
+Esta correção NÃO altera o Agent. A Luiza pode continuar no Agent 0.8.9.
 
-A v10 anterior foi montada sobre uma base antiga do Agent 0.8.6/0.8.7 e, ao substituir
-`main.go` e `browser_tabs_windows.go`, acabou removendo melhorias mais novas que já estavam
-no Agent 0.8.8.
+O que foi corrigido:
+- ao entrar no computador, a última lista salva aparece imediatamente;
+- uma nova coleta é solicitada silenciosamente em segundo plano;
+- enquanto a tela daquele computador estiver aberta, o painel solicita novas coletas automaticamente;
+- intervalo de atualização: aproximadamente 5 segundos + tempo de resposta do Agent;
+- o Agent 0.8.9 já consulta comandos rapidamente, então não é necessário reinstalar;
+- durante uma nova coleta, a última lista válida continua visível (não some nem volta para "aguardando");
+- ao sair da página do computador, a atualização automática para sozinha;
+- mantém agrupamento/seta, abas reais, favicons e demais evoluções do devices.js atual.
 
-Esta v10.1 parte da versão mais nova (0.8.8) e aplica SOMENTE o filtro de abas internas
-de sites, gerando o Agent 0.8.9.
-
-Preservado:
-- polling rápido de comandos a cada 5 segundos;
-- atualização de aplicativos sem esperar o ciclo normal de telemetria;
-- compatibilidade UI Automation + MSAA;
-- fallback de detecção de abas;
-- Browser Bridge;
-- ícones reais dos aplicativos;
-- abas reais do navegador;
-- todas as melhorias do Agent 0.8.8.
-
-Corrigido:
-- widgets internos de páginas como Disney+ "SUGESTÕES", "DETALHES", "EXTRAS" e "VERSÕES"
-  não devem mais ser tratados como abas do Chrome.
-
-Este ZIP não contém HTML, CSS ou JavaScript e portanto não sobrescreve as melhorias visuais
-(seta expansível, favicons e CSS clean) já aplicadas na Central.
-
-Depois de substituir os arquivos, a Luiza precisa atualizar/reinstalar o Agent uma vez para 0.8.9.
+Resultado esperado:
+se a Luiza abrir/fechar um aplicativo ou trocar/abrir uma aba, o painel deve refletir a mudança
+automaticamente em poucos segundos, sem precisar clicar em "Atualizar aplicativos".
