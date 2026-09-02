@@ -642,23 +642,23 @@
     const id = Number(profile?.id || 0);
     const visuals = {
       1: {
-        tone: 'conservative', kicker: 'LEVE E ECONÔMICO', highlight: 'Menos efeitos visuais',
-        icon: '<svg viewBox="0 0 24 24"><path d="M19 4c-6.2.2-10.7 2.7-12.8 7.4-1.2 2.8-.6 5.7 1.4 7.6 2.2-6.1 6.3-9.2 10.4-11.4-3.6 2.8-6.5 6-8.3 10.4 5 .7 8.8-2.8 9.3-7.8.2-2.2.1-4.3 0-6.2Z"/></svg>'
+        tone: 'conservative', kicker: 'PERFIL ECONÔMICO',
+        icon: '<svg viewBox="0 0 24 24"><path d="M4 17a8 8 0 1 1 16 0"/><path d="m12 17-3.5-4.5"/><path d="M6.5 10.5 8 12"/><path d="M17.5 10.5 16 12"/><path d="M12 7v2"/></svg>'
       },
       2: {
-        tone: 'balanced', kicker: 'RECOMENDADO PARA O DIA A DIA', highlight: 'Equilíbrio entre resposta e consumo',
-        icon: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M10 14v6"/></svg>'
+        tone: 'balanced', kicker: 'USO RECOMENDADO',
+        icon: '<svg viewBox="0 0 24 24"><path d="M4 7h5M15 7h5M12 4v6M4 17h9M17 17h3M15 14v6"/></svg>'
       },
       3: {
-        tone: 'service', kicker: 'FOCO EM OPERAÇÃO', highlight: 'Prioriza aplicativos de atendimento',
-        icon: '<svg viewBox="0 0 24 24"><path d="M4 13v-2a8 8 0 0 1 16 0v2"/><path d="M4 13h3v6H5a2 2 0 0 1-2-2v-2a2 2 0 0 1 1-2ZM20 13h-3v6h2a2 2 0 0 0 2-2v-2a2 2 0 0 0-1-2Z"/><path d="M17 19c-.8 1.3-2.3 2-4.5 2"/></svg>'
+        tone: 'service', kicker: 'FOCO EM OPERAÇÃO',
+        icon: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m15.5 10 1.5 1.5 3-3"/></svg>'
       },
       4: {
-        tone: 'performance', kicker: 'MÁXIMA RESPOSTA', highlight: 'Mais prioridade quando o PC está na tomada',
-        icon: '<svg viewBox="0 0 24 24"><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z"/></svg>'
+        tone: 'performance', kicker: 'MÁXIMO DESEMPENHO',
+        icon: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>'
       }
     };
-    return visuals[id] || { tone: 'default', kicker: 'PERFIL CORECONTROL', highlight: '', icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>' };
+    return visuals[id] || { tone: 'default', kicker: 'PERFIL CORECONTROL', icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>' };
   }
 
   function optimizationCheckIcon() {
@@ -696,7 +696,6 @@
       const actions = Array.isArray(profile.actions) ? profile.actions : [];
       return `
         <article class="optimization-profile tone-${visual.tone} ${active ? 'active' : ''}">
-          <div class="optimization-profile-accent"></div>
           <div class="optimization-profile-head">
             <div class="optimization-profile-icon">${visual.icon}</div>
             <div class="optimization-profile-heading">
@@ -706,12 +705,14 @@
             ${active ? '<span class="optimization-profile-badge">ATIVO AGORA</span>' : ''}
           </div>
           <p class="optimization-profile-description">${CT.esc(profile.short || '')}</p>
-          <div class="optimization-profile-highlight"><span></span>${CT.esc(visual.highlight)}</div>
-          <div class="optimization-profile-actions">
-            ${actions.map((item) => `<div class="optimization-profile-action">${optimizationCheckIcon()}<span>${CT.esc(item)}</span></div>`).join('')}
+          <div class="optimization-profile-adjustments">
+            <strong>Principais ajustes</strong>
+            <div class="optimization-profile-actions">
+              ${actions.map((item) => `<div class="optimization-profile-action">${optimizationCheckIcon()}<span>${CT.esc(item)}</span></div>`).join('')}
+            </div>
           </div>
           <button class="optimization-profile-button ${active ? 'active' : ''}" type="button" data-optimization-profile="${profile.id}" ${disabled ? 'disabled' : ''}>
-            <span>${CT.esc(buttonLabel)}</span>${optimizationArrowIcon()}
+            <span>${CT.esc(buttonLabel)}</span>
           </button>
         </article>`;
     }).join('');
