@@ -405,6 +405,35 @@ class MeshCentralClient:
         mesh_hex = _mesh_id_to_hex(mesh_hex_value or mesh_id)
         group_name = str(selected.get("name") or desired_name)
 
+        # Mantém as regras de consentimento do grupo sincronizadas com a
+        # configuração do CoreControl também para grupos já existentes.
+        # Isso é importante porque AddDeviceGroup só aplica --consent na
+        # criação; antes, alterar CORETUNER_REMOTE_GROUP_CONSENT não afetava
+        # empresas/grupos que já estavam provisionados.
+        desired_consent = int(settings.remote_group_consent)
+        try:
+            current_consent = int(selected.get("consent") or 0)
+        except (TypeError, ValueError):
+            current_consent = -1
+
+        if current_consent != desired_consent:
+            self._meshctrl_command(
+                "EditDeviceGroup",
+                [
+                    "--id",
+                    mesh_id,
+                    "--consent",
+                    str(desired_consent),
+                ],
+            )
+            # Recarrega o grupo para que os dados em memória reflitam o
+            # consentimento efetivamente salvo no MeshCentral.
+            groups = self._list_groups()
+            selected = next(
+                (group for group in groups if str(group.get("_id") or group.get("id") or "") == mesh_id),
+                selected,
+            )
+
         integration_user_id = self.ensure_integration_user()
         links = selected.get("links")
         already_linked = isinstance(links, dict) and integration_user_id in links

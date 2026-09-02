@@ -1,36 +1,39 @@
-# CoreControl v10.5 — correção do acesso remoto automático
+# CoreControl v10.6 - aviso remoto discreto
 
-Diagnóstico real encontrado:
+Este patch e cumulativo sobre a v10.5 e **nao remove o aviso de acesso remoto**.
 
-- o backend gera `remote-session` corretamente;
-- o MeshCentral aceita o login token;
-- o nó correto é enviado pelo backend;
-- durante o login, o MeshCentral remove `ctnode`/`gotonode`;
-- `coretuner` sobrevive ao login;
-- o `custom.js` do serviço `coretuner-remote` estava com **0 bytes**;
-- existem nós antigos duplicados, portanto nunca se deve escolher o PC somente pelo nome.
+Objetivo:
+- manter o acesso remoto exatamente como esta funcionando;
+- remover a barra azul grande e persistente do MeshCentral;
+- manter uma notificacao pequena no Windows quando a sessao remota comeca;
+- manter o vinculo exato do computador e o auto-connect da v10.5.
 
-Correção:
+## Mudanca de consentimento
 
-1. `app/meshcentral.py`: transporta o node ID exato, em Base64URL, dentro do parâmetro `coretuner`, que sobrevive ao login.
-2. `app/remote_assets/meshcentral-custom.js`: decodifica o node ID, seleciona apenas o nó exato, espera o Mesh Agent online e chama `connectDesktop(null, 1)`.
-3. `tools/install_meshcentral_custom.sh`: instala o script no container MeshCentral e rejeita arquivo vazio/inválido.
+No MeshCentral, os bits relevantes sao:
+- `1` = notificar o usuario ao iniciar Desktop remoto;
+- `64` = mostrar a barra de privacidade persistente.
 
-## Depois de aplicar no CoreControl
+O projeto estava usando `65` (`1 + 64`). Para o modo discreto use:
 
-Faça Force Rebuild do serviço CoreControl.
-
-No terminal do serviço `coretuner-remote`, rode:
-
-```sh
-curl -fsSL https://apps-corecontrol.9ywrah.easypanel.host/remote-assets/meshcentral-custom.js \
-  -o /opt/meshcentral/meshcentral/public/scripts/custom.js
-
-node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
-wc -c /opt/meshcentral/meshcentral/public/scripts/custom.js
-grep -n "CoreControl Remote v10.5" /opt/meshcentral/meshcentral/public/scripts/custom.js | head
+```env
+CORETUNER_REMOTE_GROUP_CONSENT=1
 ```
 
-O tamanho deve ser maior que zero e o grep deve mostrar `CoreControl Remote v10.5`.
+A v10.6 tambem corrige uma limitacao anterior: agora grupos de empresas ja existentes sao atualizados com o consentimento configurado, em vez de aplicar o valor somente quando o grupo e criado.
 
-Não é necessário reinstalar o PC da Luiza.
+## Depois do deploy
+
+1. No EasyPanel / CoreControl, altere `CORETUNER_REMOTE_GROUP_CONSENT=1`.
+2. Force Rebuild do CoreControl.
+3. No terminal do CoreControl execute:
+
+```bash
+python -m tools.aplicar_aviso_remoto_discreto
+```
+
+4. Opcionalmente personalize a notificacao do MeshCentral no `config.json` para:
+
+`CoreControl: acesso remoto ativo.`
+
+Nao e necessario reinstalar o Agent no computador da Luiza.
