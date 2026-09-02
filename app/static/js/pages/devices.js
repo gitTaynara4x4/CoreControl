@@ -672,6 +672,66 @@
     return visuals[id] || { tone: 'default', kicker: 'PERFIL CORECONTROL', icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>' };
   }
 
+  function optimizationProfilePresentation(profile) {
+    const id = Number(profile?.id || 0);
+    const presentations = {
+      1: {
+        ideal: 'Computadores administrativos, tarefas leves e uso em que estabilidade é prioridade.',
+        actions: [
+          'Reduz animações e efeitos visuais desnecessários',
+          'Mantém o plano de energia atual do computador',
+          'Preserva a prioridade normal dos programas',
+          'Cria backup antes da primeira alteração',
+          'Não apaga Downloads, Documentos ou arquivos pessoais',
+          'Permite restaurar as configurações anteriores'
+        ],
+        results: ['Windows mais leve', 'Menos efeitos visuais', 'Baixo impacto']
+      },
+      2: {
+        ideal: 'Rotina diária de trabalho e computadores utilizados durante todo o expediente.',
+        actions: [
+          'Reduz animações de janelas e menus',
+          'Simplifica efeitos visuais que consomem recursos',
+          'Ativa o plano de energia Equilibrado',
+          'Mantém a prioridade normal dos aplicativos',
+          'Cria backup antes da primeira alteração',
+          'Permite voltar ao estado anterior com segurança'
+        ],
+        results: ['Resposta equilibrada', 'Estabilidade', 'Uso diário']
+      },
+      3: {
+        ideal: 'Navegador, WhatsApp, CRM, discador e sistemas usados pela equipe de atendimento.',
+        actions: [
+          'Reduz animações e efeitos visuais do Windows',
+          'Mantém o computador no plano Equilibrado',
+          'Identifica aplicativos de atendimento compatíveis abertos',
+          'Prioriza moderadamente os aplicativos de trabalho detectados',
+          'Salva a prioridade original antes de qualquer mudança',
+          'Mantém restauração segura disponível'
+        ],
+        results: ['Foco no atendimento', 'Apps priorizados', 'Mais responsividade']
+      },
+      4: {
+        ideal: 'Períodos de maior demanda e computadores com carga de trabalho mais intensa.',
+        actions: [
+          'Reduz animações e efeitos visuais do Windows',
+          'Identifica aplicativos de trabalho compatíveis',
+          'Prioriza moderadamente os aplicativos importantes abertos',
+          'Ativa Alto desempenho quando o computador está na tomada',
+          'Mantém Equilibrado quando o computador está na bateria',
+          'Preserva backup para restauração do estado anterior'
+        ],
+        results: ['Maior resposta', 'Apps priorizados', 'Uso intenso']
+      }
+    };
+    const fallbackActions = Array.isArray(profile?.actions) ? profile.actions : [];
+    return presentations[id] || {
+      ideal: 'Uso geral do computador.',
+      actions: fallbackActions,
+      results: ['Ajuste seguro', 'Aplicação remota', 'Reversível']
+    };
+  }
+
   function optimizationCheckIcon() {
     return '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 2.8 2.8 6.2-6.2"/></svg>';
   }
@@ -894,7 +954,8 @@
       const active = activeName.toLowerCase() === String(profile.name || '').toLowerCase();
       const visual = optimizationProfileVisual(profile);
       const buttonLabel = active ? 'Aplicar novamente' : `Ativar ${profile.name}`;
-      const actions = Array.isArray(profile.actions) ? profile.actions : [];
+      const presentation = optimizationProfilePresentation(profile);
+      const actions = presentation.actions;
       return `
         <article class="optimization-profile tone-${visual.tone} ${active ? 'active' : ''}">
           <div class="optimization-profile-head">
@@ -906,10 +967,20 @@
             ${active ? '<span class="optimization-profile-badge">ATIVO AGORA</span>' : ''}
           </div>
           <p class="optimization-profile-description">${CT.esc(profile.short || '')}</p>
+          <div class="optimization-profile-ideal">
+            <span>IDEAL PARA</span>
+            <p>${CT.esc(presentation.ideal)}</p>
+          </div>
           <div class="optimization-profile-adjustments">
-            <strong>Principais ajustes</strong>
+            <strong>O que o CoreControl vai fazer</strong>
             <div class="optimization-profile-actions">
               ${actions.map((item) => `<div class="optimization-profile-action">${optimizationCheckIcon()}<span>${CT.esc(item)}</span></div>`).join('')}
+            </div>
+          </div>
+          <div class="optimization-profile-results">
+            <span class="optimization-profile-results-label">RESULTADO ESPERADO</span>
+            <div class="optimization-profile-result-chips">
+              ${presentation.results.map((item) => `<span>${CT.esc(item)}</span>`).join('')}
             </div>
           </div>
           <button class="optimization-profile-button ${active ? 'active' : ''}" type="button" data-optimization-profile="${profile.id}" ${disabled ? 'disabled' : ''}>
