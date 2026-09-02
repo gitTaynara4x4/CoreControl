@@ -973,3 +973,45 @@ html[data-theme="dark"] .optimization-profile-kicker{color:#9faaba}
 html[data-theme="dark"] .optimization-profile-button{background:#2f7cff;border-color:#2f7cff}
 html[data-theme="dark"] .optimization-profile-button.active{background:#242424;color:#8db7ff;border-color:#41669a}
 html[data-theme="dark"] .optimization-restore-row .btn{background:#242424;color:#8db7ff;border-color:#41669a}
+
+/* CoreControl v10.9 — diagnóstico inteligente de otimização */
+.optimization-diagnostics{margin:0 25px 2px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--card)}
+.optimization-diagnostics-loading{padding:17px 0;font-size:9px;color:var(--muted)}
+.optimization-diagnostics-head,.optimization-diagnostics-empty,.optimization-diagnostics-upgrade{display:flex;align-items:center;justify-content:space-between;gap:22px;padding:17px 0 14px}
+.optimization-diagnostics-head>div:first-child,.optimization-diagnostics-empty>div:first-child,.optimization-diagnostics-upgrade>div:first-child{min-width:0}
+.optimization-diagnostics-eyebrow,.optimization-diagnostics-upgrade>div>span{display:block;margin-bottom:4px;font-size:7.4px;font-weight:750;letter-spacing:.09em;color:#315f9f}
+.optimization-diagnostics-head strong,.optimization-diagnostics-empty strong,.optimization-diagnostics-upgrade strong{display:block;font-size:12px;font-weight:700;color:var(--ink)}
+.optimization-diagnostics-head p,.optimization-diagnostics-empty p,.optimization-diagnostics-upgrade p{margin:4px 0 0;max-width:760px;font-size:8.8px;line-height:1.45;color:var(--muted)}
+.optimization-diagnostics-head-actions{display:flex;align-items:center;gap:9px;flex:0 0 auto}
+.optimization-analysis-status{display:inline-flex;align-items:center;min-height:28px;padding:5px 9px;border:1px solid #dfe5ed;border-radius:7px;background:#fafbfd;color:#607086;font-size:8.2px;font-weight:620;white-space:nowrap}
+.optimization-diagnose-btn{min-height:30px;padding:6px 11px;border-color:#cdd7e5;background:#fff;color:#24364f;font-size:8.4px}
+.optimization-diagnostics-version{display:inline-flex;align-items:center;justify-content:center;min-width:60px;min-height:30px;padding:5px 10px;border:1px solid #d7e0eb;border-radius:7px;background:#f8fafc;color:#475569;font-size:8.5px;font-weight:700}
+.optimization-diagnostic-metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.optimization-diagnostic-metric{display:flex;align-items:flex-start;gap:10px;min-width:0;padding:14px 13px;border-right:1px solid var(--border)}
+.optimization-diagnostic-metric:last-child{border-right:0}
+.optimization-diagnostic-icon{width:27px;height:27px;flex:0 0 27px;display:grid;place-items:center;color:#334155}
+.optimization-diagnostic-icon svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.optimization-diagnostic-metric>div{min-width:0}.optimization-diagnostic-metric>div>span{display:block;font-size:7.8px;font-weight:620;color:#718096;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.optimization-diagnostic-metric strong{display:block;margin-top:4px;font-size:11px;font-weight:700;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.optimization-diagnostic-metric small{display:block;margin-top:3px;font-size:7.4px;line-height:1.3;color:#8a96a8}
+.optimization-diagnostics-bottom{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:12px;padding:14px 0 16px}
+.optimization-findings,.optimization-opportunities,.optimization-safe-cleanup{border:1px solid #e3e8ef;border-radius:9px;background:#fbfcfe}
+.optimization-findings{padding:12px 13px}.optimization-findings-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+.optimization-findings-title strong,.optimization-opportunities>strong,.optimization-safe-cleanup strong{font-size:9.2px;font-weight:700;color:#25364d}.optimization-findings-title span{font-size:7.8px;color:#7b8798}
+.optimization-findings-list{display:grid;gap:8px}.optimization-finding{display:flex;align-items:flex-start;gap:8px}.optimization-finding-dot{width:6px;height:6px;flex:0 0 6px;margin-top:4px;border-radius:50%;background:#94a3b8}
+.optimization-finding.level-medium .optimization-finding-dot{background:#b7791f}.optimization-finding.level-high .optimization-finding-dot{background:#b4232a}
+.optimization-finding strong{display:block;font-size:8.4px;font-weight:680;color:#334155}.optimization-finding span{display:block;margin-top:2px;font-size:7.8px;line-height:1.4;color:#7a8798}
+.optimization-findings-clear p{margin:0;font-size:8px;line-height:1.45;color:#7a8798}
+.optimization-opportunities{padding:12px 13px}.optimization-opportunities>span{display:flex;align-items:flex-start;gap:7px;margin-top:7px;font-size:7.9px;line-height:1.4;color:#66758a}.optimization-opportunities>span svg{width:12px;height:12px;flex:0 0 12px;fill:none;stroke:#1769ff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.optimization-safe-cleanup{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 13px;background:#fff}
+.optimization-safe-cleanup>div{min-width:0}.optimization-safe-cleanup span{display:block;margin-top:3px;font-size:7.8px;line-height:1.4;color:#7b8798}.optimization-safe-cleanup .btn{flex:0 0 auto;min-height:30px;border-color:#b7cdf0;background:#fff;color:#1769ff;font-size:8.4px}
+.optimization-result-summary{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 7px}.optimization-result-summary span{display:inline-flex;align-items:center;gap:3px;padding:4px 7px;border:1px solid #dfe6ef;border-radius:6px;background:#fff;color:#64748b;font-size:7.8px}.optimization-result-summary b{color:#263a55;font-weight:720}
+.optimization-result-warnings{margin-top:7px}
+html[data-theme="dark"] .optimization-diagnostics{background:#2a2a2a;border-color:#3a3a3a}
+html[data-theme="dark"] .optimization-analysis-status,html[data-theme="dark"] .optimization-diagnostics-version,html[data-theme="dark"] .optimization-diagnose-btn,html[data-theme="dark"] .optimization-safe-cleanup .btn,html[data-theme="dark"] .optimization-result-summary span{background:#242424;border-color:#404040;color:#c8d0db}
+html[data-theme="dark"] .optimization-diagnostic-metrics{border-color:#3a3a3a}html[data-theme="dark"] .optimization-diagnostic-metric{border-color:#3a3a3a}html[data-theme="dark"] .optimization-diagnostic-icon{color:#d0d6df}html[data-theme="dark"] .optimization-diagnostic-metric strong{color:#edf1f6}
+html[data-theme="dark"] .optimization-findings,html[data-theme="dark"] .optimization-opportunities,html[data-theme="dark"] .optimization-safe-cleanup{background:#242424;border-color:#3b3b3b}html[data-theme="dark"] .optimization-findings-title strong,html[data-theme="dark"] .optimization-opportunities>strong,html[data-theme="dark"] .optimization-safe-cleanup strong{color:#d8dee8}html[data-theme="dark"] .optimization-finding strong{color:#c8d0dc}
+html[data-theme="dark"] .optimization-result-summary b{color:#dce5f2}
+@media(max-width:1280px){.optimization-diagnostic-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.optimization-diagnostic-metric:nth-child(3n){border-right:0}.optimization-diagnostic-metric:nth-child(-n+3){border-bottom:1px solid var(--border)}}
+@media(max-width:820px){.optimization-diagnostics-head,.optimization-diagnostics-empty,.optimization-diagnostics-upgrade{align-items:flex-start;flex-direction:column}.optimization-diagnostics-head-actions{width:100%;justify-content:space-between}.optimization-diagnostic-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.optimization-diagnostic-metric{border-bottom:1px solid var(--border)}.optimization-diagnostic-metric:nth-child(3n){border-right:1px solid var(--border)}.optimization-diagnostic-metric:nth-child(2n){border-right:0}.optimization-diagnostics-bottom{grid-template-columns:1fr}.optimization-safe-cleanup{grid-column:auto;align-items:flex-start;flex-direction:column}.optimization-safe-cleanup .btn{width:100%}}
+@media(max-width:520px){.optimization-diagnostic-metrics{grid-template-columns:1fr}.optimization-diagnostic-metric{border-right:0!important}.optimization-diagnostics-head-actions{align-items:stretch;flex-direction:column}.optimization-analysis-status,.optimization-diagnose-btn{width:100%;justify-content:center}}

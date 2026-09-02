@@ -83,6 +83,18 @@ func executeAgentCommand(command pendingCommand) (map[string]interface{}, error)
 		return mapFromStruct(result)
 	case "activity.snapshot":
 		return mapFromStruct(collectActivitySnapshot())
+	case "optimization.diagnose":
+		return mapFromStruct(diagnoseOptimization())
+	case "optimization.cleanup_temp":
+		result, err := cleanupOptimizationTemp()
+		mapped, mapErr := mapFromStruct(result)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		if err != nil {
+			return mapped, err
+		}
+		return mapped, nil
 	case "optimization.apply":
 		var payload optimizationApplyPayload
 		if len(command.Payload) > 0 {

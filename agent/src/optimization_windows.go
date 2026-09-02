@@ -3,14 +3,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -68,16 +71,67 @@ type optimizationPlan struct {
 	Notes                []string
 }
 
+type optimizationBottleneck struct {
+	Level  string `json:"level"`
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+}
+
+type optimizationDiagnostics struct {
+	CollectedAt        string                   `json:"collected_at"`
+	CheckedItems       int                      `json:"checked_items"`
+	CPUPercent         *float64                 `json:"cpu_percent,omitempty"`
+	MemoryTotalMB      int64                    `json:"memory_total_mb"`
+	MemoryAvailableMB  int64                    `json:"memory_available_mb"`
+	MemoryAvailablePct *float64                 `json:"memory_available_percent,omitempty"`
+	DiskTotalGB        float64                  `json:"disk_total_gb"`
+	DiskFreeGB         float64                  `json:"disk_free_gb"`
+	DiskFreePct        *float64                 `json:"disk_free_percent,omitempty"`
+	TemperatureC       *float64                 `json:"temperature_c,omitempty"`
+	StartupApps        int                      `json:"startup_apps"`
+	ActiveProcesses    int                      `json:"active_processes"`
+	WorkApps           int                      `json:"work_apps"`
+	OptionalServices   int                      `json:"optional_services"`
+	TempReclaimableMB  float64                  `json:"temp_reclaimable_mb"`
+	PowerScheme        string                   `json:"power_scheme"`
+	OnBattery          bool                     `json:"on_battery"`
+	Bottlenecks        []optimizationBottleneck `json:"bottlenecks"`
+	Opportunities      []string                 `json:"opportunities"`
+	Warnings           []string                 `json:"warnings"`
+}
+
+type optimizationSummary struct {
+	AnalyzedItems      int     `json:"analyzed_items"`
+	AppliedAdjustments int     `json:"applied_adjustments"`
+	PrioritizedApps    int     `json:"prioritized_apps"`
+	Bottlenecks        int     `json:"bottlenecks"`
+	Opportunities      int     `json:"opportunities"`
+	MemoryDeltaMB      int64   `json:"memory_delta_mb"`
+	DiskDeltaMB        float64 `json:"disk_delta_mb"`
+}
+
 type optimizationResult struct {
-	Profile           int      `json:"profile"`
-	ProfileName       string   `json:"profile_name"`
-	ActiveProfile     int      `json:"active_profile"`
-	ActiveProfileName string   `json:"active_profile_name"`
-	Changed           []string `json:"changed"`
-	Warnings          []string `json:"warnings"`
-	Restored          bool     `json:"restored"`
-	AppliedAt         string   `json:"applied_at"`
-	BackupAvailable   bool     `json:"backup_available"`
+	Profile           int                      `json:"profile"`
+	ProfileName       string                   `json:"profile_name"`
+	ActiveProfile     int                      `json:"active_profile"`
+	ActiveProfileName string                   `json:"active_profile_name"`
+	Changed           []string                 `json:"changed"`
+	Warnings          []string                 `json:"warnings"`
+	Restored          bool                     `json:"restored"`
+	AppliedAt         string                   `json:"applied_at"`
+	BackupAvailable   bool                     `json:"backup_available"`
+	DiagnosticsBefore *optimizationDiagnostics `json:"diagnostics_before,omitempty"`
+	DiagnosticsAfter  *optimizationDiagnostics `json:"diagnostics_after,omitempty"`
+	Summary           *optimizationSummary     `json:"summary,omitempty"`
+}
+
+type optimizationCleanupResult struct {
+	FilesDeleted     int                     `json:"files_deleted"`
+	FreedMB          float64                 `json:"freed_mb"`
+	Warnings         []string                `json:"warnings"`
+	DiagnosticsAfter optimizationDiagnostics `json:"diagnostics_after"`
+	CompletedAt      string                  `json:"completed_at"`
 }
 
 type optimizationAnimationInfo struct {
@@ -497,6 +551,310 @@ func ensureOptimizationProcessBaseline(state *optimizationState, targets []optim
 	return warnings
 }
 
+func optimizationHiddenCommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	return cmd
+}
+
+func optimizationMemoryMetrics() (totalMB int64, availableMB int64, availablePct *float64) {
+	var mem memoryStatusEx
+	mem.Length = uint32(unsafe.Sizeof(mem))
+	if ok, _, _ := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&mem))); ok == 0 || mem.TotalPhys == 0 {
+		return 0, 0, nil
+	}
+	totalMB = int64(mem.TotalPhys / (1 << 20))
+	availableMB = int64(mem.AvailPhys / (1 << 20))
+	pct := round2((float64(mem.AvailPhys) / float64(mem.TotalPhys)) * 100)
+	return totalMB, availableMB, &pct
+}
+
+func optimizationDiskMetrics() (totalGB float64, freeGB float64, freePct *float64) {
+	root, _ := syscall.UTF16PtrFromString(`C:\`)
+	var freeAvailable, totalBytes, totalFree uint64
+	if ok, _, _ := procGetDiskFreeSpaceExW.Call(
+		uintptr(unsafe.Pointer(root)),
+		uintptr(unsafe.Pointer(&freeAvailable)),
+		uintptr(unsafe.Pointer(&totalBytes)),
+		uintptr(unsafe.Pointer(&totalFree)),
+	); ok == 0 || totalBytes == 0 {
+		return 0, 0, nil
+	}
+	totalGB = round2(float64(totalBytes) / (1 << 30))
+	freeGB = round2(float64(totalFree) / (1 << 30))
+	pct := round2((float64(totalFree) / float64(totalBytes)) * 100)
+	return totalGB, freeGB, &pct
+}
+
+func optimizationPowerSchemeLabel() string {
+	guid, err := optimizationCurrentPowerScheme()
+	if err != nil {
+		return "Indisponível"
+	}
+	switch strings.ToLower(guid) {
+	case "381b4222-f694-41f0-9685-ff5bb260df2e":
+		return "Equilibrado"
+	case "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c":
+		return "Alto desempenho"
+	case "a1841308-3541-4fab-bc81-f71556f20b4a":
+		return "Economia de energia"
+	default:
+		return "Personalizado"
+	}
+}
+
+func optimizationTemperature() *float64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	command := `$v=Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | ForEach-Object { ($_.CurrentTemperature/10)-273.15 } | Where-Object { $_ -gt 0 -and $_ -lt 130 }; if($v){ [Console]::Write(([Math]::Round((($v | Measure-Object -Average).Average),1)).ToString([Globalization.CultureInfo]::InvariantCulture)) }`
+	out, err := optimizationHiddenCommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command).Output()
+	if err != nil {
+		return nil
+	}
+	value, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || value <= 0 || value >= 130 {
+		return nil
+	}
+	value = round2(value)
+	return &value
+}
+
+func optimizationRegistryStartupCount(key string) int {
+	out, err := optimizationHiddenCommand("reg.exe", "query", key).CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		upper := strings.ToUpper(line)
+		if strings.Contains(upper, "REG_SZ") || strings.Contains(upper, "REG_EXPAND_SZ") {
+			count++
+		}
+	}
+	return count
+}
+
+func optimizationStartupFolderCount(path string) int {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+			count++
+		}
+	}
+	return count
+}
+
+func optimizationStartupAppsCount() int {
+	keys := []string{
+		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
+		`HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce`,
+		`HKLM\Software\Microsoft\Windows\CurrentVersion\Run`,
+		`HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnce`,
+	}
+	count := 0
+	for _, key := range keys {
+		count += optimizationRegistryStartupCount(key)
+	}
+	if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+		count += optimizationStartupFolderCount(filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup"))
+	}
+	if programData := strings.TrimSpace(os.Getenv("ProgramData")); programData != "" {
+		count += optimizationStartupFolderCount(filepath.Join(programData, "Microsoft", "Windows", "Start Menu", "Programs", "StartUp"))
+	}
+	return count
+}
+
+func optimizationOptionalServicesCount() int {
+	// Apenas diagnóstico. O CoreControl não desativa serviços automaticamente.
+	services := []string{"DiagTrack", "MapsBroker", "Fax", "RetailDemo", "XblAuthManager", "XblGameSave", "XboxNetApiSvc"}
+	count := 0
+	for _, name := range services {
+		if running, known := serviceIsRunning(name); known && running {
+			count++
+		}
+	}
+	return count
+}
+
+func optimizationTempRoots() []string {
+	candidates := []string{os.TempDir()}
+	if local := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); local != "" {
+		candidates = append(candidates, filepath.Join(local, "Temp"))
+	}
+	seen := map[string]bool{}
+	roots := []string{}
+	for _, candidate := range candidates {
+		abs, err := filepath.Abs(candidate)
+		if err != nil || strings.TrimSpace(abs) == "" {
+			continue
+		}
+		key := strings.ToLower(filepath.Clean(abs))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		roots = append(roots, abs)
+	}
+	return roots
+}
+
+func optimizationScanTemp(deleteFiles bool) (bytes uint64, filesCount int, warnings []string) {
+	cutoff := time.Now().Add(-7 * 24 * time.Hour)
+	visited := 0
+	const maxEntries = 60000
+	for _, root := range optimizationTempRoots() {
+		root := root
+		walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			visited++
+			if visited > maxEntries {
+				return fs.SkipAll
+			}
+			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
+			info, infoErr := entry.Info()
+			if infoErr != nil || info.ModTime().After(cutoff) || info.Size() <= 0 {
+				return nil
+			}
+			if deleteFiles {
+				if removeErr := os.Remove(path); removeErr != nil {
+					return nil
+				}
+			}
+			bytes += uint64(info.Size())
+			filesCount++
+			return nil
+		})
+		if walkErr != nil && !errors.Is(walkErr, fs.SkipAll) {
+			warnings = append(warnings, "Uma pasta temporária não pôde ser analisada por completo")
+		}
+	}
+	return bytes, filesCount, warnings
+}
+
+func optimizationDiagnosticsCopyDeep(from optimizationDiagnostics, to *optimizationDiagnostics) {
+	if to == nil {
+		return
+	}
+	to.StartupApps = from.StartupApps
+	to.OptionalServices = from.OptionalServices
+	to.TempReclaimableMB = from.TempReclaimableMB
+	existing := map[string]bool{}
+	for _, item := range to.Opportunities {
+		existing[item] = true
+	}
+	for _, item := range from.Opportunities {
+		if !existing[item] {
+			to.Opportunities = append(to.Opportunities, item)
+			existing[item] = true
+		}
+	}
+}
+
+func collectOptimizationDiagnostics(deep bool) optimizationDiagnostics {
+	now := time.Now().UTC()
+	d := optimizationDiagnostics{
+		CollectedAt:   now.Format(time.RFC3339),
+		CheckedItems:  10,
+		Bottlenecks:   []optimizationBottleneck{},
+		Opportunities: []string{},
+		Warnings:      []string{},
+		PowerScheme:   optimizationPowerSchemeLabel(),
+		OnBattery:     optimizationRunningOnBattery(),
+	}
+
+	cpu := sampleCPU(180 * time.Millisecond)
+	if cpu >= 0 {
+		d.CPUPercent = &cpu
+	}
+	d.MemoryTotalMB, d.MemoryAvailableMB, d.MemoryAvailablePct = optimizationMemoryMetrics()
+	d.DiskTotalGB, d.DiskFreeGB, d.DiskFreePct = optimizationDiskMetrics()
+	d.TemperatureC = optimizationTemperature()
+	processes := optimizationProcesses()
+	d.ActiveProcesses = len(processes)
+	d.WorkApps = len(optimizationWorkProcesses())
+
+	if deep {
+		d.StartupApps = optimizationStartupAppsCount()
+		d.OptionalServices = optimizationOptionalServicesCount()
+		bytes, _, warnings := optimizationScanTemp(false)
+		d.TempReclaimableMB = round2(float64(bytes) / (1 << 20))
+		d.Warnings = append(d.Warnings, warnings...)
+	}
+
+	if d.MemoryAvailablePct != nil {
+		if *d.MemoryAvailablePct < 15 {
+			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "high", Key: "memory", Title: "Memória sob pressão", Detail: fmt.Sprintf("Apenas %.0f%% da memória física está disponível.", *d.MemoryAvailablePct)})
+		} else if *d.MemoryAvailablePct < 25 {
+			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "medium", Key: "memory", Title: "Pouca memória disponível", Detail: fmt.Sprintf("%.0f%% da memória física está disponível no momento.", *d.MemoryAvailablePct)})
+		}
+	}
+	if d.DiskFreePct != nil {
+		if *d.DiskFreePct < 10 {
+			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "high", Key: "disk", Title: "Disco quase cheio", Detail: fmt.Sprintf("O disco principal tem apenas %.0f%% de espaço livre.", *d.DiskFreePct)})
+		} else if *d.DiskFreePct < 20 {
+			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "medium", Key: "disk", Title: "Pouco espaço em disco", Detail: fmt.Sprintf("O disco principal está com %.0f%% de espaço livre.", *d.DiskFreePct)})
+		}
+	}
+	if d.CPUPercent != nil && *d.CPUPercent >= 85 {
+		d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "medium", Key: "cpu", Title: "Processador muito ocupado", Detail: fmt.Sprintf("Uso de CPU medido em %.0f%% durante o diagnóstico.", *d.CPUPercent)})
+	}
+	if d.TemperatureC != nil {
+		if *d.TemperatureC >= 85 {
+			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "high", Key: "temperature", Title: "Temperatura elevada", Detail: fmt.Sprintf("Sensor ACPI reportou %.1f °C.", *d.TemperatureC)})
+		} else if *d.TemperatureC >= 75 {
+			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "medium", Key: "temperature", Title: "Temperatura em atenção", Detail: fmt.Sprintf("Sensor ACPI reportou %.1f °C.", *d.TemperatureC)})
+		}
+	}
+	if d.ActiveProcesses > 190 {
+		d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "low", Key: "processes", Title: "Muitos processos ativos", Detail: fmt.Sprintf("%d processos estão ativos no Windows.", d.ActiveProcesses)})
+	}
+	if deep && d.StartupApps >= 12 {
+		d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "low", Key: "startup", Title: "Inicialização carregada", Detail: fmt.Sprintf("%d itens estão configurados para iniciar com o Windows.", d.StartupApps)})
+	}
+
+	if deep && d.TempReclaimableMB >= 50 {
+		d.Opportunities = append(d.Opportunities, fmt.Sprintf("%.0f MB de arquivos temporários com mais de 7 dias podem ser removidos pela limpeza segura.", d.TempReclaimableMB))
+	}
+	if deep && d.StartupApps > 0 {
+		d.Opportunities = append(d.Opportunities, fmt.Sprintf("%d item(ns) de inicialização foram identificados para revisão.", d.StartupApps))
+	}
+	if deep && d.OptionalServices > 0 {
+		d.Opportunities = append(d.Opportunities, fmt.Sprintf("%d serviço(s) opcional(is) estão ativos; o CoreControl apenas sinaliza e não os desativa automaticamente.", d.OptionalServices))
+	}
+	if d.WorkApps > 0 {
+		d.Opportunities = append(d.Opportunities, fmt.Sprintf("%d aplicativo(s) de trabalho compatível(is) estão abertos e podem receber prioridade moderada.", d.WorkApps))
+	}
+	return d
+}
+
+func diagnoseOptimization() optimizationDiagnostics {
+	return collectOptimizationDiagnostics(true)
+}
+
+func cleanupOptimizationTemp() (optimizationCleanupResult, error) {
+	bytes, filesDeleted, warnings := optimizationScanTemp(true)
+	after := collectOptimizationDiagnostics(true)
+	result := optimizationCleanupResult{
+		FilesDeleted:     filesDeleted,
+		FreedMB:          round2(float64(bytes) / (1 << 20)),
+		Warnings:         warnings,
+		DiagnosticsAfter: after,
+		CompletedAt:      time.Now().UTC().Format(time.RFC3339),
+	}
+	if filesDeleted == 0 {
+		return result, errors.New("nenhum arquivo temporário antigo pôde ser removido")
+	}
+	return result, nil
+}
+
 func applyOptimizationProfile(profile int) (optimizationResult, error) {
 	plan, err := optimizationBuildPlan(profile, optimizationRunningOnBattery())
 	if err != nil {
@@ -505,6 +863,8 @@ func applyOptimizationProfile(profile int) (optimizationResult, error) {
 	if profile == 5 {
 		return restoreOptimizationOriginal()
 	}
+
+	before := collectOptimizationDiagnostics(true)
 
 	state, err := loadOptimizationState()
 	if err != nil {
@@ -518,7 +878,8 @@ func applyOptimizationProfile(profile int) (optimizationResult, error) {
 	}
 
 	now := time.Now()
-	result := optimizationResult{Profile: profile, ProfileName: plan.Name, Changed: []string{}, Warnings: []string{}, AppliedAt: now.UTC().Format(time.RFC3339), BackupAvailable: true}
+	result := optimizationResult{Profile: profile, ProfileName: plan.Name, Changed: []string{}, Warnings: []string{}, AppliedAt: now.UTC().Format(time.RFC3339), BackupAvailable: true, DiagnosticsBefore: &before}
+	prioritizedApps := 0
 
 	if plan.MinimizeWindows != nil {
 		if err := optimizationSetMinimizeAnimation(*plan.MinimizeWindows); err != nil {
@@ -567,6 +928,7 @@ func applyOptimizationProfile(profile int) (optimizationResult, error) {
 			}
 			prioritized++
 		}
+		prioritizedApps = prioritized
 		if prioritized > 0 {
 			result.Changed = append(result.Changed, fmt.Sprintf("%d aplicativo(s) de atendimento priorizado(s) moderadamente", prioritized))
 		} else if len(targets) == 0 {
@@ -583,6 +945,23 @@ func applyOptimizationProfile(profile int) (optimizationResult, error) {
 	}
 	result.ActiveProfile = profile
 	result.ActiveProfileName = plan.Name
+	after := collectOptimizationDiagnostics(false)
+	optimizationDiagnosticsCopyDeep(before, &after)
+	for _, bottleneck := range before.Bottlenecks {
+		if bottleneck.Key == "startup" {
+			after.Bottlenecks = append(after.Bottlenecks, bottleneck)
+		}
+	}
+	result.DiagnosticsAfter = &after
+	result.Summary = &optimizationSummary{
+		AnalyzedItems:      after.CheckedItems,
+		AppliedAdjustments: len(result.Changed),
+		PrioritizedApps:    prioritizedApps,
+		Bottlenecks:        len(after.Bottlenecks),
+		Opportunities:      len(after.Opportunities),
+		MemoryDeltaMB:      after.MemoryAvailableMB - before.MemoryAvailableMB,
+		DiskDeltaMB:        round2((after.DiskFreeGB - before.DiskFreeGB) * 1024),
+	}
 	if len(result.Changed) == 0 {
 		return result, errors.New("nenhum ajuste pôde ser aplicado; as configurações originais permanecem salvas")
 	}
@@ -598,8 +977,9 @@ func restoreOptimizationOriginal() (optimizationResult, error) {
 		return optimizationResult{}, errors.New("não existe backup ativo para restaurar; o CoreControl ainda não alterou este computador")
 	}
 
+	before := collectOptimizationDiagnostics(true)
 	now := time.Now()
-	result := optimizationResult{Profile: 5, ProfileName: "Desativar otimização", Changed: []string{}, Warnings: []string{}, Restored: true, AppliedAt: now.UTC().Format(time.RFC3339)}
+	result := optimizationResult{Profile: 5, ProfileName: "Desativar otimização", Changed: []string{}, Warnings: []string{}, Restored: true, AppliedAt: now.UTC().Format(time.RFC3339), DiagnosticsBefore: &before}
 	failures := []string{}
 	if err := optimizationSetMinimizeAnimation(state.OriginalAnimations.MinimizeWindows); err != nil {
 		failures = append(failures, err.Error())
@@ -647,6 +1027,10 @@ func restoreOptimizationOriginal() (optimizationResult, error) {
 		result.ActiveProfile = state.ActiveProfile
 		result.ActiveProfileName = state.ActiveProfileName
 		result.BackupAvailable = true
+		after := collectOptimizationDiagnostics(false)
+		optimizationDiagnosticsCopyDeep(before, &after)
+		result.DiagnosticsAfter = &after
+		result.Summary = &optimizationSummary{AnalyzedItems: after.CheckedItems, AppliedAdjustments: len(result.Changed), Bottlenecks: len(after.Bottlenecks), Opportunities: len(after.Opportunities), MemoryDeltaMB: after.MemoryAvailableMB - before.MemoryAvailableMB, DiskDeltaMB: round2((after.DiskFreeGB - before.DiskFreeGB) * 1024)}
 		return result, errors.New("a restauração ficou incompleta; o backup foi mantido para uma nova tentativa")
 	}
 	if _, err := archiveOptimizationState(now); err != nil {
@@ -656,5 +1040,9 @@ func restoreOptimizationOriginal() (optimizationResult, error) {
 	result.ActiveProfile = 0
 	result.ActiveProfileName = "Nenhum"
 	result.BackupAvailable = false
+	after := collectOptimizationDiagnostics(false)
+	optimizationDiagnosticsCopyDeep(before, &after)
+	result.DiagnosticsAfter = &after
+	result.Summary = &optimizationSummary{AnalyzedItems: after.CheckedItems, AppliedAdjustments: len(result.Changed), Bottlenecks: len(after.Bottlenecks), Opportunities: len(after.Opportunities), MemoryDeltaMB: after.MemoryAvailableMB - before.MemoryAvailableMB, DiskDeltaMB: round2((after.DiskFreeGB - before.DiskFreeGB) * 1024)}
 	return result, nil
 }

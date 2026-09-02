@@ -644,6 +644,10 @@ def _agent_supports_optimization(device: Device) -> bool:
     return _version_tuple(device.agent_version) >= (0, 9, 0)
 
 
+def _agent_supports_optimization_insights(device: Device) -> bool:
+    return _version_tuple(device.agent_version) >= (0, 9, 1)
+
+
 def _latest_optimization_command(db: Session, device_id: int) -> AgentCommand | None:
     return db.scalar(
         select(AgentCommand)
@@ -654,6 +658,58 @@ def _latest_optimization_command(db: Session, device_id: int) -> AgentCommand | 
         .order_by(desc(AgentCommand.created_at))
         .limit(1)
     )
+
+
+def _latest_optimization_diagnostic_command(db: Session, device_id: int) -> AgentCommand | None:
+    return db.scalar(
+        select(AgentCommand)
+        .where(
+            AgentCommand.device_id == device_id,
+            AgentCommand.command_type.in_(["optimization.diagnose", "optimization.apply", "optimization.cleanup_temp"]),
+            AgentCommand.status == "succeeded",
+        )
+        .order_by(desc(AgentCommand.finished_at), desc(AgentCommand.created_at))
+        .limit(1)
+    )
+
+
+def _latest_optimization_insight_operation(db: Session, device_id: int) -> AgentCommand | None:
+    return db.scalar(
+        select(AgentCommand)
+        .where(
+            AgentCommand.device_id == device_id,
+            AgentCommand.command_type.in_(["optimization.diagnose", "optimization.cleanup_temp"]),
+        )
+        .order_by(desc(AgentCommand.created_at))
+        .limit(1)
+    )
+
+
+def _optimization_diagnostics_from_command(command: AgentCommand | None) -> dict | None:
+    if not command or not command.result_json:
+        return None
+    result = json_object(command.result_json)
+    if command.command_type == "optimization.diagnose":
+        diagnostics = result
+    else:
+        diagnostics = result.get("diagnostics_after") if isinstance(result, dict) else None
+    return diagnostics if isinstance(diagnostics, dict) and diagnostics else None
+
+
+def _optimization_insight_command_public(command: AgentCommand | None) -> dict | None:
+    if not command:
+        return None
+    result = json_object(command.result_json) if command.result_json else {}
+    return {
+        "id": command.id,
+        "type": command.command_type,
+        "status": command.status,
+        "created_at": iso(command.created_at),
+        "claimed_at": iso(command.claimed_at),
+        "finished_at": iso(command.finished_at),
+        "error": command.error_text,
+        "result": result if command.result_json else None,
+    }
 
 
 def _optimization_command_public(command: AgentCommand | None) -> dict | None:
@@ -682,13 +738,54 @@ def get_device_optimization(device_id: int, user: CurrentUser, db: Db):
     current = str(device.profile or "").strip()
     if not current or current.casefold() == "nenhum":
         current = None
+    diagnostic_source = _latest_optimization_diagnostic_command(db, device.id)
     return {
         "agent_supports_optimization": _agent_supports_optimization(device),
+        "agent_supports_optimization_insights": _agent_supports_optimization_insights(device),
         "online": device_online(device),
         "active_profile_name": current,
         "profiles": OPTIMIZATION_PROFILES,
         "command": _optimization_command_public(_latest_optimization_command(db, device.id)),
+        "diagnostics": _optimization_diagnostics_from_command(diagnostic_source),
+        "diagnostics_source": _optimization_insight_command_public(diagnostic_source),
+        "insight_command": _optimization_insight_command_public(_latest_optimization_insight_operation(db, device.id)),
     }
+
+
+@router.post("/devices/{device_id}/optimization/diagnose")
+def diagnose_device_optimization(device_id: int, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin")
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    if not _agent_supports_optimization_insights(device):
+        raise HTTPException(status_code=409, detail="Atualize o CoreControl Agent para a versão 0.9.1 ou superior para usar o diagnóstico inteligente")
+    if not device_online(device):
+        raise HTTPException(status_code=409, detail="O computador precisa estar online para executar o diagnóstico")
+    command, created = queue_agent_command(db, device, "optimization.diagnose", {}, created_by=user.id, deduplicate=True)
+    if created:
+        db.add(AuditLog(company_id=device.company_id, actor_user_id=user.id, device_id=device.id, action="optimization.diagnose.request", details="Diagnóstico inteligente solicitado pelo painel."))
+    db.commit()
+    return {"created": created, "agent_supports_optimization_insights": True, "command": _optimization_insight_command_public(command)}
+
+
+@router.post("/devices/{device_id}/optimization/cleanup-temp")
+def cleanup_device_optimization_temp(device_id: int, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin")
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    if not _agent_supports_optimization_insights(device):
+        raise HTTPException(status_code=409, detail="Atualize o CoreControl Agent para a versão 0.9.1 ou superior para usar a limpeza segura")
+    if not device_online(device):
+        raise HTTPException(status_code=409, detail="O computador precisa estar online para executar a limpeza")
+    command, created = queue_agent_command(db, device, "optimization.cleanup_temp", {}, created_by=user.id, deduplicate=True)
+    if created:
+        db.add(AuditLog(company_id=device.company_id, actor_user_id=user.id, device_id=device.id, action="optimization.cleanup_temp.request", details="Limpeza segura de arquivos temporários antigos solicitada pelo painel."))
+    db.commit()
+    return {"created": created, "agent_supports_optimization_insights": True, "command": _optimization_insight_command_public(command)}
 
 
 @router.post("/devices/{device_id}/optimization")

@@ -601,6 +601,8 @@
     window.setTimeout(tick, 5000);
   }
 
+  const optimizationAutoDiagnoseStarted = new Set();
+
   function optimizationCanManage() {
     return ['global_admin', 'platform_admin', 'company_admin'].includes(CT.state.user?.role);
   }
@@ -620,7 +622,7 @@
   function optimizationFeedbackHTML(command) {
     if (!command) return '';
     if (['queued', 'running'].includes(command.status)) {
-      return '<strong>Otimização em andamento</strong>O CoreControl Agent recebeu a solicitação e está aplicando o perfil com backup automático.';
+      return '<strong>Otimização em andamento</strong>O CoreControl está medindo o computador, aplicando o perfil e comparando o estado antes e depois.';
     }
     if (command.status === 'failed') {
       const partial = command.result || {};
@@ -632,10 +634,19 @@
     const result = command.result || {};
     const changed = Array.isArray(result.changed) ? result.changed : [];
     const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+    const summary = result.summary || {};
     const title = result.restored ? 'Configurações anteriores restauradas' : `${result.profile_name || 'Perfil'} aplicado com sucesso`;
+    const summaryItems = [];
+    if (Number(summary.analyzed_items || 0) > 0) summaryItems.push(`<span><b>${Number(summary.analyzed_items)}</b> verificações</span>`);
+    if (Number(summary.applied_adjustments || 0) > 0) summaryItems.push(`<span><b>${Number(summary.applied_adjustments)}</b> ajustes aplicados</span>`);
+    if (Number(summary.prioritized_apps || 0) > 0) summaryItems.push(`<span><b>${Number(summary.prioritized_apps)}</b> apps priorizados</span>`);
+    if (Number(summary.bottlenecks || 0) > 0) summaryItems.push(`<span><b>${Number(summary.bottlenecks)}</b> pontos de atenção</span>`);
+    const memoryDelta = Number(summary.memory_delta_mb || 0);
+    if (memoryDelta >= 16) summaryItems.push(`<span><b>+${optimizationMetricValue(memoryDelta, ' MB')}</b> memória disponível</span>`);
+    const summaryHtml = summaryItems.length ? `<div class="optimization-result-summary">${summaryItems.join('')}</div>` : '';
     const changedHtml = changed.length ? `<ul>${changed.map((item) => `<li>${CT.esc(item)}</li>`).join('')}</ul>` : '';
-    const warningHtml = warnings.length ? `<div style="margin-top:7px"><b>Avisos:</b><ul>${warnings.map((item) => `<li>${CT.esc(item)}</li>`).join('')}</ul></div>` : '';
-    return `<strong>${CT.esc(title)}</strong>${changedHtml}${warningHtml}`;
+    const warningHtml = warnings.length ? `<div class="optimization-result-warnings"><b>Avisos:</b><ul>${warnings.map((item) => `<li>${CT.esc(item)}</li>`).join('')}</ul></div>` : '';
+    return `<strong>${CT.esc(title)}</strong>${summaryHtml}${changedHtml}${warningHtml}`;
   }
 
   function optimizationProfileVisual(profile) {
@@ -669,6 +680,195 @@
     return '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 6l4 4-4 4"/></svg>';
   }
 
+
+  function optimizationMetricValue(value, suffix = '', digits = 0) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '—';
+    return `${number.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}${suffix}`;
+  }
+
+  function optimizationDiagnosticsBusy(state) {
+    return ['queued', 'running'].includes(state?.insight_command?.status);
+  }
+
+  function optimizationDiagnosticsIcon(kind) {
+    const icons = {
+      memory: '<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 10h8M8 14h5M7 3v3M12 3v3M17 3v3M7 18v3M12 18v3M17 18v3"/></svg>',
+      disk: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>',
+      startup: '<svg viewBox="0 0 24 24"><path d="M5 19V8a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v11"/><path d="M9 9h6M12 9v6M9.5 12.5 12 15l2.5-2.5"/></svg>',
+      processes: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>',
+      temperature: '<svg viewBox="0 0 24 24"><path d="M10 14.8V5a2 2 0 1 1 4 0v9.8a4 4 0 1 1-4 0Z"/><path d="M12 9v7"/></svg>',
+      cleanup: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/><path d="M10 11v5M14 11v5"/></svg>',
+    };
+    return icons[kind] || icons.processes;
+  }
+
+  function optimizationDiagnosticsHTML(device, state) {
+    const supported = Boolean(state?.agent_supports_optimization_insights);
+    const online = Boolean(state?.online);
+    const canManage = optimizationCanManage();
+    const busy = optimizationDiagnosticsBusy(state);
+    const command = state?.insight_command;
+    const diagnostics = state?.diagnostics;
+
+    if (!supported) {
+      return `
+        <div class="optimization-diagnostics-upgrade">
+          <div>
+            <span>DIAGNÓSTICO AVANÇADO</span>
+            <strong>Mais inteligência disponível no Agent 0.9.1</strong>
+            <p>Atualize o Agent para medir memória, inicialização, processos, armazenamento, temperatura, serviços opcionais e gargalos em tempo real.</p>
+          </div>
+          <span class="optimization-diagnostics-version">0.9.1+</span>
+        </div>`;
+    }
+
+    if (!diagnostics) {
+      const label = busy ? (command?.type === 'optimization.cleanup_temp' ? 'Executando limpeza...' : 'Analisando computador...') : 'Analisar computador';
+      return `
+        <div class="optimization-diagnostics-empty">
+          <div>
+            <span class="optimization-diagnostics-eyebrow">DIAGNÓSTICO INTELIGENTE</span>
+            <strong>${busy ? 'Análise em andamento' : 'Meça o computador antes de otimizar'}</strong>
+            <p>O CoreControl verifica recursos, inicialização, processos, armazenamento e possíveis gargalos antes de recomendar ajustes.</p>
+          </div>
+          <button class="btn optimization-diagnose-btn" type="button" data-optimization-diagnose ${!canManage || !online || busy ? 'disabled' : ''}>${CT.esc(label)}</button>
+        </div>`;
+    }
+
+    const memoryAvailableGB = Number(diagnostics.memory_available_mb || 0) / 1024;
+    const memoryTotalGB = Number(diagnostics.memory_total_mb || 0) / 1024;
+    const temp = diagnostics.temperature_c == null ? 'Indisponível' : `${optimizationMetricValue(diagnostics.temperature_c, ' °C', 1)}`;
+    const reclaimable = Number(diagnostics.temp_reclaimable_mb || 0);
+    const bottlenecks = Array.isArray(diagnostics.bottlenecks) ? diagnostics.bottlenecks : [];
+    const opportunities = Array.isArray(diagnostics.opportunities) ? diagnostics.opportunities : [];
+    const checked = Number(diagnostics.checked_items || 0);
+    const cleanupDisabled = !canManage || !online || busy || reclaimable < 1;
+    const statusText = bottlenecks.length ? `${bottlenecks.length} ponto${bottlenecks.length === 1 ? '' : 's'} de atenção` : 'Nenhum gargalo crítico';
+
+    const metrics = [
+      ['memory', 'Memória disponível', memoryTotalGB > 0 ? `${optimizationMetricValue(memoryAvailableGB, ' GB', 1)} de ${optimizationMetricValue(memoryTotalGB, ' GB', 1)}` : '—', diagnostics.memory_available_percent == null ? 'Leitura física do Windows' : `${optimizationMetricValue(diagnostics.memory_available_percent, '%', 0)} disponível`],
+      ['disk', 'Armazenamento livre', diagnostics.disk_free_gb ? optimizationMetricValue(diagnostics.disk_free_gb, ' GB', 1) : '—', diagnostics.disk_free_percent == null ? 'Disco principal' : `${optimizationMetricValue(diagnostics.disk_free_percent, '%', 0)} do disco`],
+      ['startup', 'Inicialização', optimizationMetricValue(diagnostics.startup_apps, ' itens'), 'Programas configurados para iniciar'],
+      ['processes', 'Processos ativos', optimizationMetricValue(diagnostics.active_processes), `${optimizationMetricValue(diagnostics.work_apps)} app(s) de trabalho detectado(s)`],
+      ['temperature', 'Temperatura', temp, diagnostics.temperature_c == null ? 'Sensor ACPI não exposto' : 'Leitura ACPI disponível'],
+      ['cleanup', 'Potencial de limpeza', reclaimable >= 1 ? optimizationMetricValue(reclaimable, ' MB', 0) : 'Limpo', 'Temporários com mais de 7 dias'],
+    ];
+
+    const metricHtml = metrics.map(([kind, label, value, meta]) => `
+      <div class="optimization-diagnostic-metric">
+        <span class="optimization-diagnostic-icon">${optimizationDiagnosticsIcon(kind)}</span>
+        <div><span>${CT.esc(label)}</span><strong>${CT.esc(String(value))}</strong><small>${CT.esc(String(meta))}</small></div>
+      </div>`).join('');
+
+    const bottleneckHtml = bottlenecks.length ? `
+      <div class="optimization-findings">
+        <div class="optimization-findings-title"><strong>Gargalos encontrados</strong><span>${CT.esc(statusText)}</span></div>
+        <div class="optimization-findings-list">
+          ${bottlenecks.slice(0, 4).map((item) => `
+            <div class="optimization-finding level-${CT.esc(item.level || 'low')}">
+              <span class="optimization-finding-dot"></span>
+              <div><strong>${CT.esc(item.title || 'Ponto de atenção')}</strong><span>${CT.esc(item.detail || '')}</span></div>
+            </div>`).join('')}
+        </div>
+      </div>` : `
+      <div class="optimization-findings optimization-findings-clear">
+        <div class="optimization-findings-title"><strong>Gargalos encontrados</strong><span>Nenhum gargalo crítico nesta leitura</span></div>
+        <p>O computador está dentro dos limites de memória, disco e processamento analisados pelo CoreControl.</p>
+      </div>`;
+
+    const opportunitiesHtml = opportunities.length ? `
+      <div class="optimization-opportunities">
+        <strong>Oportunidades identificadas</strong>
+        ${opportunities.slice(0, 4).map((item) => `<span>${optimizationCheckIcon()}${CT.esc(item)}</span>`).join('')}
+      </div>` : '';
+
+    return `
+      <div class="optimization-diagnostics-head">
+        <div>
+          <span class="optimization-diagnostics-eyebrow">DIAGNÓSTICO INTELIGENTE</span>
+          <strong>Visão técnica antes e depois da otimização</strong>
+          <p>${checked || 10} verificações reais do Windows. Serviços opcionais e inicialização são analisados, mas nunca desativados automaticamente.</p>
+        </div>
+        <div class="optimization-diagnostics-head-actions">
+          <span class="optimization-analysis-status">${CT.esc(statusText)}</span>
+          <button class="btn optimization-diagnose-btn" type="button" data-optimization-diagnose ${!canManage || !online || busy ? 'disabled' : ''}>${busy ? 'Analisando...' : 'Analisar novamente'}</button>
+        </div>
+      </div>
+      <div class="optimization-diagnostic-metrics">${metricHtml}</div>
+      <div class="optimization-diagnostics-bottom">
+        ${bottleneckHtml}
+        ${opportunitiesHtml}
+        <div class="optimization-safe-cleanup">
+          <div>
+            <strong>Limpeza segura de temporários</strong>
+            <span>Remove somente arquivos temporários com mais de 7 dias. Não toca em Downloads, Documentos ou arquivos pessoais.</span>
+          </div>
+          <button class="btn" type="button" data-optimization-cleanup ${cleanupDisabled ? 'disabled' : ''}>${busy && command?.type === 'optimization.cleanup_temp' ? 'Limpando...' : reclaimable >= 1 ? `Liberar até ${optimizationMetricValue(reclaimable, ' MB', 0)}` : 'Nada para limpar'}</button>
+        </div>
+      </div>`;
+  }
+
+  function renderOptimizationDiagnostics(device, state) {
+    const area = CT.$('#optimizationDiagnostics');
+    if (!area) return;
+    area.innerHTML = optimizationDiagnosticsHTML(device, state);
+
+    const diagnoseButton = area.querySelector('[data-optimization-diagnose]');
+    if (diagnoseButton) diagnoseButton.addEventListener('click', () => requestOptimizationDiagnosis(device, state));
+    const cleanupButton = area.querySelector('[data-optimization-cleanup]');
+    if (cleanupButton) cleanupButton.addEventListener('click', () => requestOptimizationCleanup(device, state));
+  }
+
+  async function requestOptimizationDiagnosis(device, currentState, options = {}) {
+    if (!optimizationCanManage() || !device?.online) return;
+    try {
+      const response = await CT.api(`/devices/${device.id}/optimization/diagnose`, { method: 'POST', body: '{}' });
+      const nextState = { ...currentState, online: true, agent_supports_optimization_insights: true, insight_command: response.command };
+      renderOptimizationDiagnostics(device, nextState);
+      if (!options.silent) CT.toast('Diagnóstico enviado para o computador.');
+      await pollOptimizationInsights(device, response.command?.id);
+    } catch (error) {
+      if (!options.silent) CT.toast(error.message || 'Não foi possível executar o diagnóstico.', true);
+    }
+  }
+
+  async function requestOptimizationCleanup(device, currentState) {
+    if (!optimizationCanManage() || !device?.online) return;
+    const reclaimable = Number(currentState?.diagnostics?.temp_reclaimable_mb || 0);
+    if (!window.confirm(`Executar a limpeza segura neste computador?\n\nO CoreControl removerá somente arquivos das pastas temporárias com mais de 7 dias. Downloads, Documentos e arquivos pessoais não são alterados.${reclaimable > 0 ? `\n\nEstimativa atual: até ${optimizationMetricValue(reclaimable, ' MB', 0)}.` : ''}`)) return;
+    try {
+      const response = await CT.api(`/devices/${device.id}/optimization/cleanup-temp`, { method: 'POST', body: '{}' });
+      renderOptimizationDiagnostics(device, { ...currentState, insight_command: response.command });
+      CT.toast('Limpeza segura enviada para o computador.');
+      await pollOptimizationInsights(device, response.command?.id, { cleanup: true });
+    } catch (error) {
+      CT.toast(error.message || 'Não foi possível executar a limpeza segura.', true);
+    }
+  }
+
+  async function pollOptimizationInsights(device, commandId, options = {}) {
+    if (!commandId) return;
+    for (let attempt = 0; attempt < 45; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const state = await loadOptimization(device, { autoDiagnose: false });
+      const command = state?.insight_command;
+      if (!command || command.id !== commandId || !['queued', 'running'].includes(command.status)) {
+        if (command?.id === commandId && command.status === 'succeeded') {
+          const result = command.result || {};
+          if (options.cleanup) {
+            CT.toast(`${optimizationMetricValue(result.freed_mb || 0, ' MB', 0)} liberados em ${Number(result.files_deleted || 0)} arquivo(s) temporário(s).`);
+          } else {
+            CT.toast('Diagnóstico inteligente concluído.');
+          }
+        } else if (command?.id === commandId && command.status === 'failed') {
+          CT.toast(command.error || 'A operação não pôde ser concluída.', true);
+        }
+        break;
+      }
+    }
+  }
+
   function renderOptimization(device, state) {
     const status = CT.$('#optimizationStatus');
     const profilesArea = CT.$('#optimizationProfiles');
@@ -678,6 +878,7 @@
     const [label, cssClass] = optimizationStatusLabel(state);
     status.className = `optimization-status ${cssClass}`;
     status.textContent = label;
+    renderOptimizationDiagnostics(device, state);
 
     const canManage = optimizationCanManage();
     const supported = Boolean(state?.agent_supports_optimization);
@@ -748,19 +949,32 @@
     });
   }
 
-  async function loadOptimization(device) {
+  async function loadOptimization(device, options = {}) {
     try {
       const state = await CT.api(`/devices/${device.id}/optimization`);
       renderOptimization(device, state);
+      const shouldAutoDiagnose = options.autoDiagnose !== false
+        && optimizationCanManage()
+        && state?.online
+        && state?.agent_supports_optimization_insights
+        && !state?.diagnostics
+        && !optimizationDiagnosticsBusy(state)
+        && !optimizationAutoDiagnoseStarted.has(device.id);
+      if (shouldAutoDiagnose) {
+        optimizationAutoDiagnoseStarted.add(device.id);
+        window.setTimeout(() => requestOptimizationDiagnosis(device, state, { silent: true }), 150);
+      }
       return state;
     } catch (error) {
       const status = CT.$('#optimizationStatus');
       const area = CT.$('#optimizationProfiles');
+      const diagnosticsArea = CT.$('#optimizationDiagnostics');
       if (status) {
         status.className = 'optimization-status bad';
         status.textContent = 'Falha ao carregar';
       }
       if (area) area.innerHTML = `<div class="optimization-unavailable"><strong>Otimização indisponível</strong><span>${CT.esc(error.message || 'Não foi possível carregar os perfis.')}</span></div>`;
+      if (diagnosticsArea) diagnosticsArea.innerHTML = '<div class="optimization-diagnostics-loading">Diagnóstico indisponível no momento.</div>';
       return null;
     }
   }
