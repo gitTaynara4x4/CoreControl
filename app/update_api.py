@@ -529,6 +529,20 @@ def _latest_activity_command(db: Session, device_id: int) -> AgentCommand | None
     )
 
 
+def _latest_successful_activity_command(db: Session, device_id: int) -> AgentCommand | None:
+    """Mantém a última coleta válida disponível enquanto uma nova coleta está em andamento."""
+    return db.scalar(
+        select(AgentCommand)
+        .where(
+            AgentCommand.device_id == device_id,
+            AgentCommand.command_type == "activity.snapshot",
+            AgentCommand.status == "succeeded",
+        )
+        .order_by(desc(AgentCommand.finished_at), desc(AgentCommand.created_at))
+        .limit(1)
+    )
+
+
 def _activity_command_public(command: AgentCommand | None) -> dict | None:
     if not command:
         return None
@@ -575,6 +589,7 @@ def request_activity_snapshot(device_id: int, user: CurrentUser, db: Db):
         "created": created,
         "agent_supports_activity": True,
         "command": _activity_command_public(command),
+        "cached_command": _activity_command_public(_latest_successful_activity_command(db, device.id)),
     }
 
 
@@ -587,6 +602,7 @@ def get_activity_snapshot(device_id: int, user: CurrentUser, db: Db):
     return {
         "agent_supports_activity": _agent_supports_activity(device),
         "command": _activity_command_public(_latest_activity_command(db, device.id)),
+        "cached_command": _activity_command_public(_latest_successful_activity_command(db, device.id)),
     }
 
 

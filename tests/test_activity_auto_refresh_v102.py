@@ -17,4 +17,4 @@ def test_latest_features_are_preserved():
 
 def test_cache_bust_changed():
     html = Path('app/static/index.html').read_text(encoding='utf-8')
-    assert 'devices.js?v=20260902-optimization-remote-v10-7' in html
+    assert 'devices.js?v=20260902-activity-persist-v10-7-2' in html

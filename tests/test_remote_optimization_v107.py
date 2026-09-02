@@ -36,4 +36,4 @@ def test_panel_has_optimization_card_and_api_calls():
 
 def test_v107_cache_bust_is_present():
     html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
-    assert "optimization-remote-v10-7" in html
+    assert "activity-persist-v10-7-2" in html

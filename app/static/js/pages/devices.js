@@ -84,6 +84,7 @@
   const activityAssets = new Map();
   const activityExpandedGroups = new Set();
   let activityLastDevice = null;
+  let activityLastSuccessfulCommand = null;
 
   function activityGroupKeyFromBrowser(browser) {
     return activityProcessKey(activityBrowserProcess(browser));
@@ -436,6 +437,10 @@
     const area = CT.$('#activityAppsArea');
     if (!status || !area || !command) return;
 
+    if (command.status === 'succeeded' && command.result) {
+      activityLastSuccessfulCommand = command;
+    }
+
     const apps = command.result?.apps || [];
     const browserTabs = command.result?.browser_tabs || [];
     activityRememberAssets(command.result || {});
@@ -469,7 +474,11 @@
     const area = CT.$('#activityAppsArea');
     if (!status || !area) return;
     const command = snapshot?.command;
-    const cached = snapshot?.cached_command;
+    const serverCached = snapshot?.cached_command;
+    if (serverCached?.status === 'succeeded' && serverCached.result) {
+      activityLastSuccessfulCommand = serverCached;
+    }
+    const cached = serverCached?.status === 'succeeded' ? serverCached : activityLastSuccessfulCommand;
     if (!snapshot?.agent_supports_activity) {
       status.textContent = 'Agent antigo';
       area.innerHTML = '<div class="activity-empty">Execute novamente o CoreControl Setup para instalar o Agent 0.6.0 ou superior.</div>';
@@ -514,8 +523,14 @@
       renderActivitySnapshot(snapshot);
       return snapshot;
     } catch (error) {
+      const status = CT.$('#activitySnapshotStatus');
       const area = CT.$('#activityAppsArea');
-      if (area) area.innerHTML = `<div class="activity-empty">${CT.esc(error.message || 'Falha ao carregar atividade.')}</div>`;
+      if (activityLastSuccessfulCommand?.status === 'succeeded') {
+        activityRenderSuccessfulCommand(activityLastSuccessfulCommand, 'Falha ao atualizar · exibindo última lista');
+      } else {
+        if (status) status.textContent = 'Falha ao atualizar';
+        if (area) area.innerHTML = `<div class="activity-empty">${CT.esc(error.message || 'Falha ao carregar atividade.')}</div>`;
+      }
       return null;
     }
   }
@@ -743,6 +758,7 @@
     const device = await CT.api(`/devices/${CT.state.selectedDevice}`);
     CT.state.selectedDevice = device.id;
     activityLastDevice = device;
+    activityLastSuccessfulCommand = null;
     activityAssets.clear();
     await CT.mountPage('device');
 
