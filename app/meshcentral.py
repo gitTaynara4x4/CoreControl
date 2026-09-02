@@ -113,25 +113,39 @@ def _short_node_id(node_id: str) -> str:
     return value
 
 
+def _remote_session_marker(node_id: str) -> str:
+    """Carrega o nó no parâmetro que o MeshCentral preserva após o login.
+
+    O MeshCentral atual consome ``gotonode`` e também pode descartar parâmetros
+    desconhecidos como ``ctnode`` ao autenticar com ``login``. Nos testes reais,
+    ``coretuner`` é preservado. Por isso ele transporta, de forma URL-safe, o
+    identificador curto do nó. O ID do nó não é uma credencial.
+    """
+    short_id = _short_node_id(node_id)
+    encoded = base64.urlsafe_b64encode(short_id.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"1_{encoded}"
+
+
 def build_remote_desktop_url(
     *,
     base_url: str,
     login_token: str,
     node_id: str,
 ) -> str:
+    short_id = _short_node_id(node_id)
     query = urlencode(
         {
             "login": login_token,
-            "gotonode": _short_node_id(node_id),
+            # O próprio MeshCentral usa gotonode antes/durante o login.
+            "gotonode": short_id,
             "viewmode": "11",
             "hide": "63",
-            # O MeshCentral consome/remove gotonode durante o login por token.
-            # ctnode é um parâmetro próprio, preservado no redirecionamento,
-            # para o custom.js reconstruir currentNode com o computador exato.
-            "ctnode": _short_node_id(node_id),
-            # Marcador preservado pelo MeshCentral após o login e a troca de URL.
-            # O custom.js usa este valor para iniciar somente sessões vindas do CoreControl.
-            "coretuner": "1",
+            # Compatibilidade com versões anteriores. Pode ser removido pelo
+            # MeshCentral durante o login, por isso não é mais a fonte principal.
+            "ctnode": short_id,
+            # Este parâmetro sobrevive ao login por token. O custom.js v10.5
+            # extrai daqui o nó exato e nunca escolhe o computador apenas pelo nome.
+            "coretuner": _remote_session_marker(node_id),
         }
     )
     return f"{base_url.rstrip('/')}/?{query}"

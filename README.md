@@ -1,25 +1,36 @@
-# CoreControl v10.4 — correção do 404 em Reinstalar / atualizar
+# CoreControl v10.5 — correção do acesso remoto automático
 
-Este patch deve ser aplicado **por cima da v10.3**.
+Diagnóstico real encontrado:
 
-Corrige a regressão em que `app/api.py` da v10.3 removeu o endpoint:
+- o backend gera `remote-session` corretamente;
+- o MeshCentral aceita o login token;
+- o nó correto é enviado pelo backend;
+- durante o login, o MeshCentral remove `ctnode`/`gotonode`;
+- `coretuner` sobrevive ao login;
+- o `custom.js` do serviço `coretuner-remote` estava com **0 bytes**;
+- existem nós antigos duplicados, portanto nunca se deve escolher o PC somente pelo nome.
 
-`POST /api/devices/{device_id}/reinstall-token`
+Correção:
 
-Mantém ao mesmo tempo:
-- reinstalação direcionada do mesmo computador, sem duplicar o dispositivo;
-- vínculo do token à máquina original;
-- preservação de nome/setor/local na reinstalação direcionada;
-- correção v10.3 do Mesh Agent por empresa;
-- download autenticado de `/api/agent/remote-agent`;
-- consulta de `/api/agent/remote-status`;
-- limpeza do vínculo remoto antigo para o Setup substituir pelo agente da empresa correta.
+1. `app/meshcentral.py`: transporta o node ID exato, em Base64URL, dentro do parâmetro `coretuner`, que sobrevive ao login.
+2. `app/remote_assets/meshcentral-custom.js`: decodifica o node ID, seleciona apenas o nó exato, espera o Mesh Agent online e chama `connectDesktop(null, 1)`.
+3. `tools/install_meshcentral_custom.sh`: instala o script no container MeshCentral e rejeita arquivo vazio/inválido.
 
-Arquivos alterados:
-- `app/api.py`
-- `app/models.py`
-- `app/db.py`
+## Depois de aplicar no CoreControl
 
-Depois de aplicar, faça Force Rebuild do serviço CoreControl.
-Não é necessário apagar o computador da Luiza nem clicar em Adicionar computador.
-Após o rebuild, abra o dispositivo existente e clique em **Reinstalar / atualizar CoreControl**.
+Faça Force Rebuild do serviço CoreControl.
+
+No terminal do serviço `coretuner-remote`, rode:
+
+```sh
+curl -fsSL https://apps-corecontrol.9ywrah.easypanel.host/remote-assets/meshcentral-custom.js \
+  -o /opt/meshcentral/meshcentral/public/scripts/custom.js
+
+node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
+wc -c /opt/meshcentral/meshcentral/public/scripts/custom.js
+grep -n "CoreControl Remote v10.5" /opt/meshcentral/meshcentral/public/scripts/custom.js | head
+```
+
+O tamanho deve ser maior que zero e o grep deve mostrar `CoreControl Remote v10.5`.
+
+Não é necessário reinstalar o PC da Luiza.
