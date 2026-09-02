@@ -11,12 +11,42 @@
   <div id="deviceMetrics" class="grid detail-grid"></div>
 
   <div class="card optimization-card" style="margin-top:12px">
-    <div class="card-header optimization-card-header">
-      <div>
-        <h2>Otimização</h2>
-        <p>Aplique remotamente os mesmos perfis seguros do CoreControl, com backup automático para restaurar o estado anterior.</p>
+    <div class="optimization-hero">
+      <div class="optimization-hero-copy">
+        <div class="optimization-hero-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 17a8 8 0 1 1 16 0"/><path d="m12 17 4-5"/><path d="M6.5 10.5 8 12"/><path d="M17.5 10.5 16 12"/><path d="M12 7v2"/></svg>
+        </div>
+        <div>
+          <span class="optimization-eyebrow">CONTROLE DE DESEMPENHO</span>
+          <h2>Otimização inteligente</h2>
+          <p>Ajuste o Windows remotamente para cada tipo de operação. O CoreControl cria um backup antes da primeira mudança e permite voltar ao estado original.</p>
+        </div>
       </div>
       <div id="optimizationStatus" class="optimization-status">Carregando...</div>
+    </div>
+
+    <div class="optimization-capabilities" aria-label="Recursos de otimização">
+      <div class="optimization-capability">
+        <span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 8-8"/><path d="M4 4v5h5"/></svg></span>
+        <div><strong>Backup automático</strong><small>Antes da primeira alteração</small></div>
+      </div>
+      <div class="optimization-capability">
+        <span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+        <div><strong>Aplicação remota</strong><small>Sem precisar ir até o computador</small></div>
+      </div>
+      <div class="optimization-capability">
+        <span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.9 8 7 10 4.1-2 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+        <div><strong>Ajustes seguros</strong><small>Sem apagar arquivos do usuário</small></div>
+      </div>
+      <div class="optimization-capability">
+        <span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></span>
+        <div><strong>Reversível</strong><small>Restauração em um clique</small></div>
+      </div>
+    </div>
+
+    <div class="optimization-section-title">
+      <div><strong>Escolha o perfil ideal</strong><span>Cada perfil combina desempenho, consumo de energia e prioridade de aplicativos.</span></div>
+      <span class="optimization-safe-label">Seguro e reversível</span>
     </div>
     <div id="optimizationProfiles" class="optimization-profiles"></div>
     <div id="optimizationFeedback" class="optimization-feedback hidden"></div>

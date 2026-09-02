@@ -638,6 +638,37 @@
     return `<strong>${CT.esc(title)}</strong>${changedHtml}${warningHtml}`;
   }
 
+  function optimizationProfileVisual(profile) {
+    const id = Number(profile?.id || 0);
+    const visuals = {
+      1: {
+        tone: 'conservative', kicker: 'LEVE E ECONÔMICO', highlight: 'Menos efeitos visuais',
+        icon: '<svg viewBox="0 0 24 24"><path d="M19 4c-6.2.2-10.7 2.7-12.8 7.4-1.2 2.8-.6 5.7 1.4 7.6 2.2-6.1 6.3-9.2 10.4-11.4-3.6 2.8-6.5 6-8.3 10.4 5 .7 8.8-2.8 9.3-7.8.2-2.2.1-4.3 0-6.2Z"/></svg>'
+      },
+      2: {
+        tone: 'balanced', kicker: 'RECOMENDADO PARA O DIA A DIA', highlight: 'Equilíbrio entre resposta e consumo',
+        icon: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M10 14v6"/></svg>'
+      },
+      3: {
+        tone: 'service', kicker: 'FOCO EM OPERAÇÃO', highlight: 'Prioriza aplicativos de atendimento',
+        icon: '<svg viewBox="0 0 24 24"><path d="M4 13v-2a8 8 0 0 1 16 0v2"/><path d="M4 13h3v6H5a2 2 0 0 1-2-2v-2a2 2 0 0 1 1-2ZM20 13h-3v6h2a2 2 0 0 0 2-2v-2a2 2 0 0 0-1-2Z"/><path d="M17 19c-.8 1.3-2.3 2-4.5 2"/></svg>'
+      },
+      4: {
+        tone: 'performance', kicker: 'MÁXIMA RESPOSTA', highlight: 'Mais prioridade quando o PC está na tomada',
+        icon: '<svg viewBox="0 0 24 24"><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z"/></svg>'
+      }
+    };
+    return visuals[id] || { tone: 'default', kicker: 'PERFIL CORECONTROL', highlight: '', icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>' };
+  }
+
+  function optimizationCheckIcon() {
+    return '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 2.8 2.8 6.2-6.2"/></svg>';
+  }
+
+  function optimizationArrowIcon() {
+    return '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 6l4 4-4 4"/></svg>';
+  }
+
   function renderOptimization(device, state) {
     const status = CT.$('#optimizationStatus');
     const profilesArea = CT.$('#optimizationProfiles');
@@ -660,30 +691,45 @@
 
     const profileCards = regularProfiles.map((profile) => {
       const active = activeName.toLowerCase() === String(profile.name || '').toLowerCase();
-      const buttonLabel = active ? 'Aplicar novamente' : 'Aplicar perfil';
+      const visual = optimizationProfileVisual(profile);
+      const buttonLabel = active ? 'Aplicar novamente' : `Ativar ${profile.name}`;
+      const actions = Array.isArray(profile.actions) ? profile.actions : [];
       return `
-        <article class="optimization-profile ${active ? 'active' : ''}">
+        <article class="optimization-profile tone-${visual.tone} ${active ? 'active' : ''}">
+          <div class="optimization-profile-accent"></div>
           <div class="optimization-profile-head">
-            <h3>${CT.esc(profile.name)}</h3>
-            ${active ? '<span class="optimization-profile-badge">ATIVO</span>' : ''}
+            <div class="optimization-profile-icon">${visual.icon}</div>
+            <div class="optimization-profile-heading">
+              <span class="optimization-profile-kicker">${CT.esc(visual.kicker)}</span>
+              <h3>${CT.esc(profile.name)}</h3>
+            </div>
+            ${active ? '<span class="optimization-profile-badge">ATIVO AGORA</span>' : ''}
           </div>
-          <p>${CT.esc(profile.short || '')}</p>
-          <ul>${(profile.actions || []).map((item) => `<li>${CT.esc(item)}</li>`).join('')}</ul>
-          <button class="btn ${active ? '' : 'primary'}" type="button" data-optimization-profile="${profile.id}" ${disabled ? 'disabled' : ''}>${buttonLabel}</button>
+          <p class="optimization-profile-description">${CT.esc(profile.short || '')}</p>
+          <div class="optimization-profile-highlight"><span></span>${CT.esc(visual.highlight)}</div>
+          <div class="optimization-profile-actions">
+            ${actions.map((item) => `<div class="optimization-profile-action">${optimizationCheckIcon()}<span>${CT.esc(item)}</span></div>`).join('')}
+          </div>
+          <button class="optimization-profile-button ${active ? 'active' : ''}" type="button" data-optimization-profile="${profile.id}" ${disabled ? 'disabled' : ''}>
+            <span>${CT.esc(buttonLabel)}</span>${optimizationArrowIcon()}
+          </button>
         </article>`;
     }).join('');
 
     const restoreRow = restoreProfile ? `
       <div class="optimization-restore-row">
-        <div>
+        <div class="optimization-restore-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></div>
+        <div class="optimization-restore-copy">
+          <span class="optimization-restore-kicker">ROLLBACK SEGURO</span>
           <strong>${CT.esc(restoreProfile.name)}</strong>
           <span>${CT.esc(restoreProfile.short || '')}</span>
         </div>
+        <div class="optimization-restore-note"><strong>Backup preservado</strong><span>O CoreControl restaura as configurações salvas antes da primeira otimização.</span></div>
         <button class="btn" type="button" data-optimization-profile="5" ${disabled || !activeName ? 'disabled' : ''}>Restaurar original</button>
       </div>` : '';
 
     if (!supported) {
-      profilesArea.innerHTML = `<div class="optimization-unavailable"><strong>Atualização do Agent necessária</strong><span>Reinstale/atualize este computador para o CoreControl Agent 0.9.0 ou superior. Depois disso a Rosiane poderá aplicar os perfis diretamente daqui.</span></div>`;
+      profilesArea.innerHTML = `<div class="optimization-unavailable"><div class="optimization-unavailable-icon">↻</div><div><strong>Atualização do Agent necessária</strong><span>Reinstale/atualize este computador para o CoreControl Agent 0.9.0 ou superior. Depois disso os perfis poderão ser aplicados remotamente pelo painel.</span></div></div>`;
     } else {
       profilesArea.innerHTML = profileCards + restoreRow;
     }
