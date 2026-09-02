@@ -958,18 +958,22 @@
       const actions = presentation.actions;
       return `
         <article class="optimization-profile tone-${visual.tone} ${active ? 'active' : ''}">
-          <div class="optimization-profile-head">
-            <div class="optimization-profile-icon">${visual.icon}</div>
-            <div class="optimization-profile-heading">
-              <span class="optimization-profile-kicker">${CT.esc(visual.kicker)}</span>
-              <h3>${CT.esc(profile.name)}</h3>
+          <div class="optimization-profile-top">
+            <div class="optimization-profile-intro">
+              <div class="optimization-profile-head">
+                <div class="optimization-profile-icon">${visual.icon}</div>
+                <div class="optimization-profile-heading">
+                  <span class="optimization-profile-kicker">${CT.esc(visual.kicker)}</span>
+                  <h3>${CT.esc(profile.name)}</h3>
+                </div>
+                ${active ? '<span class="optimization-profile-badge">ATIVO AGORA</span>' : ''}
+              </div>
+              <p class="optimization-profile-description">${CT.esc(profile.short || '')}</p>
             </div>
-            ${active ? '<span class="optimization-profile-badge">ATIVO AGORA</span>' : ''}
-          </div>
-          <p class="optimization-profile-description">${CT.esc(profile.short || '')}</p>
-          <div class="optimization-profile-ideal">
-            <span>IDEAL PARA</span>
-            <p>${CT.esc(presentation.ideal)}</p>
+            <div class="optimization-profile-ideal">
+              <span>IDEAL PARA</span>
+              <p>${CT.esc(presentation.ideal)}</p>
+            </div>
           </div>
           <div class="optimization-profile-adjustments">
             <strong>O que o CoreControl vai fazer</strong>
@@ -984,7 +988,7 @@
             </div>
           </div>
           <button class="optimization-profile-button ${active ? 'active' : ''}" type="button" data-optimization-profile="${profile.id}" ${disabled ? 'disabled' : ''}>
-            <span>${CT.esc(buttonLabel)}</span>
+            <span>${CT.esc(buttonLabel)}</span>${optimizationArrowIcon()}
           </button>
         </article>`;
     }).join('');

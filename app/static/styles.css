@@ -1039,3 +1039,218 @@ html[data-theme="dark"] .optimization-profile-ideal p{color:#b3bdcb}
 html[data-theme="dark"] .optimization-profile-results{border-top-color:#3b3b3b}
 html[data-theme="dark"] .optimization-profile-result-chips>span{background:#242424;border-color:#3b3b3b;color:#c4ccd7}
 @media(max-width:1180px){.optimization-profile{min-height:0}}
+
+/* CoreControl v10.9.3 — perfis 2x2, legibilidade maior e visual empresarial monocromático */
+.optimization-profiles{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:18px;
+  padding:18px 25px 26px;
+}
+.optimization-profile,
+.optimization-profile.tone-conservative,
+.optimization-profile.tone-balanced,
+.optimization-profile.tone-service,
+.optimization-profile.tone-performance{
+  --profile-accent:#1769ff;
+}
+.optimization-profile{
+  min-height:0;
+  padding:22px;
+  border:1px solid #dfe6ef;
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 1px 2px rgba(15,23,42,.025);
+  display:flex;
+  flex-direction:column;
+}
+.optimization-profile:hover{
+  border-color:#cbd5e1;
+  box-shadow:0 8px 22px rgba(15,23,42,.05);
+  transform:translateY(-1px);
+}
+.optimization-profile-top{
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) minmax(190px,.85fr);
+  gap:22px;
+  align-items:stretch;
+}
+.optimization-profile-intro{min-width:0}
+.optimization-profile-head{gap:13px;align-items:center;min-height:44px}
+.optimization-profile-icon{
+  width:42px;
+  height:42px;
+  flex:0 0 42px;
+  color:#26364d;
+  background:transparent;
+  border:0;
+}
+.optimization-profile-icon svg{width:31px;height:31px;stroke-width:1.55}
+.optimization-profile-kicker{
+  margin-bottom:5px;
+  font-size:8.5px;
+  font-weight:720;
+  letter-spacing:.075em;
+  color:#6b7789;
+}
+.optimization-profile h3{
+  font-size:18px;
+  line-height:1.15;
+  font-weight:700;
+  letter-spacing:-.015em;
+  color:#111827;
+}
+.optimization-profile-description{
+  min-height:0;
+  margin:15px 0 0;
+  font-size:11.5px;
+  line-height:1.55;
+  color:#5f6f84;
+}
+.optimization-profile-ideal{
+  min-height:0;
+  margin:0;
+  padding:14px 15px;
+  border:1px solid #e4eaf2;
+  border-left:2px solid #cfe0f8;
+  border-radius:9px;
+  background:#f8fafc;
+}
+.optimization-profile-ideal>span{
+  display:block;
+  margin-bottom:7px;
+  font-size:8.2px;
+  font-weight:740;
+  letter-spacing:.075em;
+  color:#657389;
+}
+.optimization-profile-ideal p{
+  margin:0;
+  font-size:10.5px;
+  line-height:1.48;
+  color:#334155;
+}
+.optimization-profile-adjustments{
+  margin-top:18px;
+  padding:15px 16px;
+  border:1px solid #e4e9f0;
+  border-radius:10px;
+  background:#fbfcfe;
+}
+.optimization-profile-adjustments>strong{
+  display:block;
+  margin-bottom:12px;
+  font-size:10.5px;
+  font-weight:700;
+  color:#26364d;
+}
+.optimization-profile-actions{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  column-gap:24px;
+  row-gap:9px;
+  margin:0;
+}
+.optimization-profile-action{
+  gap:9px;
+  align-items:flex-start;
+  font-size:10px;
+  line-height:1.42;
+  color:#53647a;
+}
+.optimization-profile-action svg{
+  width:14px;
+  height:14px;
+  flex:0 0 14px;
+  margin-top:1px;
+  stroke:#1769ff;
+  stroke-width:1.8;
+}
+.optimization-profile-results{
+  margin-top:14px;
+  padding-top:13px;
+  border-top:1px solid #e8edf3;
+}
+.optimization-profile-results-label{
+  display:block;
+  margin-bottom:9px;
+  font-size:8px;
+  font-weight:740;
+  letter-spacing:.075em;
+  color:#718096;
+}
+.optimization-profile-result-chips{display:flex;flex-wrap:wrap;gap:7px}
+.optimization-profile-result-chips>span{
+  display:inline-flex;
+  align-items:center;
+  min-height:28px;
+  padding:5px 10px;
+  border:1px solid #e0e6ee;
+  border-radius:7px;
+  background:#f8fafc;
+  color:#435269;
+  font-size:8.8px;
+  font-weight:630;
+  line-height:1.15;
+}
+.optimization-profile-result-chips>span:before{
+  width:4px;
+  height:4px;
+  margin-right:6px;
+  background:#1769ff;
+}
+.optimization-profile-button{
+  min-height:44px;
+  margin-top:16px;
+  border-radius:8px;
+  font-size:11.2px;
+  font-weight:690;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:9px;
+}
+.optimization-profile-button svg{
+  width:14px;
+  height:14px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.optimization-profile-badge{
+  top:14px;
+  right:14px;
+  font-size:7.5px;
+}
+/* Ícones de perfil sempre monocromáticos: nada de verde, roxo ou laranja por perfil. */
+.optimization-profile.tone-conservative .optimization-profile-icon,
+.optimization-profile.tone-balanced .optimization-profile-icon,
+.optimization-profile.tone-service .optimization-profile-icon,
+.optimization-profile.tone-performance .optimization-profile-icon{color:#26364d}
+html[data-theme="dark"] .optimization-profile{background:#2a2a2a;border-color:#3b3b3b}
+html[data-theme="dark"] .optimization-profile h3{color:#f0f2f5}
+html[data-theme="dark"] .optimization-profile-icon,
+html[data-theme="dark"] .optimization-profile.tone-conservative .optimization-profile-icon,
+html[data-theme="dark"] .optimization-profile.tone-balanced .optimization-profile-icon,
+html[data-theme="dark"] .optimization-profile.tone-service .optimization-profile-icon,
+html[data-theme="dark"] .optimization-profile.tone-performance .optimization-profile-icon{color:#d7dde6}
+html[data-theme="dark"] .optimization-profile-ideal{background:#242424;border-color:#3b3b3b;border-left-color:#526b8e}
+html[data-theme="dark"] .optimization-profile-ideal p{color:#c4ccd7}
+html[data-theme="dark"] .optimization-profile-adjustments{background:#242424;border-color:#3b3b3b}
+html[data-theme="dark"] .optimization-profile-adjustments>strong{color:#d5dbe4}
+html[data-theme="dark"] .optimization-profile-action{color:#bbc4d0}
+html[data-theme="dark"] .optimization-profile-result-chips>span{background:#242424;border-color:#3b3b3b;color:#c8d0db}
+@media(max-width:980px){
+  .optimization-profiles{grid-template-columns:1fr}
+  .optimization-profile-top{grid-template-columns:minmax(0,1.35fr) minmax(190px,.85fr)}
+}
+@media(max-width:700px){
+  .optimization-profiles{grid-template-columns:1fr;padding:14px 16px 20px}
+  .optimization-profile{padding:18px}
+  .optimization-profile-top{grid-template-columns:1fr;gap:14px}
+  .optimization-profile-actions{grid-template-columns:1fr}
+  .optimization-profile h3{font-size:17px}
+  .optimization-profile-description{font-size:11px}
+  .optimization-profile-ideal p,.optimization-profile-action{font-size:10px}
+}
