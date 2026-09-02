@@ -1,16 +1,16 @@
-# CoreControl v10.9.1 — perfis mais claros para o cliente
+# CoreControl v10.9.2 — correção de CSS dos perfis
 
-Patch incremental para aplicar por cima da v10.9.
+Patch incremental para aplicar por cima da v10.9.1.
 
-## Alterações
-- Cada perfil agora mostra **Ideal para** em linguagem simples.
-- A seção **Principais ajustes** virou **O que o CoreControl vai fazer**.
-- Cada perfil apresenta 6 ações compreensíveis, combinando o ajuste real do perfil com as proteções reais do CoreControl (backup, restauração e preservação de arquivos pessoais).
-- Nova área **Resultado esperado** com três indicadores curtos por perfil.
-- Mantido o visual clean empresarial, monocromático e com azul apenas como cor de ação.
-- Mantido o Diagnóstico Inteligente da v10.9 e todas as funções do Agent 0.9.1.
+## Corrige
+- bloco “Ideal para” volta a ficar compacto e discreto;
+- “Resultado esperado” volta a usar chips alinhados;
+- espaçamentos e tipografia dos quatro perfis;
+- dark mode dos novos blocos;
+- cache-busting do CSS.
 
-## Instalação
-Aplique os arquivos por cima da v10.9 e faça Force Rebuild no CoreControl. Depois use Ctrl+F5 no navegador.
+## Arquivos alterados
+- `app/static/styles.css`
+- `app/static/index.html`
 
-Não é necessário reinstalar o Agent nos computadores: esta atualização é somente do frontend do painel.
+Não altera backend nem Agent. Não é necessário reinstalar computadores.

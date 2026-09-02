@@ -1015,4 +1015,27 @@ html[data-theme="dark"] .optimization-result-summary b{color:#dce5f2}
 @media(max-width:1280px){.optimization-diagnostic-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.optimization-diagnostic-metric:nth-child(3n){border-right:0}.optimization-diagnostic-metric:nth-child(-n+3){border-bottom:1px solid var(--border)}}
 @media(max-width:820px){.optimization-diagnostics-head,.optimization-diagnostics-empty,.optimization-diagnostics-upgrade{align-items:flex-start;flex-direction:column}.optimization-diagnostics-head-actions{width:100%;justify-content:space-between}.optimization-diagnostic-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.optimization-diagnostic-metric{border-bottom:1px solid var(--border)}.optimization-diagnostic-metric:nth-child(3n){border-right:1px solid var(--border)}.optimization-diagnostic-metric:nth-child(2n){border-right:0}.optimization-diagnostics-bottom{grid-template-columns:1fr}.optimization-safe-cleanup{grid-column:auto;align-items:flex-start;flex-direction:column}.optimization-safe-cleanup .btn{width:100%}}
 @media(max-width:520px){.optimization-diagnostic-metrics{grid-template-columns:1fr}.optimization-diagnostic-metric{border-right:0!important}.optimization-diagnostics-head-actions{align-items:stretch;flex-direction:column}.optimization-analysis-status,.optimization-diagnose-btn{width:100%;justify-content:center}}
-\n\n/* CoreControl v10.9.1 — perfis explicados em linguagem de negócio */\n.optimization-profile{min-height:500px}\n.optimization-profile-description{min-height:44px;margin-bottom:11px}\n.optimization-profile-ideal{min-height:66px;margin:0 0 11px;padding:10px 11px;border-left:2px solid #d7e4f7;background:#f8fafc}\n.optimization-profile-ideal>span{display:block;margin-bottom:4px;font-size:7.1px;font-weight:750;letter-spacing:.07em;color:#64748b}\n.optimization-profile-ideal p{margin:0;font-size:8.3px;line-height:1.45;color:#53657d}\n.optimization-profile-adjustments{margin-top:0;padding:12px 13px}\n.optimization-profile-adjustments>strong{margin-bottom:9px;font-size:9px;color:#334155}\n.optimization-profile-actions{gap:7px}\n.optimization-profile-action{font-size:8.25px;line-height:1.38;color:#56667d}\n.optimization-profile-action svg{margin-top:1px}\n.optimization-profile-results{margin-top:11px;padding-top:10px;border-top:1px solid #e8edf3}\n.optimization-profile-results-label{display:block;margin-bottom:7px;font-size:7px;font-weight:750;letter-spacing:.07em;color:#718096}\n.optimization-profile-result-chips{display:flex;flex-wrap:wrap;gap:5px}\n.optimization-profile-result-chips>span{display:inline-flex;align-items:center;min-height:22px;padding:4px 7px;border:1px solid #e1e7ef;border-radius:6px;background:#fff;color:#52627a;font-size:7.4px;font-weight:620;line-height:1.15}\n.optimization-profile-result-chips>span:before{content:'';width:4px;height:4px;margin-right:5px;border-radius:50%;background:#1769ff}\n.optimization-profile-button{margin-top:14px}\nhtml[data-theme="dark"] .optimization-profile-ideal{background:#242424;border-left-color:#41669a}\nhtml[data-theme="dark"] .optimization-profile-ideal>span,html[data-theme="dark"] .optimization-profile-results-label{color:#9faaba}\nhtml[data-theme="dark"] .optimization-profile-ideal p{color:#b3bdcb}\nhtml[data-theme="dark"] .optimization-profile-results{border-top-color:#3b3b3b}\nhtml[data-theme="dark"] .optimization-profile-result-chips>span{background:#242424;border-color:#3b3b3b;color:#c4ccd7}\n@media(max-width:1180px){.optimization-profile{min-height:0}}\n
+
+/* CoreControl v10.9.2 — corrige CSS dos detalhes dos perfis */
+.optimization-profile{min-height:500px}
+.optimization-profile-description{min-height:44px;margin-bottom:11px}
+.optimization-profile-ideal{min-height:66px;margin:0 0 11px;padding:10px 11px;border-left:2px solid #d7e4f7;background:#f8fafc}
+.optimization-profile-ideal>span{display:block;margin-bottom:4px;font-size:7.1px;font-weight:750;letter-spacing:.07em;color:#64748b}
+.optimization-profile-ideal p{margin:0;font-size:8.3px;line-height:1.45;color:#53657d}
+.optimization-profile-adjustments{margin-top:0;padding:12px 13px}
+.optimization-profile-adjustments>strong{margin-bottom:9px;font-size:9px;color:#334155}
+.optimization-profile-actions{gap:7px}
+.optimization-profile-action{font-size:8.25px;line-height:1.38;color:#56667d}
+.optimization-profile-action svg{margin-top:1px}
+.optimization-profile-results{margin-top:11px;padding-top:10px;border-top:1px solid #e8edf3}
+.optimization-profile-results-label{display:block;margin-bottom:7px;font-size:7px;font-weight:750;letter-spacing:.07em;color:#718096}
+.optimization-profile-result-chips{display:flex;flex-wrap:wrap;gap:5px}
+.optimization-profile-result-chips>span{display:inline-flex;align-items:center;min-height:22px;padding:4px 7px;border:1px solid #e1e7ef;border-radius:6px;background:#fff;color:#52627a;font-size:7.4px;font-weight:620;line-height:1.15}
+.optimization-profile-result-chips>span:before{content:'';width:4px;height:4px;margin-right:5px;border-radius:50%;background:#1769ff}
+.optimization-profile-button{margin-top:14px}
+html[data-theme="dark"] .optimization-profile-ideal{background:#242424;border-left-color:#41669a}
+html[data-theme="dark"] .optimization-profile-ideal>span,html[data-theme="dark"] .optimization-profile-results-label{color:#9faaba}
+html[data-theme="dark"] .optimization-profile-ideal p{color:#b3bdcb}
+html[data-theme="dark"] .optimization-profile-results{border-top-color:#3b3b3b}
+html[data-theme="dark"] .optimization-profile-result-chips>span{background:#242424;border-color:#3b3b3b;color:#c4ccd7}
+@media(max-width:1180px){.optimization-profile{min-height:0}}
