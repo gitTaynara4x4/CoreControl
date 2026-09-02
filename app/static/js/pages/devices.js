@@ -586,6 +586,159 @@
     window.setTimeout(tick, 5000);
   }
 
+  function optimizationCanManage() {
+    return ['global_admin', 'platform_admin', 'company_admin'].includes(CT.state.user?.role);
+  }
+
+  function optimizationStatusLabel(state) {
+    const command = state?.command;
+    if (!state?.agent_supports_optimization) return ['Agent antigo', 'bad'];
+    if (!state?.online) return ['Computador offline', 'bad'];
+    if (command && ['queued', 'running'].includes(command.status)) {
+      return [command.status === 'running' ? 'Aplicando perfil...' : 'Otimização na fila...', 'busy'];
+    }
+    if (command?.status === 'failed') return ['Última tentativa falhou', 'bad'];
+    if (state?.active_profile_name) return [`Ativo: ${state.active_profile_name}`, 'active'];
+    return ['Nenhum perfil ativo', 'good'];
+  }
+
+  function optimizationFeedbackHTML(command) {
+    if (!command) return '';
+    if (['queued', 'running'].includes(command.status)) {
+      return '<strong>Otimização em andamento</strong>O CoreControl Agent recebeu a solicitação e está aplicando o perfil com backup automático.';
+    }
+    if (command.status === 'failed') {
+      const partial = command.result || {};
+      const warnings = Array.isArray(partial.warnings) ? partial.warnings : [];
+      const list = warnings.length ? `<ul>${warnings.map((item) => `<li>${CT.esc(item)}</li>`).join('')}</ul>` : '';
+      return `<strong>Não foi possível concluir</strong>${CT.esc(command.error || 'A otimização falhou.')}${list}`;
+    }
+    if (command.status !== 'succeeded') return '';
+    const result = command.result || {};
+    const changed = Array.isArray(result.changed) ? result.changed : [];
+    const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+    const title = result.restored ? 'Configurações anteriores restauradas' : `${result.profile_name || 'Perfil'} aplicado com sucesso`;
+    const changedHtml = changed.length ? `<ul>${changed.map((item) => `<li>${CT.esc(item)}</li>`).join('')}</ul>` : '';
+    const warningHtml = warnings.length ? `<div style="margin-top:7px"><b>Avisos:</b><ul>${warnings.map((item) => `<li>${CT.esc(item)}</li>`).join('')}</ul></div>` : '';
+    return `<strong>${CT.esc(title)}</strong>${changedHtml}${warningHtml}`;
+  }
+
+  function renderOptimization(device, state) {
+    const status = CT.$('#optimizationStatus');
+    const profilesArea = CT.$('#optimizationProfiles');
+    const feedback = CT.$('#optimizationFeedback');
+    if (!status || !profilesArea || !feedback) return;
+
+    const [label, cssClass] = optimizationStatusLabel(state);
+    status.className = `optimization-status ${cssClass}`;
+    status.textContent = label;
+
+    const canManage = optimizationCanManage();
+    const supported = Boolean(state?.agent_supports_optimization);
+    const online = Boolean(state?.online);
+    const busy = ['queued', 'running'].includes(state?.command?.status);
+    const activeName = String(state?.active_profile_name || '').trim();
+    const profiles = Array.isArray(state?.profiles) ? state.profiles : [];
+    const regularProfiles = profiles.filter((profile) => profile.id >= 1 && profile.id <= 4);
+    const restoreProfile = profiles.find((profile) => profile.id === 5);
+    const disabled = !canManage || !supported || !online || busy;
+
+    const profileCards = regularProfiles.map((profile) => {
+      const active = activeName.toLowerCase() === String(profile.name || '').toLowerCase();
+      const buttonLabel = active ? 'Aplicar novamente' : 'Aplicar perfil';
+      return `
+        <article class="optimization-profile ${active ? 'active' : ''}">
+          <div class="optimization-profile-head">
+            <h3>${CT.esc(profile.name)}</h3>
+            ${active ? '<span class="optimization-profile-badge">ATIVO</span>' : ''}
+          </div>
+          <p>${CT.esc(profile.short || '')}</p>
+          <ul>${(profile.actions || []).map((item) => `<li>${CT.esc(item)}</li>`).join('')}</ul>
+          <button class="btn ${active ? '' : 'primary'}" type="button" data-optimization-profile="${profile.id}" ${disabled ? 'disabled' : ''}>${buttonLabel}</button>
+        </article>`;
+    }).join('');
+
+    const restoreRow = restoreProfile ? `
+      <div class="optimization-restore-row">
+        <div>
+          <strong>${CT.esc(restoreProfile.name)}</strong>
+          <span>${CT.esc(restoreProfile.short || '')}</span>
+        </div>
+        <button class="btn" type="button" data-optimization-profile="5" ${disabled || !activeName ? 'disabled' : ''}>Restaurar original</button>
+      </div>` : '';
+
+    if (!supported) {
+      profilesArea.innerHTML = `<div class="optimization-unavailable"><strong>Atualização do Agent necessária</strong><span>Reinstale/atualize este computador para o CoreControl Agent 0.9.0 ou superior. Depois disso a Rosiane poderá aplicar os perfis diretamente daqui.</span></div>`;
+    } else {
+      profilesArea.innerHTML = profileCards + restoreRow;
+    }
+
+    const feedbackHtml = optimizationFeedbackHTML(state?.command);
+    feedback.className = `optimization-feedback${state?.command?.status === 'failed' ? ' error' : state?.command?.status === 'succeeded' ? ' success' : ''}${feedbackHtml ? '' : ' hidden'}`;
+    feedback.innerHTML = feedbackHtml;
+
+    profilesArea.querySelectorAll('[data-optimization-profile]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const profileId = Number(button.getAttribute('data-optimization-profile'));
+        const profile = profiles.find((item) => Number(item.id) === profileId);
+        requestOptimization(device, profile, state);
+      });
+    });
+  }
+
+  async function loadOptimization(device) {
+    try {
+      const state = await CT.api(`/devices/${device.id}/optimization`);
+      renderOptimization(device, state);
+      return state;
+    } catch (error) {
+      const status = CT.$('#optimizationStatus');
+      const area = CT.$('#optimizationProfiles');
+      if (status) {
+        status.className = 'optimization-status bad';
+        status.textContent = 'Falha ao carregar';
+      }
+      if (area) area.innerHTML = `<div class="optimization-unavailable"><strong>Otimização indisponível</strong><span>${CT.esc(error.message || 'Não foi possível carregar os perfis.')}</span></div>`;
+      return null;
+    }
+  }
+
+  async function requestOptimization(device, profile, currentState) {
+    if (!profile || !optimizationCanManage()) return;
+    const restore = Number(profile.id) === 5;
+    const message = restore
+      ? 'Desativar a otimização e restaurar as configurações salvas antes da primeira aplicação?'
+      : `Aplicar o perfil “${profile.name}” neste computador?\n\nO CoreControl cria/preserva um backup automático antes de alterar o Windows.`;
+    if (!window.confirm(message)) return;
+
+    try {
+      const response = await CT.api(`/devices/${device.id}/optimization`, {
+        method: 'POST',
+        body: JSON.stringify({ profile: Number(profile.id) }),
+      });
+      renderOptimization(device, { ...currentState, command: response.command, online: true, agent_supports_optimization: true });
+      CT.toast(restore ? 'Restauração enviada para o computador.' : `Perfil ${profile.name} enviado para o computador.`);
+
+      const commandId = response.command?.id;
+      for (let attempt = 0; attempt < 35; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const state = await loadOptimization(device);
+        const command = state?.command;
+        if (!command || command.id !== commandId || !['queued', 'running'].includes(command.status)) {
+          if (command?.id === commandId && command.status === 'succeeded') {
+            const result = command.result || {};
+            device.profile = result.active_profile_name || 'Nenhum';
+            CT.toast(result.restored ? 'Configurações anteriores restauradas.' : `${result.profile_name || profile.name} aplicado com sucesso.`);
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      CT.toast(error.message || 'Não foi possível aplicar a otimização.', true);
+      await loadOptimization(device);
+    }
+  }
+
   CT.registerPage('device', async function renderDevice() {
     const device = await CT.api(`/devices/${CT.state.selectedDevice}`);
     CT.state.selectedDevice = device.id;
@@ -612,6 +765,8 @@
         telemetry.temperature_c >= 85 ? 'critical' : '',
       ),
     ].join('');
+
+    loadOptimization(device);
 
     renderActivityCurrent(device);
     renderActivityTimeline(device.history);

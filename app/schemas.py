@@ -160,6 +160,10 @@ class UpdateInstallRequest(BaseModel):
     item_keys: list[str] = Field(min_length=1, max_length=500)
 
 
+class OptimizationApplyRequest(BaseModel):
+    profile: int = Field(ge=1, le=5)
+
+
 class AgentCommandResultRequest(BaseModel):
     device_uid: str = Field(min_length=3, max_length=190)
     ok: bool

@@ -47,6 +47,10 @@ type updateInstallPayload struct {
 	AppIDs     []string `json:"app_ids"`
 }
 
+type optimizationApplyPayload struct {
+	Profile int `json:"profile"`
+}
+
 type installedItem struct {
 	ID         string `json:"id"`
 	Title      string `json:"title,omitempty"`
@@ -79,6 +83,25 @@ func executeAgentCommand(command pendingCommand) (map[string]interface{}, error)
 		return mapFromStruct(result)
 	case "activity.snapshot":
 		return mapFromStruct(collectActivitySnapshot())
+	case "optimization.apply":
+		var payload optimizationApplyPayload
+		if len(command.Payload) > 0 {
+			if err := json.Unmarshal(command.Payload, &payload); err != nil {
+				return nil, fmt.Errorf("payload de otimização inválido: %w", err)
+			}
+		}
+		if payload.Profile < 1 || payload.Profile > 5 {
+			return nil, errors.New("perfil de otimização inválido")
+		}
+		result, err := applyOptimizationProfile(payload.Profile)
+		mapped, mapErr := mapFromStruct(result)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		if err != nil {
+			return mapped, err
+		}
+		return mapped, nil
 	case "updates.install":
 		var payload updateInstallPayload
 		if len(command.Payload) > 0 {

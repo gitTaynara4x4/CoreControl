@@ -1,39 +1,39 @@
-# CoreControl v10.6 - aviso remoto discreto
+# CoreControl v10.7 — Otimização remota pelo painel
 
-Este patch e cumulativo sobre a v10.5 e **nao remove o aviso de acesso remoto**.
+Patch incremental para aplicar **por cima da v10.6**. Contém somente arquivos alterados.
 
-Objetivo:
-- manter o acesso remoto exatamente como esta funcionando;
-- remover a barra azul grande e persistente do MeshCentral;
-- manter uma notificacao pequena no Windows quando a sessao remota comeca;
-- manter o vinculo exato do computador e o auto-connect da v10.5.
+## O que muda
 
-## Mudanca de consentimento
+- Adiciona um card **Otimização** na tela do computador.
+- Administrador Global, Administrador da plataforma e Administrador da empresa podem aplicar remotamente:
+  1. Conservador
+  2. Equilibrado
+  3. Modo Atendimento
+  4. Alto Desempenho
+  5. Desativar otimização / restaurar original
+- Usa a fila autenticada que o Agent já consulta a cada ~5 segundos.
+- Mostra no painel: fila, aplicação em andamento, sucesso, falha, alterações concluídas e avisos.
+- Registra solicitação e resultado em `audit_logs` / `agent_commands`.
+- Mantém backup automático em `%LOCALAPPDATA%\CoreTuner\optimization-state.json` antes da primeira alteração.
+- A restauração reutiliza o mesmo backup e só o arquiva depois de uma restauração completa.
+- Não apaga arquivos, não esvazia Lixeira/Downloads e não desativa Defender ou Firewall.
+- Prioridade de aplicativos, quando usada, fica somente em **Acima do normal**; não usa prioridade Alta/Tempo real.
+- Agent atualizado para **0.9.0**.
 
-No MeshCentral, os bits relevantes sao:
-- `1` = notificar o usuario ao iniciar Desktop remoto;
-- `64` = mostrar a barra de privacidade persistente.
+## Depois de publicar
 
-O projeto estava usando `65` (`1 + 64`). Para o modo discreto use:
+1. Substitua os arquivos deste ZIP no projeto atual e faça **Force Rebuild** do CoreControl.
+2. Abra o computador já existente da Luiza.
+3. Clique em **Reinstalar / atualizar CoreControl** e execute o instalador no mesmo PC.
+   - Não use “Adicionar computador”.
+   - O mesmo dispositivo/histórico é preservado.
+   - Essa atualização é necessária uma única vez para instalar o Agent 0.9.0.
+4. Quando o painel mostrar `Agente 0.9.0`, abra o card **Otimização** e escolha o perfil.
 
-```env
-CORETUNER_REMOTE_GROUP_CONSENT=1
-```
+## Validações executadas
 
-A v10.6 tambem corrige uma limitacao anterior: agora grupos de empresas ja existentes sao atualizados com o consentimento configurado, em vez de aplicar o valor somente quando o grupo e criado.
-
-## Depois do deploy
-
-1. No EasyPanel / CoreControl, altere `CORETUNER_REMOTE_GROUP_CONSENT=1`.
-2. Force Rebuild do CoreControl.
-3. No terminal do CoreControl execute:
-
-```bash
-python -m tools.aplicar_aviso_remoto_discreto
-```
-
-4. Opcionalmente personalize a notificacao do MeshCentral no `config.json` para:
-
-`CoreControl: acesso remoto ativo.`
-
-Nao e necessario reinstalar o Agent no computador da Luiza.
+- build Windows amd64 do Agent 0.9.0;
+- `go test -c`/compilação Windows do Agent;
+- `python -m py_compile` em API/schemas;
+- `node --check` no JavaScript da página de computadores;
+- testes direcionados da v10.7 e preservação do auto-refresh v10.2: **7 passed**.

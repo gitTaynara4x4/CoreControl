@@ -19,6 +19,7 @@ from .db import get_db
 from .models import AgentCommand, AuditLog, Company, Device, DeviceUpdateState, UpdatePolicy, User
 from .schemas import (
     AgentCommandResultRequest,
+    OptimizationApplyRequest,
     UpdateCheckRequest,
     UpdateInstallRequest,
     UpdatePolicyCreate,
@@ -489,6 +490,12 @@ def agent_command_result(
             state.last_error = None
         # Uma nova verificação é segura e atualiza a lista mesmo quando houve falha parcial.
         queue_agent_command(db, device, "updates.scan", {"after_install": command.id}, created_by=command.created_by)
+    elif command.command_type == "optimization.apply":
+        result = payload.result or {}
+        if payload.ok:
+            active_profile = int(result.get("active_profile") or 0)
+            active_name = str(result.get("active_profile_name") or "").strip()
+            device.profile = active_name[:80] if active_profile > 0 and active_name else "Nenhum"
 
     db.add(
         AuditLog(
@@ -518,20 +525,6 @@ def _latest_activity_command(db: Session, device_id: int) -> AgentCommand | None
             AgentCommand.command_type == "activity.snapshot",
         )
         .order_by(desc(AgentCommand.created_at))
-        .limit(1)
-    )
-
-
-def _latest_successful_activity_command(db: Session, device_id: int) -> AgentCommand | None:
-    # Mantém um snapshot utilizável enquanto uma nova coleta está na fila/em execução.
-    return db.scalar(
-        select(AgentCommand)
-        .where(
-            AgentCommand.device_id == device_id,
-            AgentCommand.command_type == "activity.snapshot",
-            AgentCommand.status == "succeeded",
-        )
-        .order_by(desc(AgentCommand.finished_at), desc(AgentCommand.created_at))
         .limit(1)
     )
 
@@ -578,12 +571,10 @@ def request_activity_snapshot(device_id: int, user: CurrentUser, db: Db):
             )
         )
     db.commit()
-    cached = _latest_successful_activity_command(db, device.id)
     return {
         "created": created,
         "agent_supports_activity": True,
         "command": _activity_command_public(command),
-        "cached_command": _activity_command_public(cached),
     }
 
 
@@ -593,10 +584,134 @@ def get_activity_snapshot(device_id: int, user: CurrentUser, db: Db):
     if not device:
         raise HTTPException(status_code=404, detail="Computador não encontrado")
     assert_device_access(user, device)
-    latest = _latest_activity_command(db, device.id)
-    cached = _latest_successful_activity_command(db, device.id)
     return {
         "agent_supports_activity": _agent_supports_activity(device),
-        "command": _activity_command_public(latest),
-        "cached_command": _activity_command_public(cached),
+        "command": _activity_command_public(_latest_activity_command(db, device.id)),
+    }
+
+
+OPTIMIZATION_PROFILES = [
+    {
+        "id": 1,
+        "name": "Conservador",
+        "short": "Deixa o Windows mais leve sem mudar energia ou programas.",
+        "actions": ["Reduz pequenas animações da interface", "Mantém o plano de energia atual", "Não altera prioridade de programas"],
+    },
+    {
+        "id": 2,
+        "name": "Equilibrado",
+        "short": "Reduz efeitos visuais e mantém desempenho e consumo equilibrados.",
+        "actions": ["Reduz animações de janelas e menus", "Ativa o plano Equilibrado", "Não altera prioridade de programas"],
+    },
+    {
+        "id": 3,
+        "name": "Modo Atendimento",
+        "short": "Prepara o PC para navegador, WhatsApp, CRM e discador.",
+        "actions": ["Reduz animações", "Mantém energia em Equilibrado", "Prioriza moderadamente aplicativos de atendimento abertos"],
+    },
+    {
+        "id": 4,
+        "name": "Alto Desempenho",
+        "short": "Entrega mais resposta quando o computador está ligado à tomada.",
+        "actions": ["Reduz animações", "Prioriza aplicativos de atendimento", "Usa Alto desempenho na tomada e Equilibrado na bateria"],
+    },
+    {
+        "id": 5,
+        "name": "Desativar otimização",
+        "short": "Restaura o estado salvo antes da primeira otimização.",
+        "actions": ["Restaura animações", "Restaura plano de energia", "Restaura prioridades ainda aplicáveis"],
+    },
+]
+
+
+def _agent_supports_optimization(device: Device) -> bool:
+    return _version_tuple(device.agent_version) >= (0, 9, 0)
+
+
+def _latest_optimization_command(db: Session, device_id: int) -> AgentCommand | None:
+    return db.scalar(
+        select(AgentCommand)
+        .where(
+            AgentCommand.device_id == device_id,
+            AgentCommand.command_type == "optimization.apply",
+        )
+        .order_by(desc(AgentCommand.created_at))
+        .limit(1)
+    )
+
+
+def _optimization_command_public(command: AgentCommand | None) -> dict | None:
+    if not command:
+        return None
+    result = json_object(command.result_json) if command.result_json else {}
+    payload = json_object(command.payload_json) if command.payload_json else {}
+    return {
+        "id": command.id,
+        "profile": int(payload.get("profile") or 0),
+        "status": command.status,
+        "created_at": iso(command.created_at),
+        "claimed_at": iso(command.claimed_at),
+        "finished_at": iso(command.finished_at),
+        "error": command.error_text,
+        "result": result if command.result_json else None,
+    }
+
+
+@router.get("/devices/{device_id}/optimization")
+def get_device_optimization(device_id: int, user: CurrentUser, db: Db):
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    current = str(device.profile or "").strip()
+    if not current or current.casefold() == "nenhum":
+        current = None
+    return {
+        "agent_supports_optimization": _agent_supports_optimization(device),
+        "online": device_online(device),
+        "active_profile_name": current,
+        "profiles": OPTIMIZATION_PROFILES,
+        "command": _optimization_command_public(_latest_optimization_command(db, device.id)),
+    }
+
+
+@router.post("/devices/{device_id}/optimization")
+def apply_device_optimization(device_id: int, payload: OptimizationApplyRequest, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin")
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    if not _agent_supports_optimization(device):
+        raise HTTPException(status_code=409, detail="Atualize o CoreControl Agent para a versão 0.9.0 ou superior para otimizar pelo painel")
+    if not device_online(device):
+        raise HTTPException(status_code=409, detail="O computador precisa estar online para aplicar uma otimização")
+
+    command, created = queue_agent_command(
+        db,
+        device,
+        "optimization.apply",
+        {"profile": payload.profile},
+        created_by=user.id,
+        deduplicate=True,
+    )
+    if created:
+        profile = next((item for item in OPTIMIZATION_PROFILES if item["id"] == payload.profile), None)
+        db.add(
+            AuditLog(
+                company_id=device.company_id,
+                actor_user_id=user.id,
+                device_id=device.id,
+                action="optimization.apply.request",
+                details=json.dumps(
+                    {"profile": payload.profile, "profile_name": (profile or {}).get("name")},
+                    ensure_ascii=False,
+                ),
+            )
+        )
+    db.commit()
+    return {
+        "created": created,
+        "agent_supports_optimization": True,
+        "command": _optimization_command_public(command),
     }

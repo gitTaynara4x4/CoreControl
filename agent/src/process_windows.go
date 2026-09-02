@@ -178,6 +178,9 @@ func windowsVersion() string {
 }
 
 func readLocalProfile() string {
+	if profile := strings.TrimSpace(currentOptimizationProfileName()); profile != "" && !strings.EqualFold(profile, "Nenhum") {
+		return profile
+	}
 	base := os.Getenv("LOCALAPPDATA")
 	if base == "" {
 		return "Nenhum"
