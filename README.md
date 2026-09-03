@@ -1,28 +1,33 @@
-# CoreControl v10.9.6 — Telemetria de GPU e temperatura real
+# CoreControl v10.10 — Visão Geral / Central de Operação
 
-Patch somente com arquivos alterados, para aplicar por cima da sequência atual v10.9.4 + v10.9.5.
+Patch cumulativo de interface + backend para aplicar por cima da v10.9.6.
 
-## Alterações
-- Agent atualizado para 0.9.3.
-- Coleta NVIDIA via `nvidia-smi` sem abrir janela no computador monitorado.
-- Temperatura da GPU passa a preencher o card principal quando o Windows não expõe temperatura ACPI.
-- Coleta uso da GPU, VRAM usada/total, modelo e versão do driver.
-- Painel principal ganha card `GPU` e identifica `Temperatura GPU` quando esta for a fonte real.
-- Diagnóstico inteligente mostra modelo da GPU, uso e VRAM junto da temperatura.
-- Diagnóstico continua sem inventar temperatura de CPU: se ACPI não estiver disponível, a fonte é explicitamente GPU NVIDIA.
+## O que mudou
 
-## Instalação
-1. Aplicar os arquivos por cima da versão atual.
-2. Force Rebuild do CoreControl.
-3. Ctrl+F5 no painel.
-4. Reinstalar/atualizar o CoreControl no mesmo cadastro do computador uma vez para receber o Agent 0.9.3.
+A Visão Geral para administradores de empresa deixou de ser um resumo genérico de quantidade de empresas e virou uma Central de Operação.
 
-Não usar `Adicionar computador` e não excluir o dispositivo existente.
+- cabeçalho com situação geral da empresa;
+- computadores online, saúde média, computadores que precisam de atenção, perfis otimizados e atualizações pendentes;
+- painel "Computadores agora" com aplicativo em foco, CPU, RAM, disco, GPU, temperatura, saúde, perfil e versão do Agent;
+- atalhos para Ver atividade, Acessar e Otimizar;
+- painel "Precisa da sua atenção" com problemas acionáveis;
+- "Em foco agora" para acompanhar a atividade atual da equipe sem abrir computador por computador;
+- resumo das últimas 24 horas com otimizações, diagnósticos, acessos remotos e limpezas seguras;
+- visão simplificada de proteção, armazenamento, temperatura e uptime;
+- histórico dos últimos acontecimentos reais usando os logs administrativos do CoreControl;
+- visão antiga da plataforma preservada para Administrador Global.
 
-## Validação
-- Agent Windows amd64 compilado com sucesso.
-- `go test ./...` OK.
-- `node --check app/static/js/pages/devices.js` OK.
-- `python -m py_compile app/api.py` OK.
-- 16 testes Python direcionados passaram.
-- `go vet` ainda aponta um aviso preexistente em `activity_icons_windows.go` sobre `unsafe.Pointer`; não foi introduzido por este patch.
+## Arquivos alterados
+
+- `app/api.py`
+- `app/static/index.html`
+- `app/static/styles.css`
+- `app/static/js/pages/overview.js`
+
+## Implantação
+
+1. Aplicar este patch por cima da v10.9.6.
+2. Fazer Force Rebuild do CoreControl.
+3. Atualizar o navegador com Ctrl+F5.
+
+Não é necessário reinstalar o Agent nos computadores. Esta versão não altera o Agent Windows.

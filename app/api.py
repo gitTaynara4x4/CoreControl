@@ -563,6 +563,115 @@ def me(user: CurrentUser, db: Db):
     }
 
 
+def _dashboard_log_details(raw: str | None):
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+        return value
+    except (TypeError, ValueError):
+        return raw
+
+
+def _dashboard_company_operations(user: CurrentUser, db: Session, devices: list[Device], companies: list[Company]) -> dict | None:
+    # O administrador global continua com a visão consolidada da plataforma.
+    # A Central de Operação abaixo é específica para usuários vinculados a uma empresa.
+    if is_global_admin(user) or not user.company_id:
+        return None
+
+    company = next((item for item in companies if item.id == user.company_id), None)
+    device_ids = [device.id for device in devices]
+    since = utcnow() - timedelta(hours=24)
+
+    def audit_count(action: str) -> int:
+        return int(
+            db.scalar(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.company_id == user.company_id,
+                    AuditLog.created_at >= since,
+                    AuditLog.action == action,
+                )
+            )
+            or 0
+        )
+
+    update_states = []
+    if device_ids:
+        update_states = list(
+            db.scalars(
+                select(DeviceUpdateState).where(DeviceUpdateState.device_id.in_(device_ids))
+            ).all()
+        )
+    updates_pending = sum(
+        max(0, int(state.windows_pending or 0))
+        + max(0, int(state.driver_pending or 0))
+        + max(0, int(state.app_pending or 0))
+        for state in update_states
+    )
+    reboot_required = sum(1 for state in update_states if state.reboot_required)
+
+    recent_filters = [
+        AuditLog.company_id == user.company_id,
+        or_(
+            AuditLog.action.in_([
+                "remote.session.request",
+                "alert.acknowledge",
+                "agent.enroll",
+                "device.update",
+            ]),
+            AuditLog.action.like("optimization.%.success"),
+            AuditLog.action.like("optimization.%.failed"),
+            AuditLog.action.like("updates.install.%"),
+        ),
+    ]
+    recent_logs = list(
+        db.scalars(
+            select(AuditLog)
+            .where(*recent_filters)
+            .order_by(desc(AuditLog.created_at))
+            .limit(12)
+        ).all()
+    )
+
+    device_names = {device.id: device.name for device in devices}
+    actor_ids = sorted({log.actor_user_id for log in recent_logs if log.actor_user_id})
+    actors = {}
+    if actor_ids:
+        actors = {
+            item.id: item.name
+            for item in db.scalars(select(User).where(User.id.in_(actor_ids))).all()
+        }
+
+    recent_events = [
+        {
+            "id": log.id,
+            "action": log.action,
+            "details": _dashboard_log_details(log.details),
+            "created_at": iso(log.created_at),
+            "device_id": log.device_id,
+            "device_name": device_names.get(log.device_id),
+            "actor_name": actors.get(log.actor_user_id),
+        }
+        for log in recent_logs
+    ]
+
+    return {
+        "company_name": company.name if company else None,
+        "last_24h": {
+            "optimizations": audit_count("optimization.apply.success"),
+            "diagnostics": audit_count("optimization.diagnose.success"),
+            "cleanups": audit_count("optimization.cleanup_temp.success"),
+            "remote_sessions": audit_count("remote.session.request"),
+            "update_installs": audit_count("updates.install.success"),
+        },
+        "updates": {
+            "pending": updates_pending,
+            "reboot_required": reboot_required,
+        },
+        "recent_events": recent_events,
+    }
+
+
 @router.get("/dashboard/summary")
 def dashboard_summary(user: CurrentUser, db: Db):
     company_filter = [] if is_global_admin(user) else [Device.company_id == user.company_id]
@@ -583,6 +692,7 @@ def dashboard_summary(user: CurrentUser, db: Db):
         "online": online,
         "offline": len(devices) - online,
         "alerts_open": open_alerts,
+        "operations": _dashboard_company_operations(user, db, devices, companies),
     }
 
 
