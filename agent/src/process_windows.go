@@ -3,11 +3,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +29,74 @@ const (
 	serviceRunning      = 4
 	th32csSnapProcess   = 0x00000002
 )
+
+type nvidiaMetrics struct {
+	Name          string
+	TemperatureC  *float64
+	UsagePercent  *float64
+	MemoryUsedMB  *float64
+	MemoryTotalMB *float64
+	DriverVersion string
+}
+
+func nvidiaSMIPath() string {
+	candidates := []string{"nvidia-smi.exe"}
+	if programFiles := strings.TrimSpace(os.Getenv("ProgramFiles")); programFiles != "" {
+		candidates = append(candidates, filepath.Join(programFiles, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"))
+	}
+	candidates = append(candidates, `C:\Windows\System32\nvidia-smi.exe`)
+	for _, candidate := range candidates {
+		if candidate == "nvidia-smi.exe" {
+			if resolved, err := exec.LookPath(candidate); err == nil {
+				return resolved
+			}
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func collectNvidiaMetrics() nvidiaMetrics {
+	path := nvidiaSMIPath()
+	if path == "" {
+		return nvidiaMetrics{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path,
+		"--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,driver_version",
+		"--format=csv,noheader,nounits",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	out, err := cmd.Output()
+	if err != nil {
+		return nvidiaMetrics{}
+	}
+	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+	parts := strings.Split(line, ",")
+	if len(parts) < 6 {
+		return nvidiaMetrics{}
+	}
+	parse := func(raw string, min, max float64) *float64 {
+		v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil || v < min || v > max {
+			return nil
+		}
+		v = round2(v)
+		return &v
+	}
+	return nvidiaMetrics{
+		Name:          strings.TrimSpace(parts[0]),
+		TemperatureC:  parse(parts[1], 0, 130),
+		UsagePercent:  parse(parts[2], 0, 100),
+		MemoryUsedMB:  parse(parts[3], 0, 1<<20),
+		MemoryTotalMB: parse(parts[4], 1, 1<<20),
+		DriverVersion: strings.TrimSpace(parts[5]),
+	}
+}
 
 type memoryStatusEx struct {
 	Length                                             uint32
@@ -159,9 +230,19 @@ func collectWindowsSnapshotNative() (MachineSnapshot, error) {
 	snapshot.RemoteAgentRunning = running
 	snapshot.RemoteServiceName = serviceName
 
-	// Temperatura permanece nula quando o hardware não oferece uma API nativa segura.
-	// Esta versão não abre PowerShell, WMI externo ou console para consultar sensores.
-	snapshot.TemperatureC = nil
+	// Em muitos desktops o Windows não expõe temperatura ACPI confiável.
+	// Quando há GPU NVIDIA, usamos nvidia-smi como fonte segura e sem janela visível.
+	gpu := collectNvidiaMetrics()
+	snapshot.GPUName = gpu.Name
+	snapshot.GPUTemperatureC = gpu.TemperatureC
+	snapshot.GPUUsagePercent = gpu.UsagePercent
+	snapshot.GPUMemoryUsedMB = gpu.MemoryUsedMB
+	snapshot.GPUMemoryTotalMB = gpu.MemoryTotalMB
+	snapshot.GPUDriverVersion = gpu.DriverVersion
+	if gpu.TemperatureC != nil {
+		snapshot.TemperatureC = gpu.TemperatureC
+		snapshot.TemperatureSource = "GPU NVIDIA"
+	}
 	return snapshot, nil
 }
 
@@ -178,9 +259,6 @@ func windowsVersion() string {
 }
 
 func readLocalProfile() string {
-	if profile := strings.TrimSpace(currentOptimizationProfileName()); profile != "" && !strings.EqualFold(profile, "Nenhum") {
-		return profile
-	}
 	base := os.Getenv("LOCALAPPDATA")
 	if base == "" {
 		return "Nenhum"

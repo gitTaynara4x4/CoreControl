@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.9.2"
+const agentVersion = "0.9.3"
 
 type Config struct {
 	ServerURL         string `json:"server_url"`
@@ -50,6 +50,13 @@ type MachineSnapshot struct {
 	DiskFreeGB           *float64 `json:"disk_free_gb"`
 	DiskTotalGB          *float64 `json:"disk_total_gb"`
 	TemperatureC         *float64 `json:"temperature_c"`
+	TemperatureSource    string   `json:"temperature_source,omitempty"`
+	GPUName              string   `json:"gpu_name,omitempty"`
+	GPUTemperatureC      *float64 `json:"gpu_temperature_c,omitempty"`
+	GPUUsagePercent      *float64 `json:"gpu_usage_percent,omitempty"`
+	GPUMemoryUsedMB      *float64 `json:"gpu_memory_used_mb,omitempty"`
+	GPUMemoryTotalMB     *float64 `json:"gpu_memory_total_mb,omitempty"`
+	GPUDriverVersion     string   `json:"gpu_driver_version,omitempty"`
 	UptimeSeconds        *int64   `json:"uptime_seconds"`
 	IPLocal              string   `json:"ip_local"`
 	NetworkName          string   `json:"network_name"`
@@ -355,6 +362,13 @@ func (a *Agent) runCycle() (string, error) {
 			"remote_agent_installed": snapshot.RemoteAgentInstalled,
 			"remote_agent_running":   snapshot.RemoteAgentRunning,
 			"remote_service_name":    snapshot.RemoteServiceName,
+			"temperature_source":     snapshot.TemperatureSource,
+			"gpu_name":               snapshot.GPUName,
+			"gpu_temperature_c":      snapshot.GPUTemperatureC,
+			"gpu_usage_percent":      snapshot.GPUUsagePercent,
+			"gpu_memory_used_mb":     snapshot.GPUMemoryUsedMB,
+			"gpu_memory_total_mb":    snapshot.GPUMemoryTotalMB,
+			"gpu_driver_version":     snapshot.GPUDriverVersion,
 		},
 	}
 	if err := a.postJSON("/api/agent/telemetry", payload, a.cfg.AgentSecret, nil); err != nil {

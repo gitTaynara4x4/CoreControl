@@ -89,6 +89,12 @@ type optimizationDiagnostics struct {
 	DiskFreeGB         float64                  `json:"disk_free_gb"`
 	DiskFreePct        *float64                 `json:"disk_free_percent,omitempty"`
 	TemperatureC       *float64                 `json:"temperature_c,omitempty"`
+	TemperatureSource  string                   `json:"temperature_source,omitempty"`
+	GPUName            string                   `json:"gpu_name,omitempty"`
+	GPUUsagePercent    *float64                 `json:"gpu_usage_percent,omitempty"`
+	GPUMemoryUsedMB    *float64                 `json:"gpu_memory_used_mb,omitempty"`
+	GPUMemoryTotalMB   *float64                 `json:"gpu_memory_total_mb,omitempty"`
+	GPUDriverVersion   string                   `json:"gpu_driver_version,omitempty"`
 	StartupApps        int                      `json:"startup_apps"`
 	ActiveProcesses    int                      `json:"active_processes"`
 	WorkApps           int                      `json:"work_apps"`
@@ -824,7 +830,7 @@ func collectOptimizationDiagnostics(deep bool) optimizationDiagnostics {
 	now := time.Now().UTC()
 	d := optimizationDiagnostics{
 		CollectedAt:   now.Format(time.RFC3339),
-		CheckedItems:  10,
+		CheckedItems:  12,
 		Bottlenecks:   []optimizationBottleneck{},
 		Opportunities: []string{},
 		Warnings:      []string{},
@@ -839,6 +845,19 @@ func collectOptimizationDiagnostics(deep bool) optimizationDiagnostics {
 	d.MemoryTotalMB, d.MemoryAvailableMB, d.MemoryAvailablePct = optimizationMemoryMetrics()
 	d.DiskTotalGB, d.DiskFreeGB, d.DiskFreePct = optimizationDiskMetrics()
 	d.TemperatureC = optimizationTemperature()
+	if d.TemperatureC != nil {
+		d.TemperatureSource = "ACPI"
+	}
+	gpu := collectNvidiaMetrics()
+	d.GPUName = gpu.Name
+	d.GPUUsagePercent = gpu.UsagePercent
+	d.GPUMemoryUsedMB = gpu.MemoryUsedMB
+	d.GPUMemoryTotalMB = gpu.MemoryTotalMB
+	d.GPUDriverVersion = gpu.DriverVersion
+	if d.TemperatureC == nil && gpu.TemperatureC != nil {
+		d.TemperatureC = gpu.TemperatureC
+		d.TemperatureSource = "GPU NVIDIA"
+	}
 	processes := optimizationProcesses()
 	d.ActiveProcesses = len(processes)
 	d.WorkApps = len(optimizationWorkProcesses())
@@ -869,10 +888,16 @@ func collectOptimizationDiagnostics(deep bool) optimizationDiagnostics {
 		d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "medium", Key: "cpu", Title: "Processador muito ocupado", Detail: fmt.Sprintf("Uso de CPU medido em %.0f%% durante o diagnóstico.", *d.CPUPercent)})
 	}
 	if d.TemperatureC != nil {
-		if *d.TemperatureC >= 85 {
-			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "high", Key: "temperature", Title: "Temperatura elevada", Detail: fmt.Sprintf("Sensor ACPI reportou %.1f °C.", *d.TemperatureC)})
-		} else if *d.TemperatureC >= 75 {
-			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "medium", Key: "temperature", Title: "Temperatura em atenção", Detail: fmt.Sprintf("Sensor ACPI reportou %.1f °C.", *d.TemperatureC)})
+		high, medium := 85.0, 75.0
+		sourceLabel := "sensor do Windows"
+		if d.TemperatureSource == "GPU NVIDIA" {
+			high, medium = 88, 80
+			sourceLabel = "GPU NVIDIA"
+		}
+		if *d.TemperatureC >= high {
+			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "high", Key: "temperature", Title: "Temperatura elevada", Detail: fmt.Sprintf("%s reportou %.1f °C.", sourceLabel, *d.TemperatureC)})
+		} else if *d.TemperatureC >= medium {
+			d.Bottlenecks = append(d.Bottlenecks, optimizationBottleneck{Level: "medium", Key: "temperature", Title: "Temperatura em atenção", Detail: fmt.Sprintf("%s reportou %.1f °C.", sourceLabel, *d.TemperatureC)})
 		}
 	}
 	if d.ActiveProcesses > 190 {
@@ -893,6 +918,14 @@ func collectOptimizationDiagnostics(deep bool) optimizationDiagnostics {
 	}
 	if d.WorkApps > 0 {
 		d.Opportunities = append(d.Opportunities, fmt.Sprintf("%d aplicativo(s) de trabalho compatível(is) estão abertos e podem receber prioridade moderada.", d.WorkApps))
+	}
+	if d.GPUName != "" && d.GPUUsagePercent != nil {
+		d.Opportunities = append(d.Opportunities, fmt.Sprintf("GPU %s monitorada em tempo real: %.0f%% de uso%s.", d.GPUName, *d.GPUUsagePercent, func() string {
+			if d.TemperatureC != nil && d.TemperatureSource == "GPU NVIDIA" {
+				return fmt.Sprintf(" e %.0f °C", *d.TemperatureC)
+			}
+			return ""
+		}()))
 	}
 	return d
 }

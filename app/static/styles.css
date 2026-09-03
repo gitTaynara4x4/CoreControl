@@ -237,7 +237,7 @@ td strong{font-weight:650;color:var(--ink)}
 .severity-marker{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:8px}.severity-marker.warning{background:var(--amber)}.severity-marker.critical{background:var(--red)}
 
 /* ===== Dispositivo / métricas ===== */
-.detail-grid{grid-template-columns:repeat(4,minmax(160px,1fr));gap:12px}
+.detail-grid{grid-template-columns:repeat(5,minmax(140px,1fr));gap:12px}
 .metric{padding:14px;border:1px solid var(--border);border-radius:12px;background:#fff;box-shadow:var(--shadow)}
 .metric small{font-size:9.5px;color:var(--muted)}
 .metric .big{margin:6px 0 10px;font-size:22px;font-weight:720;letter-spacing:-.03em;color:var(--ink)}

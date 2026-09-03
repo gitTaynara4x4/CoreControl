@@ -799,6 +799,17 @@
     const memoryAvailableGB = Number(diagnostics.memory_available_mb || 0) / 1024;
     const memoryTotalGB = Number(diagnostics.memory_total_mb || 0) / 1024;
     const temp = diagnostics.temperature_c == null ? 'Indisponível' : `${optimizationMetricValue(diagnostics.temperature_c, ' °C', 1)}`;
+    const tempSource = String(diagnostics.temperature_source || '').trim();
+    const gpuName = String(diagnostics.gpu_name || '').trim();
+    const gpuUsage = Number(diagnostics.gpu_usage_percent);
+    const gpuMemoryUsed = Number(diagnostics.gpu_memory_used_mb);
+    const gpuMemoryTotal = Number(diagnostics.gpu_memory_total_mb);
+    const gpuParts = [];
+    if (gpuName) gpuParts.push(gpuName.replace(/^NVIDIA\s+/i, ''));
+    if (Number.isFinite(gpuUsage)) gpuParts.push(`${optimizationMetricValue(gpuUsage, '%', 0)} uso`);
+    if (Number.isFinite(gpuMemoryUsed) && Number.isFinite(gpuMemoryTotal) && gpuMemoryTotal > 0) {
+      gpuParts.push(`VRAM ${optimizationMetricValue(gpuMemoryUsed / 1024, ' GB', 1)} / ${optimizationMetricValue(gpuMemoryTotal / 1024, ' GB', 1)}`);
+    }
     const reclaimable = Number(diagnostics.temp_reclaimable_mb || 0);
     const bottlenecks = Array.isArray(diagnostics.bottlenecks) ? diagnostics.bottlenecks : [];
     const opportunities = Array.isArray(diagnostics.opportunities) ? diagnostics.opportunities : [];
@@ -811,7 +822,7 @@
       ['disk', 'Armazenamento livre', diagnostics.disk_free_gb ? optimizationMetricValue(diagnostics.disk_free_gb, ' GB', 1) : '—', diagnostics.disk_free_percent == null ? 'Disco principal' : `${optimizationMetricValue(diagnostics.disk_free_percent, '%', 0)} do disco`],
       ['startup', 'Inicialização', optimizationMetricValue(diagnostics.startup_apps, ' itens'), 'Programas configurados para iniciar'],
       ['processes', 'Processos ativos', optimizationMetricValue(diagnostics.active_processes), `${optimizationMetricValue(diagnostics.work_apps)} app(s) de trabalho detectado(s)`],
-      ['temperature', 'Temperatura', temp, diagnostics.temperature_c == null ? 'Sensor ACPI não exposto' : 'Leitura ACPI disponível'],
+      ['temperature', tempSource === 'GPU NVIDIA' ? 'Temperatura GPU' : 'Temperatura', temp, diagnostics.temperature_c == null ? 'Nenhum sensor compatível disponível' : (gpuParts.length ? gpuParts.join(' · ') : (tempSource || 'Sensor disponível'))],
       ['cleanup', 'Potencial de limpeza', reclaimable >= 1 ? optimizationMetricValue(reclaimable, ' MB', 0) : 'Limpo', 'Temporários com mais de 7 dias'],
     ];
 
@@ -1105,16 +1116,19 @@
     CT.$('#deviceHealthStatus').className = `health ${CT.healthClass(device.health_score)}`;
     CT.$('#deviceHealthStatus').textContent = `Saúde ${device.health_score}/100`;
 
+    const temperatureSource = String(telemetry.temperature_source || '').trim();
+    const temperatureLabel = temperatureSource === 'GPU NVIDIA' ? 'Temperatura GPU' : 'Temperatura';
     CT.$('#deviceMetrics').innerHTML = [
       CT.metric('Processador', telemetry.cpu_percent, '%', telemetry.cpu_percent),
       CT.metric('Memória RAM', telemetry.memory_percent, '%', telemetry.memory_percent),
       CT.metric('Disco principal', telemetry.disk_percent, '%', telemetry.disk_percent),
+      CT.metric('GPU', telemetry.gpu_usage_percent, '%', telemetry.gpu_usage_percent),
       CT.metric(
-        'Temperatura',
+        temperatureLabel,
         telemetry.temperature_c,
         ' °C',
         telemetry.temperature_c ? Math.min(100, telemetry.temperature_c) : 0,
-        telemetry.temperature_c >= 85 ? 'critical' : '',
+        telemetry.temperature_c >= (temperatureSource === 'GPU NVIDIA' ? 88 : 85) ? 'critical' : '',
       ),
     ].join('');
 

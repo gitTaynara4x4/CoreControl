@@ -221,6 +221,13 @@ def serialize_sample(sample: Telemetry | None) -> dict | None:
         "disk_free_gb": sample.disk_free_gb,
         "disk_total_gb": sample.disk_total_gb,
         "temperature_c": sample.temperature_c,
+        "temperature_source": extra.get("temperature_source"),
+        "gpu_name": extra.get("gpu_name"),
+        "gpu_temperature_c": extra.get("gpu_temperature_c"),
+        "gpu_usage_percent": extra.get("gpu_usage_percent"),
+        "gpu_memory_used_mb": extra.get("gpu_memory_used_mb"),
+        "gpu_memory_total_mb": extra.get("gpu_memory_total_mb"),
+        "gpu_driver_version": extra.get("gpu_driver_version"),
         "uptime_seconds": sample.uptime_seconds,
         "ip_local": sample.ip_local,
         "network_name": sample.network_name,
@@ -321,13 +328,7 @@ def refresh_remote_for_devices(
             continue
 
 
-def prepare_remote_install(
-    db: Session,
-    company: Company,
-    device: Device,
-    *,
-    download_url: str | None = None,
-) -> tuple[dict | None, str | None]:
+def prepare_remote_install(db: Session, company: Company, device: Device) -> tuple[dict | None, str | None]:
     if not settings.remote_enabled:
         return None, "O acesso remoto está desativado no servidor."
     if not meshcentral_client.provisioning_configured:
@@ -346,7 +347,7 @@ def prepare_remote_install(
     return (
         {
             "filename": prepared.filename,
-            "url": download_url or f"/api/devices/{device.id}/remote-agent",
+            "url": f"/api/devices/{device.id}/remote-agent",
             "sha256": prepared.sha256,
             "size": prepared.size,
             "mesh_group_id": prepared.mesh_group_id,
@@ -826,37 +827,7 @@ def get_valid_enrollment(db: Session, credential: str) -> tuple[EnrollmentToken,
     company = db.get(Company, enrollment.company_id)
     if not company or not company.active:
         raise HTTPException(status_code=404, detail="Empresa não encontrada ou desativada")
-    if enrollment.device_id is not None:
-        target = db.get(Device, enrollment.device_id)
-        if not target or target.company_id != enrollment.company_id:
-            raise HTTPException(status_code=410, detail="A autorização de reinstalação não está mais disponível")
     return enrollment, company
-
-
-def enrollment_response(
-    raw: str,
-    install_code: str,
-    expires: datetime,
-    valid_minutes: int,
-    *,
-    device: Device | None = None,
-) -> dict:
-    base = settings.public_url.rstrip("/")
-    return {
-        "token": raw,
-        "installation_code": install_code,
-        "installation_url": f"{base}/instalar/{raw}",
-        "install_page_url": f"{base}/instalar",
-        "setup_url": f"{base}/instalar/setup",
-        "code_download_url": f"{base}/instalar/codigo/{install_code}",
-        "qr_url": f"{base}/api/enrollment/{raw}/qr.svg",
-        "expires_at": expires.isoformat(),
-        "valid_minutes": valid_minutes,
-        "single_use": True,
-        "mode": "reinstall" if device else "install",
-        "device_id": device.id if device else None,
-        "device_name": device.name if device else None,
-    }
 
 
 @router.post("/companies/{company_id}/enrollment-token")
@@ -898,78 +869,30 @@ def create_enrollment_token(
         )
     )
     db.commit()
-    return enrollment_response(raw, install_code, expires, valid_minutes)
-
-
-@router.post("/devices/{device_id}/reinstall-token")
-def create_device_reinstall_token(
-    device_id: int,
-    user: CurrentUser,
-    db: Db,
-    valid_minutes: int = 30,
-):
-    require_roles(user, "platform_admin", "company_admin", "technician")
-    device = db.get(Device, device_id)
-    if not device:
-        raise HTTPException(status_code=404, detail="Computador não encontrado")
-    assert_device_access(user, device)
-    company = db.get(Company, device.company_id)
-    if not company or not company.active:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada ou desativada")
-    if valid_minutes not in VALID_ENROLLMENT_MINUTES:
-        raise HTTPException(status_code=422, detail="Validade permitida: 30 minutos, 2 horas ou 24 horas")
-
-    raw = f"ctenr_{new_secret(32)}"
-    install_code = new_install_code(db)
-    expires = utcnow() + timedelta(minutes=valid_minutes)
-    db.add(
-        EnrollmentToken(
-            company_id=device.company_id,
-            device_id=device.id,
-            token_hash=sha256_text(raw),
-            code_hash=sha256_text(install_code),
-            expires_at=expires,
-            created_by=user.id,
-        )
-    )
-    db.add(
-        AuditLog(
-            company_id=device.company_id,
-            actor_user_id=user.id,
-            device_id=device.id,
-            action="agent.reinstall_token.create",
-            details=json.dumps(
-                {
-                    "device_name": device.name,
-                    "hostname": device.hostname,
-                    "valid_minutes": valid_minutes,
-                    "expires_at": expires.isoformat(),
-                    "single_use": True,
-                },
-                ensure_ascii=False,
-            ),
-        )
-    )
-    db.commit()
-    return enrollment_response(raw, install_code, expires, valid_minutes, device=device)
+    base = settings.public_url.rstrip("/")
+    return {
+        "token": raw,
+        "installation_code": install_code,
+        "installation_url": f"{base}/instalar/{raw}",
+        "install_page_url": f"{base}/instalar",
+        "setup_url": f"{base}/instalar/setup",
+        "code_download_url": f"{base}/instalar/codigo/{install_code}",
+        "qr_url": f"{base}/api/enrollment/{raw}/qr.svg",
+        "expires_at": expires.isoformat(),
+        "valid_minutes": valid_minutes,
+        "single_use": True,
+    }
 
 
 @router.get("/enrollment/{credential}/info")
 def enrollment_info(credential: str, db: Db):
     enrollment, company = get_valid_enrollment(db, credential)
-    device = db.get(Device, enrollment.device_id) if enrollment.device_id is not None else None
     return {
         "ok": True,
         "company_id": company.id,
         "company_name": company.name,
         "expires_at": iso(enrollment.expires_at),
         "single_use": True,
-        "mode": "reinstall" if device else "install",
-        "device_id": device.id if device else None,
-        "device_name": device.name if device else None,
-        "hostname": device.hostname if device else None,
-        "sector": device.sector if device else None,
-        "location": device.location if device else None,
     }
 
 
@@ -1551,56 +1474,20 @@ def get_agent_secret(authorization: str | None) -> str:
     return authorization.split(" ", 1)[1].strip()
 
 
-def get_device_by_agent_secret(db: Session, authorization: str | None) -> Device:
-    raw_secret = get_agent_secret(authorization)
-    secret_hash = sha256_text(raw_secret)
-    device = db.scalar(
-        select(Device).where(
-            Device.agent_secret_hash == secret_hash,
-            Device.active.is_(True),
-        )
-    )
-    if not device:
-        raise HTTPException(status_code=401, detail="Agente não autorizado")
-    return device
-
-
 @router.post("/agent/enroll", status_code=201)
 def agent_enroll(payload: EnrollmentRequest, db: Db):
     enrollment, company = get_valid_enrollment(db, payload.enrollment_token)
     now = utcnow()
-    reinstalling = enrollment.device_id is not None
-
-    if reinstalling:
-        # O token criado em "Reinstalar / atualizar" pertence a um único
-        # computador. Evita duplicidade e impede usar o link em outra máquina.
-        existing = db.get(Device, enrollment.device_id)
-        if not existing or existing.company_id != enrollment.company_id:
-            raise HTTPException(status_code=410, detail="A autorização de reinstalação não está mais disponível")
-        if existing.device_uid != payload.device_uid:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Este link de reinstalação pertence ao computador '{existing.name}' e só pode ser usado nesse mesmo computador.",
-            )
-    else:
-        existing = db.scalar(
-            select(Device).where(
-                Device.company_id == enrollment.company_id,
-                Device.device_uid == payload.device_uid,
-            )
-        )
-
+    existing = db.scalar(
+        select(Device).where(Device.company_id == enrollment.company_id, Device.device_uid == payload.device_uid)
+    )
     raw_secret = f"ctagt_{new_secret(36)}"
     if existing:
         device = existing
-        # Na reinstalação direcionada preservamos os dados administrados no
-        # painel. Em uma instalação normal por código, os campos do Setup podem
-        # atualizar identificação/setor/local.
-        if not reinstalling:
-            device.name = payload.name
-            device.sector = payload.sector
-            device.location = payload.location
+        device.name = payload.name
         device.hostname = payload.hostname
+        device.sector = payload.sector
+        device.location = payload.location
         device.manufacturer = payload.manufacturer
         device.model = payload.model
         device.serial_number = payload.serial_number
@@ -1630,101 +1517,24 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
         )
         db.add(device)
         db.flush()
-
     enrollment.used_at = now
     db.add(
         AuditLog(
             company_id=device.company_id,
             actor_user_id=enrollment.created_by,
             device_id=device.id,
-            action="agent.reinstall" if reinstalling else "agent.enroll",
-            details=json.dumps(
-                {
-                    "hostname": device.hostname,
-                    "uid": device.device_uid,
-                    "source": "device_reinstall_authorization" if reinstalling else "installation_authorization",
-                    "preserved_device_id": device.id if reinstalling else None,
-                },
-                ensure_ascii=False,
-            ),
+            action="agent.enroll",
+            details=json.dumps({"hostname": device.hostname, "uid": device.device_uid, "source": "installation_authorization"}, ensure_ascii=False),
         )
     )
-
-    # Tanto instalação por código quanto reinstalação direcionada devem receber
-    # o Mesh Agent da empresa atual. Limpamos só o vínculo remoto salvo no
-    # CoreControl; o Setup v10.3 substitui no Windows o Mesh Agent antigo pelo
-    # pacote preparado para esta empresa.
-    device.mesh_node_id = None
-    device.remote_online = False
-    device.remote_checked_at = None
     db.commit()
-
-    remote_agent, remote_warning = prepare_remote_install(
-        db,
-        company,
-        device,
-        download_url="/api/agent/remote-agent",
-    )
     return {
         "device_id": device.id,
         "agent_secret": raw_secret,
         "company_id": device.company_id,
         "company_name": company.name,
-        "reinstalled": reinstalling,
-        "remote_agent": remote_agent,
-        "remote_warning": remote_warning,
-    }
-
-
-@router.get("/agent/remote-agent")
-def download_remote_agent_for_enrolled_device(
-    db: Db,
-    authorization: Annotated[str | None, Header()] = None,
-):
-    device = get_device_by_agent_secret(db, authorization)
-    company = db.get(Company, device.company_id)
-    if not company or not company.active:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    if not meshcentral_client.provisioning_configured:
-        raise HTTPException(status_code=503, detail="A automação do acesso remoto não está configurada")
-    try:
-        prepared = meshcentral_client.prepare_company_agent(company)
-    except (MeshCentralCommandError, MeshCentralTokenError) as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    company.mesh_group_id = prepared.mesh_group_id
-    company.mesh_group_name = prepared.mesh_group_name
-    company.mesh_group_synced_at = utcnow()
-    db.commit()
-    return FileResponse(
-        prepared.path,
-        media_type="application/vnd.microsoft.portable-executable",
-        filename=prepared.filename,
-        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"},
-    )
-
-
-@router.get("/agent/remote-status")
-def get_remote_status_for_enrolled_device(
-    db: Db,
-    authorization: Annotated[str | None, Header()] = None,
-):
-    device = get_device_by_agent_secret(db, authorization)
-    sync_error = None
-    try:
-        refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
-    except MeshCentralCommandError as exc:
-        sync_error = str(exc)
-    state = remote_state(device, latest_telemetry(db, device.id))
-    return {
-        "ok": True,
-        "device_id": device.id,
-        "hostname": device.hostname,
-        "mesh_connected": state["mesh_connected"],
-        "mesh_node_id": device.mesh_node_id,
-        "service_running": state["running"],
-        "available": state["available"],
-        "checked_at": state["checked_at"],
-        "warning": sync_error,
+        "remote_agent": None,
+        "remote_warning": "Acesso remoto não é instalado pela autorização temporária de uso único.",
     }
 
 
