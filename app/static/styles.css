@@ -1254,3 +1254,130 @@ html[data-theme="dark"] .optimization-profile-result-chips>span{background:#2424
   .optimization-profile-description{font-size:11px}
   .optimization-profile-ideal p,.optimization-profile-action{font-size:10px}
 }
+
+/* CoreControl v10.9.4 — perfis compactos: 4 por linha, legíveis sem ocupar a página inteira */
+.optimization-profiles{
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  padding:14px 18px 20px;
+}
+.optimization-profile{
+  padding:15px;
+  border-radius:12px;
+  box-shadow:0 1px 2px rgba(15,23,42,.02);
+}
+.optimization-profile:hover{
+  transform:none;
+  box-shadow:0 5px 16px rgba(15,23,42,.045);
+}
+.optimization-profile-top{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:10px;
+}
+.optimization-profile-head{
+  min-height:38px;
+  gap:10px;
+}
+.optimization-profile-icon{
+  width:34px;
+  height:34px;
+  flex:0 0 34px;
+}
+.optimization-profile-icon svg{
+  width:25px;
+  height:25px;
+  stroke-width:1.55;
+}
+.optimization-profile-kicker{
+  margin-bottom:3px;
+  font-size:7.6px;
+  letter-spacing:.07em;
+}
+.optimization-profile h3{
+  font-size:15px;
+  line-height:1.15;
+}
+.optimization-profile-description{
+  margin:9px 0 0;
+  font-size:10px;
+  line-height:1.42;
+}
+.optimization-profile-ideal{
+  padding:9px 10px;
+  border-radius:8px;
+}
+.optimization-profile-ideal>span{
+  margin-bottom:4px;
+  font-size:7.3px;
+}
+.optimization-profile-ideal p{
+  font-size:9.2px;
+  line-height:1.4;
+}
+.optimization-profile-adjustments{
+  margin-top:10px;
+  padding:10px 11px;
+  border-radius:9px;
+}
+.optimization-profile-adjustments>strong{
+  margin-bottom:8px;
+  font-size:9.4px;
+}
+.optimization-profile-actions{
+  grid-template-columns:1fr;
+  row-gap:5px;
+}
+.optimization-profile-action{
+  gap:7px;
+  font-size:9px;
+  line-height:1.33;
+}
+.optimization-profile-action svg{
+  width:12px;
+  height:12px;
+  flex:0 0 12px;
+}
+.optimization-profile-results{
+  margin-top:9px;
+  padding-top:8px;
+}
+.optimization-profile-results-label{
+  margin-bottom:6px;
+  font-size:7.2px;
+}
+.optimization-profile-result-chips{
+  gap:4px;
+}
+.optimization-profile-result-chips>span{
+  min-height:23px;
+  padding:4px 7px;
+  border-radius:6px;
+  font-size:7.8px;
+}
+.optimization-profile-result-chips>span:before{
+  margin-right:5px;
+}
+.optimization-profile-button{
+  min-height:38px;
+  margin-top:10px;
+  border-radius:7px;
+  font-size:10px;
+}
+.optimization-profile-button svg{
+  width:12px;
+  height:12px;
+}
+
+/* Mantém a visualização confortável em notebooks: 2 colunas antes de virar 1. */
+@media(max-width:1499px){
+  .optimization-profiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .optimization-profile-top{grid-template-columns:minmax(0,1.25fr) minmax(170px,.75fr);gap:14px}
+  .optimization-profile-actions{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px;row-gap:6px}
+  .optimization-profile{padding:16px}
+}
+@media(max-width:900px){
+  .optimization-profiles{grid-template-columns:1fr;padding:14px 16px 20px}
+  .optimization-profile-top{grid-template-columns:1fr}
+  .optimization-profile-actions{grid-template-columns:1fr}
+}
