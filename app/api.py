@@ -39,7 +39,7 @@ from .schemas import (
     UserCreate,
     UserUpdate,
 )
-from .update_service import maybe_enqueue_update_policy
+from .update_service import maybe_enqueue_update_policy, queue_agent_command
 from .security import (
     create_session_token,
     get_session_payload,
@@ -182,6 +182,92 @@ def sample_extra(sample: Telemetry | None) -> dict:
         return {}
 
 
+MAC_ADDRESS_RE = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$", re.IGNORECASE)
+
+
+def normalize_mac(value: object) -> str:
+    raw = str(value or "").strip().lower().replace("-", ":")
+    return raw if MAC_ADDRESS_RE.fullmatch(raw) else ""
+
+
+def device_wol_info(db: Session, device: Device) -> dict:
+    sample = latest_telemetry(db, device.id)
+    extra = sample_extra(sample)
+    return {
+        "mac_address": normalize_mac(extra.get("primary_mac")),
+        "network_cidr": str(extra.get("network_cidr") or "").strip(),
+        "relay_capable": bool(extra.get("wol_relay_capable")),
+        "ip_local": sample.ip_local if sample else None,
+    }
+
+
+def find_wake_relays(db: Session, target: Device) -> list[Device]:
+    target_info = device_wol_info(db, target)
+    network_cidr = target_info.get("network_cidr") or ""
+    mac_address = target_info.get("mac_address") or ""
+    if not network_cidr or not mac_address:
+        return []
+
+    peers = list(
+        db.scalars(
+            select(Device).where(
+                Device.company_id == target.company_id,
+                Device.active.is_(True),
+                Device.id != target.id,
+            )
+        ).all()
+    )
+    relays: list[Device] = []
+    for peer in peers:
+        if not device_online(peer):
+            continue
+        peer_info = device_wol_info(db, peer)
+        if not peer_info.get("relay_capable"):
+            continue
+        if peer_info.get("network_cidr") != network_cidr:
+            continue
+        relays.append(peer)
+    return relays
+
+
+def device_power_readiness(db: Session, device: Device) -> dict:
+    target_info = device_wol_info(db, device)
+    relays = find_wake_relays(db, device)
+    mesh_fallback = bool(
+        settings.remote_enabled
+        and meshcentral_client.provisioning_configured
+        and device.mesh_node_id
+    )
+    wake_verified = bool(relays)
+    wake_available = bool(wake_verified or mesh_fallback)
+    off_available = bool(mesh_fallback)
+    safe_to_power_off = bool(off_available and (wake_verified or not settings.power_require_verified_wake))
+
+    if not target_info.get("mac_address"):
+        reason = "O Agent ainda não informou o endereço MAC deste computador."
+    elif not target_info.get("network_cidr"):
+        reason = "O Agent ainda não identificou a sub-rede local deste computador."
+    elif not relays:
+        reason = "Não existe outro CoreControl Agent online na mesma rede para atuar como Wake Relay."
+    else:
+        reason = "Existe uma rota Wake-on-LAN verificada dentro da rede local."
+
+    return {
+        "mac_known": bool(target_info.get("mac_address")),
+        "network_cidr": target_info.get("network_cidr") or None,
+        "relay_available": wake_verified,
+        "relay_count": len(relays),
+        "relay_names": [relay.name for relay in relays[:5]],
+        "mesh_fallback": mesh_fallback,
+        "wake_available": wake_available,
+        "wake_verified": wake_verified,
+        "off_available": off_available,
+        "safe_to_power_off": safe_to_power_off,
+        "requires_verified_wake": settings.power_require_verified_wake,
+        "reason": reason,
+    }
+
+
 def remote_state(device: Device, sample: Telemetry | None) -> dict:
     extra = sample_extra(sample)
     installed = bool(extra.get("remote_agent_installed"))
@@ -270,6 +356,7 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "alerts_open": int(open_alerts),
         "telemetry": serialize_sample(sample),
         "remote": remote_state(device, sample),
+        "power": device_power_readiness(db, device),
     }
 
 
@@ -1258,6 +1345,15 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
     }
 
 
+@router.get("/devices/{device_id}/power-readiness")
+def device_power_readiness_endpoint(device_id: int, user: CurrentUser, db: Db):
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    return {"device_id": device.id, **device_power_readiness(db, device)}
+
+
 @router.post("/devices/{device_id}/power")
 def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db):
     require_roles(user, "platform_admin", "company_admin", "technician")
@@ -1269,33 +1365,86 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     requested = (action or "").strip().lower()
     if requested not in {"wake", "off"}:
         raise HTTPException(status_code=400, detail="Ação de energia inválida")
-    if not settings.remote_enabled or not meshcentral_client.provisioning_configured:
-        raise HTTPException(
-            status_code=503,
-            detail="O controle de energia exige a integração remota do CoreControl configurada.",
-        )
 
-    try:
-        refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
-    except MeshCentralCommandError as exc:
-        raise HTTPException(status_code=503, detail=f"MeshCentral indisponível: {exc}") from exc
+    mesh_ready = bool(
+        settings.remote_enabled
+        and meshcentral_client.provisioning_configured
+        and device.mesh_node_id
+    )
+    if mesh_ready:
+        try:
+            refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
+        except MeshCentralCommandError as exc:
+            if requested == "off":
+                raise HTTPException(status_code=503, detail=f"MeshCentral indisponível: {exc}") from exc
 
-    if not device.mesh_node_id:
-        raise HTTPException(
-            status_code=409,
-            detail="Este computador ainda não possui vínculo remoto válido para controle de energia.",
-        )
-
-    currently_on = bool(device.remote_online)
+    currently_on = bool(device.remote_online) if mesh_ready else device_online(device)
     if requested == "off" and not currently_on:
-        raise HTTPException(status_code=409, detail="O computador já aparece desligado/offline no acesso remoto.")
+        raise HTTPException(status_code=409, detail="O computador já aparece desligado/offline.")
     if requested == "wake" and currently_on:
-        raise HTTPException(status_code=409, detail="O computador já aparece ligado no acesso remoto.")
+        raise HTTPException(status_code=409, detail="O computador já aparece ligado.")
 
-    try:
-        meshcentral_client.device_power(device.mesh_node_id, requested)
-    except MeshCentralCommandError as exc:
-        raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {exc}") from exc
+    readiness = device_power_readiness(db, device)
+    methods: list[str] = []
+    relay_ids: list[int] = []
+
+    if requested == "off":
+        if not mesh_ready:
+            raise HTTPException(
+                status_code=503,
+                detail="O desligamento remoto exige o vínculo MeshCentral deste computador.",
+            )
+        if settings.power_require_verified_wake and not readiness["safe_to_power_off"]:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Desligamento bloqueado por segurança: não existe uma rota verificada para ligar este PC novamente. "
+                    + readiness["reason"]
+                ),
+            )
+        try:
+            meshcentral_client.device_power(device.mesh_node_id, "off")
+        except MeshCentralCommandError as exc:
+            raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {exc}") from exc
+        methods.append("meshcentral_off")
+    else:
+        target_info = device_wol_info(db, device)
+        mac_address = target_info.get("mac_address") or ""
+        relays = find_wake_relays(db, device) if mac_address else []
+        for relay in relays[:3]:
+            queue_agent_command(
+                db,
+                relay,
+                "power.wake_peer",
+                {
+                    "mac_address": mac_address,
+                    "target_device_id": device.id,
+                    "target_name": device.name,
+                },
+                created_by=user.id,
+                deduplicate=False,
+            )
+            relay_ids.append(relay.id)
+        if relay_ids:
+            methods.append("corecontrol_lan_relay")
+
+        if mesh_ready:
+            try:
+                meshcentral_client.device_power(device.mesh_node_id, "wake")
+                methods.append("meshcentral_wake")
+            except MeshCentralCommandError:
+                # O relay CoreControl continua válido mesmo se o fallback MeshCentral falhar.
+                if not relay_ids:
+                    raise HTTPException(status_code=503, detail="Não foi possível enviar o Wake-on-LAN pelo MeshCentral.")
+
+        if not methods:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Não existe uma rota disponível para Wake-on-LAN. "
+                    + readiness["reason"]
+                ),
+            )
 
     action_name = "power.wake.sent" if requested == "wake" else "power.off.sent"
     db.add(
@@ -1309,6 +1458,9 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     "hostname": device.hostname,
                     "mesh_node_id": device.mesh_node_id,
                     "requested_action": requested,
+                    "methods": methods,
+                    "relay_device_ids": relay_ids,
+                    "wake_verified": readiness["wake_verified"],
                 },
                 ensure_ascii=False,
             ),
@@ -1322,8 +1474,12 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         "device_name": device.name,
         "action": requested,
         "status": "sent",
+        "methods": methods,
+        "wake_verified": readiness["wake_verified"],
         "message": (
-            "Sinal para ligar enviado. O CoreControl acompanhará o computador até ele voltar online."
+            "Wake-on-LAN enviado pela rede local e pelo fallback disponível. O CoreControl acompanhará até o computador voltar online."
+            if requested == "wake" and relay_ids
+            else "Sinal para ligar enviado. O CoreControl acompanhará o computador até ele voltar online."
             if requested == "wake"
             else "Comando para desligar enviado. O CoreControl acompanhará até o computador ficar offline."
         ),

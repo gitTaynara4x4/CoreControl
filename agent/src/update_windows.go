@@ -75,6 +75,8 @@ var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 func executeAgentCommand(command pendingCommand) (map[string]interface{}, error) {
 	switch command.Type {
+	case "power.wake_peer":
+		return executeWakePeerCommand(command)
 	case "updates.scan":
 		result, err := scanUpdates()
 		if err != nil {

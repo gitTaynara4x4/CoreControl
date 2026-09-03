@@ -1,0 +1,16 @@
+CoreControl v10.12 - Safe Wake Relay
+
+OK - Agent 0.9.4 coleta MAC e network_cidr
+OK - Agent executa power.wake_peer sem comandos arbitrarios
+OK - Wake Relay envia magic packet UDP 9 e 7
+OK - servidor seleciona apenas relay online da mesma empresa e mesma CIDR
+OK - MeshCentral continua como fallback
+OK - desligamento e bloqueado quando nao existe rota de wake verificada
+OK - endpoint GET /api/devices/{id}/power-readiness
+OK - frontend consulta readiness antes de desligar
+OK - 5/5 testes power control
+OK - go test agent
+OK - CoreControlAgent.exe Windows x64 recompilado
+
+Observacao fisica:
+Wake-on-LAN ainda depende de BIOS/UEFI e NIC habilitadas. Para uma rede com apenas um PC e nenhum roteador/AMT capaz de WOL, e necessario adicionar um relay sempre ligado.

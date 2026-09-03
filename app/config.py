@@ -90,6 +90,7 @@ class Settings:
     remote_agent_cache_seconds: int = _int_env("CORETUNER_REMOTE_AGENT_CACHE_SECONDS", 86400)
     remote_status_cache_seconds: int = _int_env("CORETUNER_REMOTE_STATUS_CACHE_SECONDS", 15)
     remote_status_stale_seconds: int = _int_env("CORETUNER_REMOTE_STATUS_STALE_SECONDS", 120)
+    power_require_verified_wake: bool = _bool_env("CORETUNER_POWER_REQUIRE_VERIFIED_WAKE", True)
     remote_agent_cache_dir: str = os.getenv(
         "CORETUNER_REMOTE_AGENT_CACHE_DIR",
         str(Path(os.getenv("CORETUNER_DATA_DIR", "./data")).resolve() / "remote-agents"),

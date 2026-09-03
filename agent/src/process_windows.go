@@ -218,7 +218,7 @@ func collectWindowsSnapshotNative() (MachineSnapshot, error) {
 		snapshot.UptimeSeconds = &uptime
 	}
 
-	snapshot.IPLocal, snapshot.NetworkName = primaryNetwork()
+	snapshot.IPLocal, snapshot.NetworkName, snapshot.PrimaryMAC, snapshot.NetworkCIDR = primaryNetworkDetails()
 	if value, known := serviceIsRunning("WinDefend"); known {
 		snapshot.DefenderActive = boolPtr(value)
 	}
@@ -276,10 +276,10 @@ func readLocalProfile() string {
 	return strings.TrimSpace(value.Profile)
 }
 
-func primaryNetwork() (string, string) {
+func primaryNetworkDetails() (string, string, string, string) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		return "", ""
+		return "", "", "", ""
 	}
 	for _, iface := range interfaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
@@ -287,21 +287,29 @@ func primaryNetwork() (string, string) {
 		}
 		addrs, _ := iface.Addrs()
 		for _, addr := range addrs {
-			var ip net.IP
-			switch value := addr.(type) {
-			case *net.IPNet:
-				ip = value.IP
-			case *net.IPAddr:
-				ip = value.IP
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
 			}
-			v4 := ip.To4()
+			v4 := ipNet.IP.To4()
 			if v4 == nil || v4[0] == 169 && v4[1] == 254 {
 				continue
 			}
-			return v4.String(), iface.Name
+			ones, bits := ipNet.Mask.Size()
+			cidr := ""
+			if ones >= 0 && bits == 32 {
+				network := v4.Mask(ipNet.Mask)
+				cidr = fmt.Sprintf("%s/%d", network.String(), ones)
+			}
+			return v4.String(), iface.Name, strings.ToLower(iface.HardwareAddr.String()), cidr
 		}
 	}
-	return "", ""
+	return "", "", "", ""
+}
+
+func primaryNetwork() (string, string) {
+	ip, name, _, _ := primaryNetworkDetails()
+	return ip, name
 }
 
 func sampleCPU(wait time.Duration) float64 {

@@ -163,9 +163,18 @@
   CT.requestDevicePower = async function requestDevicePower(device, action) {
     const normalized = String(action || '').toLowerCase();
     if (!device?.id || !['wake', 'off'].includes(normalized)) throw new Error('Ação de energia inválida.');
+    const readiness = await CT.api(`/devices/${device.id}/power-readiness`);
     if (normalized === 'off') {
-      const accepted = window.confirm(`Desligar ${device.name || 'este computador'}?\n\nO CoreControl enviará o comando de desligamento remoto e acompanhará até o computador ficar offline.`);
+      if (readiness.requires_verified_wake && !readiness.safe_to_power_off) {
+        throw new Error(`Desligamento bloqueado por segurança. ${readiness.reason || 'Não existe uma rota verificada para ligar este PC novamente.'}`);
+      }
+      const relayText = readiness.relay_count
+        ? `\n\nWake Relay verificado: ${readiness.relay_names?.join(', ') || `${readiness.relay_count} computador(es)`}.`
+        : '';
+      const accepted = window.confirm(`Desligar ${device.name || 'este computador'}?\n\nO CoreControl só permite o desligamento total quando existe uma rota segura para ligá-lo novamente.${relayText}`);
       if (!accepted) return null;
+    } else if (!readiness.wake_available) {
+      throw new Error(readiness.reason || 'Não existe uma rota disponível para Wake-on-LAN.');
     }
     return CT.api(`/devices/${device.id}/power?action=${encodeURIComponent(normalized)}`, { method: 'POST' });
   };

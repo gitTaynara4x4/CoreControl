@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.9.3"
+const agentVersion = "0.9.4"
 
 type Config struct {
 	ServerURL         string `json:"server_url"`
@@ -60,6 +60,8 @@ type MachineSnapshot struct {
 	UptimeSeconds        *int64   `json:"uptime_seconds"`
 	IPLocal              string   `json:"ip_local"`
 	NetworkName          string   `json:"network_name"`
+	PrimaryMAC           string   `json:"primary_mac,omitempty"`
+	NetworkCIDR          string   `json:"network_cidr,omitempty"`
 	DefenderActive       *bool    `json:"defender_active"`
 	FirewallActive       *bool    `json:"firewall_active"`
 	Profile              string   `json:"profile"`
@@ -369,6 +371,9 @@ func (a *Agent) runCycle() (string, error) {
 			"gpu_memory_used_mb":     snapshot.GPUMemoryUsedMB,
 			"gpu_memory_total_mb":    snapshot.GPUMemoryTotalMB,
 			"gpu_driver_version":     snapshot.GPUDriverVersion,
+			"primary_mac":            snapshot.PrimaryMAC,
+			"network_cidr":           snapshot.NetworkCIDR,
+			"wol_relay_capable":      true,
 		},
 	}
 	if err := a.postJSON("/api/agent/telemetry", payload, a.cfg.AgentSecret, nil); err != nil {

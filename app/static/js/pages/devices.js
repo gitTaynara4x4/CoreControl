@@ -1184,14 +1184,19 @@
     if (['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role)) {
       const powerOn = CT.devicePowerIsOn(device);
       const powerAction = powerOn ? 'off' : 'wake';
-      const powerAvailable = Boolean(device.remote?.enabled && device.remote?.mesh_node_id);
+      const powerState = device.power || {};
+      const powerAvailable = powerOn
+        ? Boolean(powerState.off_available && powerState.safe_to_power_off)
+        : Boolean(powerState.wake_available);
       devicePowerBtn.classList.remove('hidden', 'primary', 'danger');
       devicePowerBtn.classList.add(powerOn ? 'danger' : 'primary');
       devicePowerBtn.textContent = powerOn ? 'Desligar computador' : 'Ligar computador';
       devicePowerBtn.disabled = !powerAvailable;
       devicePowerBtn.title = powerAvailable
-        ? (powerOn ? 'Desligar este computador remotamente.' : 'Enviar Wake-on-LAN para este computador.')
-        : 'O computador ainda não possui vínculo remoto disponível para controle de energia.';
+        ? (powerOn
+          ? `Desligamento protegido por Wake Relay${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`
+          : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
+        : (powerState.reason || 'Não existe uma rota segura disponível para esta ação de energia.');
       devicePowerBtn.onclick = async () => {
         const originalText = devicePowerBtn.textContent;
         try {
@@ -1199,13 +1204,13 @@
           if (!response) return;
           devicePowerBtn.disabled = true;
           devicePowerBtn.textContent = powerAction === 'wake' ? 'Ligando...' : 'Desligando...';
-          CT.toast(powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.');
+          CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
           const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake');
           if (watched.changed) {
             CT.toast(powerAction === 'wake' ? 'Computador online.' : 'Computador desligado.');
           } else {
             CT.toast(powerAction === 'wake'
-              ? 'O sinal foi enviado, mas o computador ainda não ficou online. Verifique Wake-on-LAN e se existe outro Agent online na mesma rede.'
+              ? 'O Wake-on-LAN foi enviado, mas o computador ainda não ficou online. Verifique se o WOL está habilitado na BIOS/UEFI e na placa de rede.'
               : 'O comando foi enviado, mas o CoreControl ainda não confirmou que o computador ficou offline.', true);
           }
           return CT.navigate('device', device.id);
