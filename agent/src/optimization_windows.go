@@ -221,6 +221,68 @@ func optimizationBuildPlan(profile int, onBattery bool) (optimizationPlan, error
 	return plan, nil
 }
 
+func optimizationNotificationCopy(profile int) (string, string) {
+	switch profile {
+	case 1:
+		return "Conservador ativado", "Seu computador foi otimizado com ajustes leves e seguros."
+	case 2:
+		return "Equilibrado ativado", "Desempenho e consumo foram ajustados para o trabalho diário."
+	case 3:
+		return "Modo Atendimento ativado", "O computador foi preparado para priorizar seus aplicativos de trabalho."
+	case 4:
+		return "Alto Desempenho ativado", "O computador foi otimizado para maior desempenho."
+	case 5:
+		return "Otimização desativada", "As configurações anteriores do computador foram restauradas."
+	default:
+		return "", ""
+	}
+}
+
+func optimizationPowerShellSingleQuoted(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+// optimizationNotifyUser exibe uma notificação discreta no Windows do usuário logado.
+// O comando é iniciado em segundo plano para não atrasar a resposta do Agent ao painel.
+func optimizationNotifyUser(profile int) {
+	title, body := optimizationNotificationCopy(profile)
+	if title == "" || body == "" {
+		return
+	}
+
+	script := fmt.Sprintf(`
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$n = New-Object System.Windows.Forms.NotifyIcon
+$n.Icon = [System.Drawing.SystemIcons]::Information
+$n.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+$n.BalloonTipTitle = %s
+$n.BalloonTipText = %s
+$n.Text = 'CoreControl'
+$n.Visible = $true
+$n.ShowBalloonTip(7000)
+Start-Sleep -Seconds 8
+$n.Visible = $false
+$n.Dispose()
+`, optimizationPowerShellSingleQuoted("CoreControl — "+title), optimizationPowerShellSingleQuoted(body))
+
+	cmd := optimizationHiddenCommand(
+		"powershell.exe",
+		"-NoProfile",
+		"-NonInteractive",
+		"-STA",
+		"-ExecutionPolicy", "Bypass",
+		"-Command", script,
+	)
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	if cmd.Process != nil {
+		_ = cmd.Process.Release()
+	}
+}
+
 func optimizationDataDir() string {
 	if local := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); local != "" {
 		return filepath.Join(local, "CoreTuner")
@@ -965,6 +1027,7 @@ func applyOptimizationProfile(profile int) (optimizationResult, error) {
 	if len(result.Changed) == 0 {
 		return result, errors.New("nenhum ajuste pôde ser aplicado; as configurações originais permanecem salvas")
 	}
+	optimizationNotifyUser(profile)
 	return result, nil
 }
 
@@ -1044,5 +1107,6 @@ func restoreOptimizationOriginal() (optimizationResult, error) {
 	optimizationDiagnosticsCopyDeep(before, &after)
 	result.DiagnosticsAfter = &after
 	result.Summary = &optimizationSummary{AnalyzedItems: after.CheckedItems, AppliedAdjustments: len(result.Changed), Bottlenecks: len(after.Bottlenecks), Opportunities: len(after.Opportunities), MemoryDeltaMB: after.MemoryAvailableMB - before.MemoryAvailableMB, DiskDeltaMB: round2((after.DiskFreeGB - before.DiskFreeGB) * 1024)}
+	optimizationNotifyUser(5)
 	return result, nil
 }
