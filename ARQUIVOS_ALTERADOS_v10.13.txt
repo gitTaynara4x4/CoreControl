@@ -1,0 +1,14 @@
+CoreControl v10.13 - arquivos alterados
+
+agent/src/main.go
+agent/src/wol_capability.go
+agent/src/wol_capability_windows.go
+agent/src/wol_capability_other.go
+app/api.py
+app/static/js/pages/devices.js
+app/static/index.html
+app/downloads/CoreControlAgent.exe
+app/downloads/CoreTunerAgent.exe
+tests/test_power_control.py
+VALIDACAO-v10.13.txt
+ARQUIVOS_ALTERADOS_v10.13.txt

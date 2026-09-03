@@ -1,0 +1,36 @@
+CoreControl v10.13 - WOL Preflight Automatico
+
+OBJETIVO
+- Preparar e diagnosticar automaticamente Wake-on-LAN no computador monitorado.
+- Separar claramente "PC preparado para WOL" de "rota de wake confirmada".
+- Nao liberar desligamento total no escuro quando nao houver como confirmar a volta.
+
+AGENT 0.9.5
+OK - identifica a placa correspondente ao MAC principal
+OK - detecta Ethernet/Wi-Fi
+OK - consulta Get-NetAdapterPowerManagement
+OK - tenta habilitar WakeOnMagicPacket quando o driver permite
+OK - consulta powercfg wake_programmable e wake_armed
+OK - tenta powercfg /deviceenablewake quando permitido
+OK - procura propriedade do driver relacionada a S5/Shutdown Wake
+OK - detecta indicios locais de Intel AMT/vPro
+OK - publica wol_capability na telemetria
+OK - diagnostico fica em cache por 10 minutos para nao pesar no PC
+
+CENTRAL
+OK - power-readiness agora informa pc_wol_prepared, wake_armed, magic_packet_enabled,
+     link_type, s5_driver_hint, intel_amt_detected e capability_reason
+OK - tela do computador mostra o diagnostico de WOL em Protecoes e capacidade
+OK - continua bloqueando desligamento quando existe apenas preparacao local, mas nenhuma
+     rota confirmada para entregar o Magic Packet depois do PC desligar
+
+TESTES
+OK - tests/test_power_control.py: 7 passed
+OK - go test ./...: passed
+OK - build Windows x64 GUI do CoreControlAgent.exe 0.9.5: passed
+INFO - suite completa: 26 falhas antigas / 60 testes aprovados, mesmo total de falhas da v10.12
+
+IMPORTANTE
+A preparacao local do Windows nao prova que um pacote vindo da Internet conseguira atravessar
+qualquer roteador/NAT depois que o unico PC da rede estiver desligado. O CoreControl nao chama
+isso de "garantido" sem uma rota de entrega confirmada.

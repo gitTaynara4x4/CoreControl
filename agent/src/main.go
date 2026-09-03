@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.9.4"
+const agentVersion = "0.9.5"
 
 type Config struct {
 	ServerURL         string `json:"server_url"`
@@ -341,6 +341,7 @@ func (a *Agent) runCycle() (string, error) {
 	}
 
 	activity := collectForegroundActivity()
+	wolCapability := collectWOLCapability(snapshot.PrimaryMAC)
 	payload := telemetryRequest{
 		DeviceUID:      snapshot.DeviceUID,
 		CPUPercent:     snapshot.CPUPercent,
@@ -374,6 +375,7 @@ func (a *Agent) runCycle() (string, error) {
 			"primary_mac":            snapshot.PrimaryMAC,
 			"network_cidr":           snapshot.NetworkCIDR,
 			"wol_relay_capable":      true,
+			"wol_capability":         wolCapability,
 		},
 	}
 	if err := a.postJSON("/api/agent/telemetry", payload, a.cfg.AgentSecret, nil); err != nil {

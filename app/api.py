@@ -193,11 +193,29 @@ def normalize_mac(value: object) -> str:
 def device_wol_info(db: Session, device: Device) -> dict:
     sample = latest_telemetry(db, device.id)
     extra = sample_extra(sample)
+    capability = extra.get("wol_capability")
+    capability = capability if isinstance(capability, dict) else {}
     return {
         "mac_address": normalize_mac(extra.get("primary_mac")),
         "network_cidr": str(extra.get("network_cidr") or "").strip(),
         "relay_capable": bool(extra.get("wol_relay_capable")),
         "ip_local": sample.ip_local if sample else None,
+        "capability_checked": bool(capability.get("checked")),
+        "capability_checked_at": str(capability.get("checked_at") or "").strip() or None,
+        "adapter_name": str(capability.get("adapter_name") or "").strip() or None,
+        "interface_description": str(capability.get("interface_description") or "").strip() or None,
+        "link_type": str(capability.get("link_type") or "").strip().lower() or "unknown",
+        "magic_packet_supported": bool(capability.get("magic_packet_supported")),
+        "magic_packet_enabled": bool(capability.get("magic_packet_enabled")),
+        "wake_programmable": bool(capability.get("wake_programmable")),
+        "wake_armed": bool(capability.get("wake_armed")),
+        "s5_driver_hint": bool(capability.get("s5_driver_hint")),
+        "intel_amt_detected": bool(capability.get("intel_amt_detected")),
+        "auto_configured": bool(capability.get("auto_configured")),
+        "windows_prepared": bool(capability.get("windows_prepared")),
+        "firmware_needs_check": bool(capability.get("firmware_needs_check", True)),
+        "capability_reason": str(capability.get("reason") or "").strip(),
+        "capability_error": str(capability.get("error") or "").strip(),
     }
 
 
@@ -238,6 +256,14 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         and meshcentral_client.provisioning_configured
         and device.mesh_node_id
     )
+
+    # "PC preparado" e "rota confirmada" são coisas diferentes. O Agent pode
+    # habilitar/validar a placa local, mas um PC totalmente desligado ainda
+    # precisa receber o Magic Packet pela rede ou possuir gerenciamento
+    # out-of-band realmente provisionado. Não marcamos isso como garantido só
+    # porque o MeshCentral aceita o comando --wake.
+    pc_wol_prepared = bool(target_info.get("windows_prepared"))
+    amt_detected = bool(target_info.get("intel_amt_detected"))
     wake_verified = bool(relays)
     wake_available = bool(wake_verified or mesh_fallback)
     off_available = bool(mesh_fallback)
@@ -245,16 +271,52 @@ def device_power_readiness(db: Session, device: Device) -> dict:
 
     if not target_info.get("mac_address"):
         reason = "O Agent ainda não informou o endereço MAC deste computador."
-    elif not target_info.get("network_cidr"):
-        reason = "O Agent ainda não identificou a sub-rede local deste computador."
-    elif not relays:
-        reason = "Não existe outro CoreControl Agent online na mesma rede para atuar como Wake Relay."
+    elif not target_info.get("capability_checked"):
+        reason = "Aguardando o Agent 0.9.5 concluir o diagnóstico automático de Wake-on-LAN."
+    elif not pc_wol_prepared:
+        reason = target_info.get("capability_reason") or "A placa de rede ainda não ficou preparada para Wake-on-LAN no Windows."
+    elif relays:
+        reason = "PC preparado e existe uma rota Wake-on-LAN verificada dentro da rede local."
+    elif amt_detected:
+        reason = (
+            "O PC parece possuir Intel AMT/vPro e está preparado para WOL, mas o CoreControl ainda não confirmou o gerenciamento "
+            "out-of-band deste equipamento. O desligamento permanece protegido até essa rota ser provisionada."
+        )
+    elif target_info.get("link_type") == "wifi":
+        reason = (
+            "O Windows está preparado para wake, mas este PC está usando Wi-Fi. Wake após desligamento total por Wi-Fi depende do "
+            "hardware/firmware e ainda não há uma rota externa confirmada."
+        )
+    elif target_info.get("s5_driver_hint"):
+        reason = (
+            "O PC está preparado para Magic Packet e o driver anuncia recurso relacionado a wake após desligamento, mas ainda não "
+            "existe uma rota externa confirmada para entregar o pacote quando este for o único PC ligado na rede."
+        )
     else:
-        reason = "Existe uma rota Wake-on-LAN verificada dentro da rede local."
+        reason = (
+            "O PC está preparado para Wake-on-LAN no Windows, mas ainda não existe uma rota externa confirmada para entregar o "
+            "Magic Packet depois que ele ficar totalmente desligado."
+        )
 
     return {
         "mac_known": bool(target_info.get("mac_address")),
         "network_cidr": target_info.get("network_cidr") or None,
+        "adapter_name": target_info.get("adapter_name"),
+        "interface_description": target_info.get("interface_description"),
+        "link_type": target_info.get("link_type") or "unknown",
+        "capability_checked": bool(target_info.get("capability_checked")),
+        "capability_checked_at": target_info.get("capability_checked_at"),
+        "magic_packet_supported": bool(target_info.get("magic_packet_supported")),
+        "magic_packet_enabled": bool(target_info.get("magic_packet_enabled")),
+        "wake_programmable": bool(target_info.get("wake_programmable")),
+        "wake_armed": bool(target_info.get("wake_armed")),
+        "pc_wol_prepared": pc_wol_prepared,
+        "s5_driver_hint": bool(target_info.get("s5_driver_hint")),
+        "intel_amt_detected": amt_detected,
+        "auto_configured": bool(target_info.get("auto_configured")),
+        "firmware_needs_check": bool(target_info.get("firmware_needs_check")),
+        "capability_reason": target_info.get("capability_reason") or None,
+        "capability_error": target_info.get("capability_error") or None,
         "relay_available": wake_verified,
         "relay_count": len(relays),
         "relay_names": [relay.name for relay in relays[:5]],

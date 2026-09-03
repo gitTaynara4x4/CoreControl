@@ -1160,6 +1160,16 @@
       CT.info('Perfil aplicado', device.profile || 'Nenhum'),
     ].join('');
 
+    const powerState = device.power || {};
+    const wolStatus = !powerState.capability_checked
+      ? 'Aguardando diagnóstico do Agent'
+      : powerState.pc_wol_prepared
+        ? 'Preparado no Windows'
+        : 'Ainda não preparado';
+    const wakeRouteStatus = powerState.wake_verified
+      ? `Confirmada${powerState.relay_names?.length ? ` · ${powerState.relay_names.join(', ')}` : ''}`
+      : 'Ainda não confirmada';
+
     CT.$('#deviceProtection').innerHTML = [
       CT.info('Memória instalada', telemetry.memory_total_gb == null ? '—' : `${CT.fmtNum(telemetry.memory_total_gb, 1)} GB`),
       CT.info('Memória usada', telemetry.memory_used_gb == null ? '—' : `${CT.fmtNum(telemetry.memory_used_gb, 1)} GB`),
@@ -1167,6 +1177,12 @@
       CT.info('Espaço livre', telemetry.disk_free_gb == null ? '—' : `${CT.fmtNum(telemetry.disk_free_gb, 1)} GB`),
       CT.info('Microsoft Defender', telemetry.defender_active == null ? 'Não informado' : telemetry.defender_active ? 'Ativo' : 'Desativado'),
       CT.info('Firewall', telemetry.firewall_active == null ? 'Não informado' : telemetry.firewall_active ? 'Ativo' : 'Desativado'),
+      CT.info('Wake-on-LAN', wolStatus),
+      CT.info('Placa de rede', powerState.interface_description || powerState.adapter_name || 'Não identificada'),
+      CT.info('Magic Packet', powerState.magic_packet_enabled ? 'Habilitado' : powerState.capability_checked ? 'Não habilitado' : 'Verificando'),
+      CT.info('Placa armada para wake', powerState.wake_armed ? 'Sim' : powerState.capability_checked ? 'Não' : 'Verificando'),
+      CT.info('Intel AMT / vPro', powerState.intel_amt_detected ? 'Detectado · falta validar gerenciamento' : 'Não detectado'),
+      CT.info('Rota para ligar após desligar', wakeRouteStatus),
     ].join('');
 
     CT.$('#deviceRemoteLabel').innerHTML = CT.remoteLabel(device);
@@ -1184,7 +1200,6 @@
     if (['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role)) {
       const powerOn = CT.devicePowerIsOn(device);
       const powerAction = powerOn ? 'off' : 'wake';
-      const powerState = device.power || {};
       const powerAvailable = powerOn
         ? Boolean(powerState.off_available && powerState.safe_to_power_off)
         : Boolean(powerState.wake_available);

@@ -76,3 +76,28 @@ def test_frontend_requires_safe_wake_route_before_shutdown():
     assert 'Wake Relay verificado' in ui
     assert 'powerState.safe_to_power_off' in overview
     assert 'powerState.safe_to_power_off' in devices
+
+
+def test_agent_095_audits_and_prepares_wol_without_claiming_full_shutdown_guarantee():
+    main = (ROOT / "agent/src/main.go").read_text(encoding="utf-8")
+    windows = (ROOT / "agent/src/wol_capability_windows.go").read_text(encoding="utf-8")
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+
+    assert 'const agentVersion = "0.9.5"' in main
+    assert '"wol_capability"' in main
+    assert "Get-NetAdapterPowerManagement" in windows
+    assert "Set-NetAdapterPowerManagement" in windows
+    assert "powercfg.exe /deviceenablewake" in windows
+    assert "wake_armed" in windows
+    assert "intel_amt_detected" in windows
+    assert "pc_wol_prepared" in api
+    assert "rota externa confirmada" in api
+
+
+def test_device_detail_exposes_wol_preflight_status():
+    devices = (ROOT / "app/static/js/pages/devices.js").read_text(encoding="utf-8")
+    assert "Wake-on-LAN" in devices
+    assert "Magic Packet" in devices
+    assert "Placa armada para wake" in devices
+    assert "Intel AMT / vPro" in devices
+    assert "Rota para ligar após desligar" in devices
