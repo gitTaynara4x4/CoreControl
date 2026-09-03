@@ -154,6 +154,37 @@
     return CT.api(`/devices/${deviceId}/remote-session`, { method: 'POST' });
   };
 
+  CT.devicePowerIsOn = function devicePowerIsOn(device) {
+    const remote = device?.remote || {};
+    if (remote.enabled && remote.mesh_node_id && remote.checked_at) return Boolean(remote.mesh_connected);
+    return Boolean(device?.online);
+  };
+
+  CT.requestDevicePower = async function requestDevicePower(device, action) {
+    const normalized = String(action || '').toLowerCase();
+    if (!device?.id || !['wake', 'off'].includes(normalized)) throw new Error('Ação de energia inválida.');
+    if (normalized === 'off') {
+      const accepted = window.confirm(`Desligar ${device.name || 'este computador'}?\n\nO CoreControl enviará o comando de desligamento remoto e acompanhará até o computador ficar offline.`);
+      if (!accepted) return null;
+    }
+    return CT.api(`/devices/${device.id}/power?action=${encodeURIComponent(normalized)}`, { method: 'POST' });
+  };
+
+  CT.waitForDevicePower = async function waitForDevicePower(deviceId, expectedOn, options = {}) {
+    const attempts = Math.max(1, Number(options.attempts || 30));
+    const delayMs = Math.max(1000, Number(options.delayMs || 3000));
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+      try {
+        const status = await CT.api(`/devices/${deviceId}/remote-status`);
+        if (Boolean(status.mesh_connected) === Boolean(expectedOn)) return { changed: true, status };
+      } catch (_) {
+        // Durante inicialização/desligamento o serviço pode oscilar por alguns segundos.
+      }
+    }
+    return { changed: false, status: null };
+  };
+
   CT.openRemoteSession = async function openRemoteSession(deviceId) {
     const viewer = CT.$('#remoteViewer');
     const frame = CT.$('#remoteViewerFrame');

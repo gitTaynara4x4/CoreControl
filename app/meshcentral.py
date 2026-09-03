@@ -330,6 +330,29 @@ class MeshCentralClient:
             raise MeshCentralCommandError(safe_output or f"O comando {action} falhou.")
         return output
 
+    def device_power(self, node_id: str, action: str) -> str:
+        """Send a power action to a MeshCentral-managed device.
+
+        ``wake`` asks MeshCentral to emit Wake-on-LAN through available agents
+        on the same network (or another supported out-of-band path). ``off``
+        requests a remote power off for an online device.
+        """
+        clean_node = (node_id or "").strip()
+        if not clean_node:
+            raise MeshCentralCommandError("O computador não possui identificador remoto para controle de energia.")
+        flags = {
+            "wake": "--wake",
+            "off": "--off",
+        }
+        flag = flags.get((action or "").strip().lower())
+        if not flag:
+            raise MeshCentralCommandError("A ação de energia solicitada não é permitida.")
+        return self._meshctrl_command(
+            "DevicePower",
+            [flag, "--id", clean_node],
+            timeout=max(20, settings.remote_command_timeout_seconds),
+        )
+
     def _list_users(self) -> list[dict[str, Any]]:
         output = self._meshctrl_command("ListUsers", ["--json"])
         value = _json_from_output(output)
