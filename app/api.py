@@ -243,6 +243,13 @@ def serialize_sample(sample: Telemetry | None) -> dict | None:
 def serialize_device(db: Session, device: Device, include_sample: bool = True) -> dict:
     online = device_online(device)
     sample = latest_telemetry(db, device.id) if include_sample else None
+    mesh_power_online = bool(device.mesh_node_id and device.remote_online)
+    power_available = bool(
+        settings.remote_enabled
+        and meshcentral_client.provisioning_configured
+        and device.mesh_node_id
+    )
+    powered_on = bool(online or mesh_power_online)
     open_alerts = db.scalar(
         select(func.count(Alert.id)).where(Alert.device_id == device.id, Alert.status.in_(["open", "acknowledged"]))
     ) or 0
@@ -270,6 +277,12 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "alerts_open": int(open_alerts),
         "telemetry": serialize_sample(sample),
         "remote": remote_state(device, sample),
+        "power": {
+            "available": power_available,
+            "powered_on": powered_on,
+            "state": "online" if powered_on else "offline",
+            "action": "off" if powered_on else "wake",
+        },
     }
 
 
@@ -615,6 +628,8 @@ def _dashboard_company_operations(user: CurrentUser, db: Session, devices: list[
         or_(
             AuditLog.action.in_([
                 "remote.session.request",
+                "power.wake.request",
+                "power.off.request",
                 "alert.acknowledge",
                 "agent.enroll",
                 "device.update",
@@ -1094,6 +1109,101 @@ def get_device(device_id: int, user: CurrentUser, db: Db):
     result["history"] = [serialize_sample(sample) for sample in reversed(samples)]
     result["company_name"] = db.get(Company, device.company_id).name
     return result
+
+
+@router.post("/devices/{device_id}/power/{power_action}")
+def control_device_power(device_id: int, power_action: str, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin", "technician")
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+
+    action = (power_action or "").strip().lower()
+    if action not in {"wake", "off"}:
+        raise HTTPException(status_code=400, detail="Ação de energia inválida")
+    if not settings.remote_enabled or not meshcentral_client.provisioning_configured:
+        raise HTTPException(
+            status_code=409,
+            detail="O controle de energia exige o acesso remoto do CoreControl configurado.",
+        )
+
+    try:
+        refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
+    except (MeshCentralCommandError, MeshCentralTokenError) as exc:
+        raise HTTPException(status_code=502, detail=f"Não foi possível consultar o computador remoto: {exc}") from exc
+    db.refresh(device)
+
+    if not device.mesh_node_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Este computador ainda não possui vínculo remoto suficiente para controlar a energia.",
+        )
+
+    currently_on = bool(device_online(device) or device.remote_online)
+    if action == "off" and not currently_on:
+        return {"ok": True, "action": "off", "already": True, "message": "O computador já está offline."}
+    if action == "wake" and currently_on:
+        return {"ok": True, "action": "wake", "already": True, "message": "O computador já está ligado."}
+
+    relay_count = 0
+    if action == "wake":
+        company = db.get(Company, device.company_id)
+        if company and company.mesh_group_id:
+            try:
+                remote_devices = meshcentral_client.list_group_devices(company.mesh_group_id, force=True)
+                relay_count = sum(1 for item in remote_devices if item.connected and item.node_id != device.mesh_node_id)
+            except MeshCentralCommandError:
+                relay_count = 0
+
+    mesh_args = ["--wake" if action == "wake" else "--off", "--id", device.mesh_node_id]
+    try:
+        output = meshcentral_client._meshctrl_command("DevicePower", mesh_args, timeout=45)
+    except (MeshCentralCommandError, MeshCentralTokenError) as exc:
+        label = "ligar" if action == "wake" else "desligar"
+        raise HTTPException(status_code=502, detail=f"Não foi possível {label} o computador: {exc}") from exc
+
+    db.add(
+        AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action="power.wake.request" if action == "wake" else "power.off.request",
+            details=json.dumps(
+                {
+                    "node_id": device.mesh_node_id,
+                    "mesh_response": (output or "").strip()[:500],
+                    "relay_count": relay_count if action == "wake" else None,
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    db.commit()
+
+    if action == "wake":
+        warning = None
+        if relay_count == 0:
+            warning = (
+                "O sinal Wake-on-LAN foi enviado, mas não há outro computador CoreControl online "
+                "neste grupo para retransmitir o pacote na rede local. O PC ainda pode ligar se "
+                "Intel AMT ou outro método de Wake-on-LAN estiver disponível."
+            )
+        return {
+            "ok": True,
+            "action": "wake",
+            "already": False,
+            "relay_count": relay_count,
+            "warning": warning,
+            "message": "Sinal para ligar enviado. Aguardando o computador iniciar.",
+        }
+
+    return {
+        "ok": True,
+        "action": "off",
+        "already": False,
+        "message": "Comando para desligar enviado ao computador.",
+    }
 
 
 @router.patch("/devices/{device_id}")

@@ -1101,6 +1101,61 @@
     }
   }
 
+  function devicePowerIsOn(device) {
+    if (device?.power && typeof device.power.powered_on === 'boolean') return device.power.powered_on;
+    return Boolean(device?.online || device?.remote?.mesh_connected);
+  }
+
+  function devicePowerAvailable(device) {
+    if (device?.power && typeof device.power.available === 'boolean') return device.power.available;
+    return Boolean(device?.remote?.mesh_node_id);
+  }
+
+  async function deviceWaitPowerState(deviceId, expectedOn, timeoutMs = 90000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      try {
+        const latest = await CT.api(`/devices/${deviceId}`);
+        if (devicePowerIsOn(latest) === expectedOn) return latest;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  async function deviceRunPowerAction(button, device, action) {
+    if (!devicePowerAvailable(device)) {
+      CT.toast('O controle de energia exige o módulo remoto configurado neste computador.', true);
+      return;
+    }
+    if (action === 'off') {
+      if (!window.confirm(
+        `Desligar “${device.name || device.hostname || 'este computador'}”?\n\n` +
+        'O Windows será desligado e programas abertos podem perder alterações não salvas.'
+      )) return;
+    }
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = action === 'wake' ? 'Ligando…' : 'Desligando…';
+    try {
+      const result = await CT.api(`/devices/${device.id}/power/${action}`, { method: 'POST' });
+      CT.toast(result.message || 'Comando de energia enviado.');
+      const reached = await deviceWaitPowerState(device.id, action === 'wake');
+      if (reached) {
+        CT.toast(action === 'wake' ? 'Computador ligado e comunicando.' : 'Computador desligado.');
+      } else if (action === 'wake') {
+        CT.toast(result.warning || 'O sinal foi enviado, mas o computador ainda não respondeu. Verifique o Wake-on-LAN.', true);
+      } else {
+        CT.toast('O comando foi enviado, mas o computador ainda aparece online.', true);
+      }
+      return CT.navigate('device', device.id);
+    } catch (error) {
+      CT.toast(error.message, true);
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
   CT.registerPage('device', async function renderDevice() {
     const device = await CT.api(`/devices/${CT.state.selectedDevice}`);
     CT.state.selectedDevice = device.id;
@@ -1178,6 +1233,28 @@
     remoteButton.disabled = !device.remote?.available;
     remoteButton.addEventListener('click', () => CT.openRemoteSession(device.id));
     CT.$('#backDevices').onclick = () => CT.navigate('devices');
+
+    const toolbar = CT.$('#backDevices')?.parentElement;
+    let powerButton = CT.$('#devicePowerBtn');
+    if (!powerButton && toolbar) {
+      powerButton = document.createElement('button');
+      powerButton.id = 'devicePowerBtn';
+      const reinstallAnchor = CT.$('#reinstallDeviceBtn');
+      toolbar.insertBefore(powerButton, reinstallAnchor || null);
+    }
+    if (powerButton) {
+      const canPower = ['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role);
+      const poweredOn = devicePowerIsOn(device);
+      powerButton.className = `btn ${poweredOn ? 'danger' : 'primary'}`;
+      powerButton.textContent = poweredOn ? 'Desligar computador' : 'Ligar computador';
+      powerButton.classList.toggle('hidden', !canPower);
+      powerButton.disabled = !devicePowerAvailable(device);
+      powerButton.title = devicePowerAvailable(device)
+        ? (poweredOn ? 'Desligar este computador remotamente' : 'Enviar Wake-on-LAN para este computador')
+        : 'O controle de energia exige o módulo remoto configurado.';
+      powerButton.onclick = () => deviceRunPowerAction(powerButton, device, poweredOn ? 'off' : 'wake');
+    }
+
     const reinstallDeviceBtn = CT.$('#reinstallDeviceBtn');
     if (['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role)) {
       reinstallDeviceBtn.classList.remove('hidden');

@@ -20,6 +20,7 @@
     memory: '<svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="10" rx="2"/><path d="M8 4v3M12 4v3M16 4v3M8 17v3M12 17v3M16 17v3M2 10h3M2 14h3M19 10h3M19 14h3"/></svg>',
     chevron: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
     check: '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>',
+    power: '<svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M7.05 5.75a8 8 0 1 0 9.9 0"/></svg>',
   };
 
   function icon(name) {
@@ -130,6 +131,12 @@
     if (action === 'remote.session.request') {
       title = 'Acesso remoto iniciado';
       tone = 'blue';
+    } else if (action === 'power.wake.request') {
+      title = 'Comando para ligar computador enviado';
+      tone = 'blue';
+    } else if (action === 'power.off.request') {
+      title = 'Desligamento remoto solicitado';
+      tone = 'amber';
     } else if (action === 'optimization.apply.success') {
       const profile = details?.result?.active_profile_name;
       title = profile ? `${profile} aplicado com sucesso` : 'Otimização aplicada com sucesso';
@@ -168,6 +175,63 @@
 
     if (event?.actor_name) subtitle += ` · ${event.actor_name}`;
     return { title, subtitle, tone };
+  }
+
+  function powerIsOn(device) {
+    if (device?.power && typeof device.power.powered_on === 'boolean') return device.power.powered_on;
+    return Boolean(device?.online || device?.remote?.mesh_connected);
+  }
+
+  function powerAvailable(device) {
+    if (device?.power && typeof device.power.available === 'boolean') return device.power.available;
+    return Boolean(device?.remote?.mesh_node_id);
+  }
+
+  async function waitPowerState(deviceId, expectedOn, timeoutMs = 90000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 4000));
+      try {
+        const latest = await CT.api(`/devices/${deviceId}`);
+        if (powerIsOn(latest) === expectedOn) return latest;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  async function runPowerAction(button, device, action) {
+    if (!powerAvailable(device)) {
+      CT.toast('O controle de energia exige o módulo remoto configurado neste computador.', true);
+      return;
+    }
+    if (action === 'off') {
+      const confirmed = window.confirm(
+        `Desligar “${device.name || device.hostname || 'este computador'}”?\n\n` +
+        'O Windows será desligado e programas abertos podem perder alterações não salvas.'
+      );
+      if (!confirmed) return;
+    }
+
+    const original = button.innerHTML;
+    button.disabled = true;
+    button.textContent = action === 'wake' ? 'Ligando…' : 'Desligando…';
+    try {
+      const result = await CT.api(`/devices/${device.id}/power/${action}`, { method: 'POST' });
+      CT.toast(result.message || 'Comando de energia enviado.');
+      const reached = await waitPowerState(device.id, action === 'wake');
+      if (reached) {
+        CT.toast(action === 'wake' ? 'Computador ligado e comunicando.' : 'Computador desligado.');
+      } else if (action === 'wake') {
+        CT.toast(result.warning || 'O sinal foi enviado, mas o computador ainda não respondeu. Verifique o Wake-on-LAN da máquina.', true);
+      } else {
+        CT.toast('O comando foi enviado, mas o computador ainda aparece online.', true);
+      }
+      return CT.navigate('overview');
+    } catch (error) {
+      CT.toast(error.message, true);
+      button.disabled = false;
+      button.innerHTML = original;
+    }
   }
 
   function renderGlobal(summary, companies, devices, alerts) {
@@ -250,6 +314,7 @@
               <button class="btn small" data-ops="device" data-device="${device.id}">Ver atividade</button>
               <button class="btn small" data-ops="remote" data-device="${device.id}" ${remoteReady ? '' : 'disabled'}>Acessar</button>
               <button class="btn small primary" data-ops="optimize" data-device="${device.id}" ${device.online ? '' : 'disabled'}>Otimizar</button>
+              <button class="btn small ${powerIsOn(device) ? 'danger' : 'primary'}" data-ops="power" data-power-action="${powerIsOn(device) ? 'off' : 'wake'}" data-device="${device.id}" ${powerAvailable(device) ? '' : 'disabled'}>${icon('power')} ${powerIsOn(device) ? 'Desligar' : 'Ligar computador'}</button>
             </div>
           </div>
         </article>`;
@@ -322,6 +387,11 @@
         const deviceId = Number(button.dataset.device || 0);
         if (action === 'device' && deviceId) return CT.navigate('device', deviceId);
         if (action === 'remote' && deviceId) return CT.openRemoteSession(deviceId);
+        if (action === 'power' && deviceId) {
+          const device = devices.find((item) => Number(item.id) === deviceId);
+          if (!device) return;
+          return runPowerAction(button, device, button.dataset.powerAction || (powerIsOn(device) ? 'off' : 'wake'));
+        }
         if (action === 'optimize' && deviceId) {
           await CT.navigate('device', deviceId);
           window.requestAnimationFrame(() => CT.$('.optimization-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));

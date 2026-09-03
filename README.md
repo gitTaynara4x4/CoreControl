@@ -1,14 +1,23 @@
-# CoreControl v10.10.1 — nome amigável do computador
+# CoreControl v10.11 — Energia remota
 
-Correção da Visão Geral e do fluxo de reinstalação para separar o nome escolhido pela empresa do hostname técnico do Windows.
+Patch somente com arquivos alterados, para aplicar por cima da v10.10.1.
 
-## Alterações
-- A Visão Geral mostra `device.name` como identificação principal.
-- O hostname aparece apenas como `Nome técnico: ...` em texto secundário.
-- A área `Em foco agora` segue a mesma regra.
-- Reinstalar/atualizar o CoreControl não substitui mais um nome amigável já cadastrado pelo hostname enviado pelo Setup.
-- Re-enrollment do Agent também preserva o nome amigável.
-- Setor/local existentes deixam de ser apagados quando a reinstalação não envia novos valores.
+## Novo
+- PC ligado: botão **Desligar computador**.
+- PC offline: botão **Ligar computador**.
+- Disponível na Visão Geral e na página do computador.
+- Desligamento exige confirmação no painel.
+- Liga/desliga usa o MeshCentral já instalado; não exige novo Agent CoreControl.
+- Wake usa o `DevicePower --wake` do MeshCentral e aguarda até 90 segundos pelo retorno do computador.
+- Ações ficam registradas no histórico administrativo.
 
-## Observação
-Se uma reinstalação anterior já substituiu o nome amigável pelo hostname, renomeie o computador uma única vez em `Editar computador`. A partir desta versão, novas reinstalações preservam esse nome.
+## Importante sobre Ligar computador
+Wake-on-LAN depende do hardware/rede. O PC precisa aceitar WOL na BIOS/NIC. Em redes remotas, o MeshCentral normalmente usa outro agente online no mesmo grupo/sub-rede para retransmitir o pacote. Se não existir outro computador online na rede e não houver Intel AMT/roteador com WOL, nenhum software hospedado na nuvem consegue ligar fisicamente um PC totalmente desligado.
+
+## Arquivos alterados
+- app/api.py
+- app/static/index.html
+- app/static/js/pages/overview.js
+- app/static/js/pages/devices.js
+
+Não é necessário reinstalar o CoreControl Agent da Luiza.
