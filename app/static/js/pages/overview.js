@@ -232,7 +232,7 @@
           <div class="ops-device-head">
             <div class="ops-device-ident">
               <span class="ops-device-icon">${icon('monitor')}</span>
-              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name)}</h3><span class="ops-live ${device.online ? 'online' : 'offline'}"><i></i>${device.online ? 'Online' : 'Offline'}</span></div><p>${CT.esc(device.hostname || 'Computador')} ${device.sector ? `· ${CT.esc(device.sector)}` : ''}</p></div>
+              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${device.online ? 'online' : 'offline'}"><i></i>${device.online ? 'Online' : 'Offline'}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
             </div>
             <div class="ops-health-badge ${stateTone}"><strong>${device.health_score}</strong><span>Saúde</span></div>
           </div>
@@ -265,7 +265,7 @@
       const activity = device.telemetry?.activity || {};
       const app = device.online ? friendlyApp(activity.process_name) : 'Offline';
       const windowTitle = device.online ? (activity.window_title || 'Sem janela identificada') : `Último contato ${ago(device.last_seen)}`;
-      return `<button class="ops-activity-row" data-ops="device" data-device="${device.id}"><span class="ops-activity-status ${device.online ? 'online' : 'offline'}"></span><span class="ops-activity-device"><strong>${CT.esc(device.name)}</strong><small>${CT.esc(device.hostname || '')}</small></span><span class="ops-activity-app"><strong>${CT.esc(app)}</strong><small title="${CT.esc(windowTitle)}">${CT.esc(windowTitle)}</small></span><span class="ops-activity-health ${CT.healthClass(device.health_score)}">${device.health_score}/100</span>${icon('chevron')}</button>`;
+      return `<button class="ops-activity-row" data-ops="device" data-device="${device.id}"><span class="ops-activity-status ${device.online ? 'online' : 'offline'}"></span><span class="ops-activity-device"><strong>${CT.esc(device.name || 'Computador sem nome')}</strong><small>${device.hostname ? `Nome técnico: ${CT.esc(device.hostname)}` : 'Nome técnico não informado'}</small></span><span class="ops-activity-app"><strong>${CT.esc(app)}</strong><small title="${CT.esc(windowTitle)}">${CT.esc(windowTitle)}</small></span><span class="ops-activity-health ${CT.healthClass(device.health_score)}">${device.health_score}/100</span>${icon('chevron')}</button>`;
     }).join('') : '<div class="ops-empty-compact"><span>Sem atividade para exibir.</span></div>';
 
     const last24 = operations.last_24h || {};

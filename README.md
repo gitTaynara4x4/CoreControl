@@ -1,33 +1,14 @@
-# CoreControl v10.10 — Visão Geral / Central de Operação
+# CoreControl v10.10.1 — nome amigável do computador
 
-Patch cumulativo de interface + backend para aplicar por cima da v10.9.6.
+Correção da Visão Geral e do fluxo de reinstalação para separar o nome escolhido pela empresa do hostname técnico do Windows.
 
-## O que mudou
+## Alterações
+- A Visão Geral mostra `device.name` como identificação principal.
+- O hostname aparece apenas como `Nome técnico: ...` em texto secundário.
+- A área `Em foco agora` segue a mesma regra.
+- Reinstalar/atualizar o CoreControl não substitui mais um nome amigável já cadastrado pelo hostname enviado pelo Setup.
+- Re-enrollment do Agent também preserva o nome amigável.
+- Setor/local existentes deixam de ser apagados quando a reinstalação não envia novos valores.
 
-A Visão Geral para administradores de empresa deixou de ser um resumo genérico de quantidade de empresas e virou uma Central de Operação.
-
-- cabeçalho com situação geral da empresa;
-- computadores online, saúde média, computadores que precisam de atenção, perfis otimizados e atualizações pendentes;
-- painel "Computadores agora" com aplicativo em foco, CPU, RAM, disco, GPU, temperatura, saúde, perfil e versão do Agent;
-- atalhos para Ver atividade, Acessar e Otimizar;
-- painel "Precisa da sua atenção" com problemas acionáveis;
-- "Em foco agora" para acompanhar a atividade atual da equipe sem abrir computador por computador;
-- resumo das últimas 24 horas com otimizações, diagnósticos, acessos remotos e limpezas seguras;
-- visão simplificada de proteção, armazenamento, temperatura e uptime;
-- histórico dos últimos acontecimentos reais usando os logs administrativos do CoreControl;
-- visão antiga da plataforma preservada para Administrador Global.
-
-## Arquivos alterados
-
-- `app/api.py`
-- `app/static/index.html`
-- `app/static/styles.css`
-- `app/static/js/pages/overview.js`
-
-## Implantação
-
-1. Aplicar este patch por cima da v10.9.6.
-2. Fazer Force Rebuild do CoreControl.
-3. Atualizar o navegador com Ctrl+F5.
-
-Não é necessário reinstalar o Agent nos computadores. Esta versão não altera o Agent Windows.
+## Observação
+Se uma reinstalação anterior já substituiu o nome amigável pelo hostname, renomeie o computador uma única vez em `Editar computador`. A partir desta versão, novas reinstalações preservam esse nome.

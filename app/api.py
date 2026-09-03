@@ -1526,10 +1526,25 @@ def install_device(payload: DeviceInstallRequest, user: CurrentUser, db: Db):
         db.add(device)
         db.flush()
     else:
-        device.name = payload.name.strip()
-        device.hostname = payload.hostname.strip()
-        device.sector = payload.sector
-        device.location = payload.location
+        incoming_name = payload.name.strip()
+        incoming_hostname = payload.hostname.strip()
+        existing_name = (device.name or "").strip()
+        existing_hostname = (device.hostname or "").strip()
+
+        # Reinstalar/atualizar nunca deve apagar o nome amigável escolhido pela empresa.
+        # O Setup costuma reenviar o hostname como nome padrão. Só substituímos o nome
+        # existente quando o instalador recebeu explicitamente um nome amigável diferente.
+        incoming_is_friendly = bool(incoming_name and incoming_hostname and incoming_name.casefold() != incoming_hostname.casefold())
+        existing_is_friendly = bool(existing_name and existing_hostname and existing_name.casefold() != existing_hostname.casefold())
+        if incoming_is_friendly or not existing_is_friendly:
+            device.name = incoming_name or existing_name or incoming_hostname
+        # caso contrário preserva device.name exatamente como foi definido no painel
+
+        device.hostname = incoming_hostname
+        if payload.sector is not None:
+            device.sector = payload.sector
+        if payload.location is not None:
+            device.location = payload.location
         device.manufacturer = payload.manufacturer
         device.model = payload.model
         device.serial_number = payload.serial_number
@@ -1594,10 +1609,21 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
     raw_secret = f"ctagt_{new_secret(36)}"
     if existing:
         device = existing
-        device.name = payload.name
-        device.hostname = payload.hostname
-        device.sector = payload.sector
-        device.location = payload.location
+        incoming_name = (payload.name or "").strip()
+        incoming_hostname = (payload.hostname or "").strip()
+        existing_name = (device.name or "").strip()
+        existing_hostname = (device.hostname or "").strip()
+
+        # Re-enrollment/atualização do Agent preserva o nome amigável cadastrado.
+        incoming_is_friendly = bool(incoming_name and incoming_hostname and incoming_name.casefold() != incoming_hostname.casefold())
+        existing_is_friendly = bool(existing_name and existing_hostname and existing_name.casefold() != existing_hostname.casefold())
+        if incoming_is_friendly or not existing_is_friendly:
+            device.name = incoming_name or existing_name or incoming_hostname
+        device.hostname = incoming_hostname
+        if payload.sector is not None:
+            device.sector = payload.sector
+        if payload.location is not None:
+            device.location = payload.location
         device.manufacturer = payload.manufacturer
         device.model = payload.model
         device.serial_number = payload.serial_number
