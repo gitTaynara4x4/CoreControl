@@ -1082,15 +1082,99 @@ def create_enrollment_token(
     }
 
 
+@router.post("/devices/{device_id}/reinstall-token")
+def create_device_reinstall_token(
+    device_id: int,
+    user: CurrentUser,
+    db: Db,
+    valid_minutes: int = 30,
+):
+    """Create a single-use installation authorization bound to one device.
+
+    The frontend has exposed this action for a while; keeping the authorization
+    tied to the device UID prevents a reinstall link copied to another PC from
+    enrolling a second machine by mistake.
+    """
+    require_roles(user, "platform_admin", "company_admin", "technician")
+    device = db.get(Device, device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    if not device.active:
+        raise HTTPException(status_code=409, detail="Computador está desativado")
+    if valid_minutes not in VALID_ENROLLMENT_MINUTES:
+        raise HTTPException(status_code=422, detail="Validade permitida: 30 minutos, 2 horas ou 24 horas")
+
+    company = db.get(Company, device.company_id)
+    if not company or not company.active:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada ou desativada")
+
+    # Only the newest unused reinstall authorization for a device remains valid.
+    db.execute(
+        delete(EnrollmentToken).where(
+            EnrollmentToken.device_id == device.id,
+            EnrollmentToken.used_at.is_(None),
+        )
+    )
+
+    raw = f"ctenr_{new_secret(32)}"
+    install_code = new_install_code(db)
+    expires = utcnow() + timedelta(minutes=valid_minutes)
+    db.add(
+        EnrollmentToken(
+            company_id=device.company_id,
+            device_id=device.id,
+            token_hash=sha256_text(raw),
+            code_hash=sha256_text(install_code),
+            expires_at=expires,
+            created_by=user.id,
+        )
+    )
+    db.add(
+        AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action="agent.reinstall_token.create",
+            details=(
+                f"Código/link de reinstalação de uso único válido por {valid_minutes} minutos "
+                f"até {expires.isoformat()}"
+            ),
+        )
+    )
+    db.commit()
+
+    base = settings.public_url.rstrip("/")
+    return {
+        "token": raw,
+        "installation_code": install_code,
+        "installation_url": f"{base}/instalar/{raw}",
+        "install_page_url": f"{base}/instalar",
+        "setup_url": f"{base}/instalar/setup",
+        "code_download_url": f"{base}/instalar/codigo/{install_code}",
+        "qr_url": f"{base}/api/enrollment/{raw}/qr.svg",
+        "expires_at": expires.isoformat(),
+        "valid_minutes": valid_minutes,
+        "single_use": True,
+        "reinstall": True,
+        "device_id": device.id,
+        "device_name": device.name,
+    }
+
+
 @router.get("/enrollment/{credential}/info")
 def enrollment_info(credential: str, db: Db):
     enrollment, company = get_valid_enrollment(db, credential)
+    device = db.get(Device, enrollment.device_id) if enrollment.device_id is not None else None
     return {
         "ok": True,
         "company_id": company.id,
         "company_name": company.name,
         "expires_at": iso(enrollment.expires_at),
         "single_use": True,
+        "reinstall": enrollment.device_id is not None,
+        "device_id": enrollment.device_id,
+        "device_name": device.name if device else None,
     }
 
 
@@ -1835,6 +1919,17 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
     existing = db.scalar(
         select(Device).where(Device.company_id == enrollment.company_id, Device.device_uid == payload.device_uid)
     )
+
+    if enrollment.device_id is not None:
+        target = db.get(Device, enrollment.device_id)
+        if not target or target.company_id != enrollment.company_id:
+            raise HTTPException(status_code=410, detail="Autorização de reinstalação não é mais válida")
+        if target.device_uid != payload.device_uid:
+            raise HTTPException(
+                status_code=409,
+                detail="Este link/código de reinstalação pertence a outro computador",
+            )
+        existing = target
     raw_secret = f"ctagt_{new_secret(36)}"
     if existing:
         device = existing
