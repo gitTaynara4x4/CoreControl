@@ -78,12 +78,12 @@ def test_frontend_requires_safe_wake_route_before_shutdown():
     assert 'powerState.safe_to_power_off' in devices
 
 
-def test_agent_095_audits_and_prepares_wol_without_claiming_full_shutdown_guarantee():
+def test_agent_096_audits_and_prepares_wol_without_claiming_full_shutdown_guarantee():
     main = (ROOT / "agent/src/main.go").read_text(encoding="utf-8")
     windows = (ROOT / "agent/src/wol_capability_windows.go").read_text(encoding="utf-8")
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
 
-    assert 'const agentVersion = "0.9.5"' in main
+    assert 'const agentVersion = "0.9.6"' in main
     assert '"wol_capability"' in main
     assert "Get-NetAdapterPowerManagement" in windows
     assert "Set-NetAdapterPowerManagement" in windows
@@ -101,3 +101,27 @@ def test_device_detail_exposes_wol_preflight_status():
     assert "Placa armada para wake" in devices
     assert "Intel AMT / vPro" in devices
     assert "Rota para ligar após desligar" in devices
+
+
+def test_agent_096_ignores_virtual_vpn_adapters_for_primary_wol_nic():
+    windows = (ROOT / "agent/src/process_windows.go").read_text(encoding="utf-8")
+    assert "defaultRouteLocalIPv4" in windows
+    assert "isVirtualNetworkInterface" in windows
+    assert '"radmin"' in windows
+    assert '"famatech"' in windows
+    assert '"tailscale"' in windows
+    assert '"zerotier"' in windows
+    assert '"hyper-v"' in windows
+    assert '"virtualbox"' in windows
+    assert '"wireguard"' in windows
+    assert "!candidate.Virtual" in windows
+    preflight = (ROOT / "agent/src/wol_capability_windows.go").read_text(encoding="utf-8")
+    assert "Is-PhysicalAdapter" in preflight
+    assert "$virtualPattern" in preflight
+    assert "Get-NetRoute" in preflight
+    assert "Nenhuma placa de rede física ativa" in preflight
+
+
+def test_server_prefers_mac_selected_by_wol_preflight():
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+    assert 'normalize_mac(capability.get("mac_address")) or normalize_mac(extra.get("primary_mac"))' in api

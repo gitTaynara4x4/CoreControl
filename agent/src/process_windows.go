@@ -276,13 +276,54 @@ func readLocalProfile() string {
 	return strings.TrimSpace(value.Profile)
 }
 
+type networkCandidate struct {
+	IP      string
+	Name    string
+	MAC     string
+	CIDR    string
+	Virtual bool
+}
+
 func primaryNetworkDetails() (string, string, string, string) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
+	candidates := collectNetworkCandidates()
+	if len(candidates) == 0 {
 		return "", "", "", ""
 	}
+
+	// Primeiro escolha a interface que o próprio Windows usaria para sair para a
+	// Internet. O connect UDP não envia pacote algum; ele apenas faz o kernel
+	// selecionar a rota/local IP. Isso evita depender da ordem de net.Interfaces,
+	// que costuma colocar Radmin VPN/TAP/Hyper-V antes da placa física.
+	if routeIP := defaultRouteLocalIPv4(); routeIP != "" {
+		for _, candidate := range candidates {
+			if candidate.IP == routeIP && !candidate.Virtual {
+				return candidate.IP, candidate.Name, candidate.MAC, candidate.CIDR
+			}
+		}
+	}
+
+	// Wake-on-LAN precisa da NIC física. Mesmo quando uma VPN instala rota padrão,
+	// nunca use esse adaptador virtual como origem do diagnóstico de WOL.
+	for _, candidate := range candidates {
+		if !candidate.Virtual {
+			return candidate.IP, candidate.Name, candidate.MAC, candidate.CIDR
+		}
+	}
+
+	// Último fallback para manter telemetria em ambientes incomuns. A capacidade
+	// de WOL continuará recusando placas sem suporte real.
+	candidate := candidates[0]
+	return candidate.IP, candidate.Name, candidate.MAC, candidate.CIDR
+}
+
+func collectNetworkCandidates() []networkCandidate {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	candidates := make([]networkCandidate, 0, len(interfaces))
 	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || len(iface.HardwareAddr) == 0 {
 			continue
 		}
 		addrs, _ := iface.Addrs()
@@ -292,7 +333,7 @@ func primaryNetworkDetails() (string, string, string, string) {
 				continue
 			}
 			v4 := ipNet.IP.To4()
-			if v4 == nil || v4[0] == 169 && v4[1] == 254 {
+			if v4 == nil || (v4[0] == 169 && v4[1] == 254) || v4.IsLoopback() {
 				continue
 			}
 			ones, bits := ipNet.Mask.Size()
@@ -301,10 +342,53 @@ func primaryNetworkDetails() (string, string, string, string) {
 				network := v4.Mask(ipNet.Mask)
 				cidr = fmt.Sprintf("%s/%d", network.String(), ones)
 			}
-			return v4.String(), iface.Name, strings.ToLower(iface.HardwareAddr.String()), cidr
+			candidates = append(candidates, networkCandidate{
+				IP:      v4.String(),
+				Name:    iface.Name,
+				MAC:     strings.ToLower(iface.HardwareAddr.String()),
+				CIDR:    cidr,
+				Virtual: isVirtualNetworkInterface(iface.Name),
+			})
 		}
 	}
-	return "", "", "", ""
+	return candidates
+}
+
+func defaultRouteLocalIPv4() string {
+	remote := &net.UDPAddr{IP: net.IPv4(1, 1, 1, 1), Port: 53}
+	conn, err := net.DialUDP("udp4", nil, remote)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	local, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || local.IP == nil {
+		return ""
+	}
+	v4 := local.IP.To4()
+	if v4 == nil {
+		return ""
+	}
+	return v4.String()
+}
+
+func isVirtualNetworkInterface(name string) bool {
+	value := strings.ToLower(strings.TrimSpace(name))
+	if value == "" {
+		return false
+	}
+	virtualMarkers := []string{
+		"radmin", "famatech", "vpn", "tailscale", "zerotier", "hamachi",
+		"hyper-v", "vethernet", "vmware", "virtualbox", "host-only",
+		"tap-windows", "tap ", "wintun", "wireguard", "openvpn", "nordlynx",
+		"proton", "warp", "loopback", "bluetooth", "container", "docker",
+	}
+	for _, marker := range virtualMarkers {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func primaryNetwork() (string, string) {

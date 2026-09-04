@@ -1,0 +1,23 @@
+CoreControl v10.13.1 - correção da seleção da placa Wake-on-LAN
+
+Correção:
+- O Agent 0.9.6 não usa mais a primeira interface retornada pelo Windows.
+- Prioriza a interface física usada pela rota padrão do Windows.
+- Ignora adaptadores virtuais como Radmin/Famatech, VPN, Tailscale, ZeroTier,
+  Hamachi, Hyper-V, VMware, VirtualBox, TAP/Wintun, WireGuard, OpenVPN e similares.
+- O preflight de WOL também faz uma segunda validação pelo Get-NetAdapter e
+  Get-NetRoute, impedindo uma placa virtual de ser preparada por engano.
+- A Central prefere o MAC confirmado pelo próprio diagnóstico WOL.
+
+Validação executada:
+- pytest -q tests/test_power_control.py: 9 passed
+- go test ./...: passed
+- build Windows amd64 do CoreControlAgent.exe 0.9.6: passed
+- compilação dos testes para Windows amd64: passed
+
+Depois de aplicar no servidor:
+1. Force Rebuild.
+2. Reinstalar/atualizar CoreControl na Luiza para receber o Agent 0.9.6.
+3. Aguardar a telemetria.
+4. Conferir "Proteções e capacidade".
+5. A placa de rede não deve mais aparecer como Famatech Radmin VPN Ethernet Adapter.

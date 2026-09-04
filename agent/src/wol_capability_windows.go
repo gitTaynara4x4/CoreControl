@@ -95,9 +95,36 @@ $out = [ordered]@{
   error = ''
 }
 
+$virtualPattern = '(?i)(radmin|famatech|vpn|tailscale|zerotier|hamachi|hyper-v|vethernet|vmware|virtualbox|host-only|tap-windows|wintun|wireguard|openvpn|nordlynx|proton|warp|loopback|bluetooth|docker|container)'
+function Is-PhysicalAdapter($candidate) {
+  if (-not $candidate) { return $false }
+  $text = (([string]$candidate.Name) + ' ' + ([string]$candidate.InterfaceDescription))
+  if ($text -match $virtualPattern) { return $false }
+  if ($null -ne $candidate.PSObject.Properties['HardwareInterface'] -and -not [bool]$candidate.HardwareInterface) { return $false }
+  if ($null -ne $candidate.PSObject.Properties['Virtual'] -and [bool]$candidate.Virtual) { return $false }
+  return $true
+}
+
 $adapter = Get-NetAdapter -IncludeHidden | Where-Object { $_.MacAddress -eq $macNorm } | Sort-Object ifIndex | Select-Object -First 1
+
+# Defesa em profundidade: mesmo que a coleta principal tenha recebido o MAC de
+# Radmin/TAP/VPN, o preflight nunca prepara uma placa virtual para Wake-on-LAN.
+if (-not (Is-PhysicalAdapter $adapter)) {
+  $physical = @(Get-NetAdapter -IncludeHidden | Where-Object {
+    $_.Status -eq 'Up' -and $_.MacAddress -and (Is-PhysicalAdapter $_)
+  })
+  $defaultRoutes = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+    Sort-Object @{Expression={ [int]$_.RouteMetric }; Ascending=$true}, @{Expression={ [int]$_.ifMetric }; Ascending=$true})
+  $adapter = $null
+  foreach ($route in $defaultRoutes) {
+    $match = $physical | Where-Object { [int]$_.ifIndex -eq [int]$route.ifIndex } | Select-Object -First 1
+    if ($match) { $adapter = $match; break }
+  }
+  if (-not $adapter) { $adapter = $physical | Sort-Object ifIndex | Select-Object -First 1 }
+}
+
 if (-not $adapter) {
-  $out.error = 'Placa de rede correspondente ao MAC principal não encontrada pelo Windows.'
+  $out.error = 'Nenhuma placa de rede física ativa foi encontrada para preparar Wake-on-LAN.'
   $out.reason = $out.error
   $out | ConvertTo-Json -Compress -Depth 5
   exit 0
@@ -105,6 +132,7 @@ if (-not $adapter) {
 
 $out.adapter_name = [string]$adapter.Name
 $out.interface_description = [string]$adapter.InterfaceDescription
+if ($adapter.MacAddress) { $out.mac_address = (([string]$adapter.MacAddress) -replace '-',':').ToLowerInvariant() }
 $medium = (([string]$adapter.MediaType) + ' ' + ([string]$adapter.PhysicalMediaType) + ' ' + ([string]$adapter.InterfaceDescription)).ToLowerInvariant()
 if ($medium -match '802\.11|wireless|wi-fi|wifi|wlan') { $out.link_type = 'wifi' }
 elseif ($medium -match '802\.3|ethernet|gigabit|gbe|lan') { $out.link_type = 'ethernet' }

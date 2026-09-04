@@ -196,7 +196,7 @@ def device_wol_info(db: Session, device: Device) -> dict:
     capability = extra.get("wol_capability")
     capability = capability if isinstance(capability, dict) else {}
     return {
-        "mac_address": normalize_mac(extra.get("primary_mac")),
+        "mac_address": normalize_mac(capability.get("mac_address")) or normalize_mac(extra.get("primary_mac")),
         "network_cidr": str(extra.get("network_cidr") or "").strip(),
         "relay_capable": bool(extra.get("wol_relay_capable")),
         "ip_local": sample.ip_local if sample else None,
@@ -272,7 +272,7 @@ def device_power_readiness(db: Session, device: Device) -> dict:
     if not target_info.get("mac_address"):
         reason = "O Agent ainda não informou o endereço MAC deste computador."
     elif not target_info.get("capability_checked"):
-        reason = "Aguardando o Agent 0.9.5 concluir o diagnóstico automático de Wake-on-LAN."
+        reason = "Aguardando o Agent 0.9.6 concluir o diagnóstico automático de Wake-on-LAN."
     elif not pc_wol_prepared:
         reason = target_info.get("capability_reason") or "A placa de rede ainda não ficou preparada para Wake-on-LAN no Windows."
     elif relays:
