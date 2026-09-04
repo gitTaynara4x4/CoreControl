@@ -1,5 +1,7 @@
 from __future__ import annotations
+import ipaddress
 import json
+import socket
 from datetime import timedelta
 from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -42,6 +44,31 @@ Db = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
+
+
+def _send_wake_route_probe(result: dict) -> tuple[bool, str | None]:
+    token = str(result.get("probe_token") or "").strip()
+    external_ip = str(result.get("external_ip") or "").strip()
+    external_port = int(result.get("external_port") or 0)
+    if len(token) < 12 or len(token) > 160:
+        return False, "Token do teste externo inválido."
+    try:
+        parsed = ipaddress.ip_address(external_ip)
+    except ValueError:
+        return False, "O roteador não informou um IP externo válido."
+    if parsed.version != 4 or not parsed.is_global:
+        return False, "A conexão parece estar atrás de CGNAT/NAT privado; a VPS não consegue alcançar diretamente este roteador."
+    if not 40000 <= external_port <= 59999:
+        return False, "A porta externa devolvida pelo teste é inválida."
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.settimeout(2.0)
+        sock.sendto(token.encode("utf-8"), (external_ip, external_port))
+        return True, None
+    except OSError as exc:
+        return False, f"A VPS não conseguiu enviar o pacote UDP de validação: {exc}"
+    finally:
+        sock.close()
 
 
 def _version_tuple(value: str | None) -> tuple[int, int, int]:
@@ -455,6 +482,7 @@ def agent_next_command(
 def agent_command_result(
     command_id: int,
     payload: AgentCommandResultRequest,
+    request: Request,
     db: Db,
     authorization: Annotated[str | None, Header()] = None,
 ):
@@ -490,6 +518,33 @@ def agent_command_result(
             state.last_error = None
         # Uma nova verificação é segura e atualiza a lista mesmo quando houve falha parcial.
         queue_agent_command(db, device, "updates.scan", {"after_install": command.id}, created_by=command.created_by)
+    elif command.command_type == "power.route_probe":
+        result = dict(payload.result or {})
+        if not str(result.get("external_ip") or "").strip() and request.client and request.client.host:
+            result["external_ip"] = str(request.client.host).strip()
+            command.result_json = json.dumps(result, ensure_ascii=False)
+        if payload.ok and bool(result.get("mapping_created")):
+            sent, probe_error = _send_wake_route_probe(result)
+            queue_agent_command(
+                db,
+                device,
+                "power.route_probe_confirm",
+                {
+                    "probe_token": str(result.get("probe_token") or ""),
+                    "method": str(result.get("method") or "upnp_broadcast"),
+                    "external_ip": str(result.get("external_ip") or ""),
+                    "external_port": int(result.get("external_port") or 0),
+                    "internal_port": int(result.get("internal_port") or 0),
+                    "broadcast_ip": str(result.get("broadcast_ip") or ""),
+                    "probe_sent": sent,
+                    "probe_error": probe_error,
+                },
+                created_by=command.created_by,
+                deduplicate=False,
+            )
+        elif payload.ok:
+            command.status = "failed"
+            command.error_text = "O Agent não conseguiu criar uma rota UPnP utilizável para o teste externo."
     elif command.command_type == "optimization.apply":
         result = payload.result or {}
         if payload.ok:

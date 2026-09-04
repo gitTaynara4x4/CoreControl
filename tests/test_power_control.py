@@ -78,12 +78,12 @@ def test_frontend_requires_safe_wake_route_before_shutdown():
     assert 'powerState.safe_to_power_off' in devices
 
 
-def test_agent_096_audits_and_prepares_wol_without_claiming_full_shutdown_guarantee():
+def test_agent_097_audits_and_prepares_wol_without_claiming_full_shutdown_guarantee():
     main = (ROOT / "agent/src/main.go").read_text(encoding="utf-8")
     windows = (ROOT / "agent/src/wol_capability_windows.go").read_text(encoding="utf-8")
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
 
-    assert 'const agentVersion = "0.9.6"' in main
+    assert 'const agentVersion = "0.9.7"' in main
     assert '"wol_capability"' in main
     assert "Get-NetAdapterPowerManagement" in windows
     assert "Set-NetAdapterPowerManagement" in windows
@@ -103,7 +103,7 @@ def test_device_detail_exposes_wol_preflight_status():
     assert "Rota para ligar após desligar" in devices
 
 
-def test_agent_096_ignores_virtual_vpn_adapters_for_primary_wol_nic():
+def test_agent_097_ignores_virtual_vpn_adapters_for_primary_wol_nic():
     windows = (ROOT / "agent/src/process_windows.go").read_text(encoding="utf-8")
     assert "defaultRouteLocalIPv4" in windows
     assert "isVirtualNetworkInterface" in windows
@@ -125,3 +125,36 @@ def test_agent_096_ignores_virtual_vpn_adapters_for_primary_wol_nic():
 def test_server_prefers_mac_selected_by_wol_preflight():
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
     assert 'normalize_mac(capability.get("mac_address")) or normalize_mac(extra.get("primary_mac"))' in api
+
+
+def test_wan_wol_route_probe_is_verified_from_vps_before_shutdown_is_unlocked():
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+    update_api = (ROOT / "app/update_api.py").read_text(encoding="utf-8")
+    windows_commands = (ROOT / "agent/src/update_windows.go").read_text(encoding="utf-8")
+    route = (ROOT / "agent/src/wol_route_windows.go").read_text(encoding="utf-8")
+    devices = (ROOT / "app/static/js/pages/devices.js").read_text(encoding="utf-8")
+    device_html = (ROOT / "app/static/pages/device.html").read_text(encoding="utf-8")
+
+    assert '@router.post("/devices/{device_id}/wake-route-test")' in api
+    assert 'latest_wan_wake_route' in api
+    assert 'corecontrol_wan_upnp' in api
+    assert '_send_wan_magic_packet' in api
+    assert 'power.route_probe_confirm' in update_api
+    assert '_send_wake_route_probe' in update_api
+    assert 'case "power.route_probe"' in windows_commands
+    assert 'case "power.route_probe_confirm"' in windows_commands
+    assert 'AddPortMapping' in route
+    assert '239.255.255.250' in route
+    assert 'CoreControl Wake Route' in route
+    assert 'id="wakeRouteTestBtn"' in device_html
+    assert 'Testar rota de ligamento' in devices
+    assert 'Rota para ligar confirmada' in devices
+
+
+def test_wan_route_only_accepts_public_ipv4_and_high_udp_port():
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+    update_api = (ROOT / "app/update_api.py").read_text(encoding="utf-8")
+    assert 'parsed_ip.is_global' in api
+    assert '40000 <= external_port <= 59999' in api
+    assert 'parsed.is_global' in update_api
+    assert 'CGNAT/NAT privado' in update_api

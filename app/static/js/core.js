@@ -3,7 +3,7 @@
 
   const CT = window.CoreTuner = window.CoreTuner || {};
 
-  CT.VERSION = '20260830-device-reinstall-v1';
+  CT.VERSION = '20260904-wan-wol-route-v10-14';
   CT.state = {
     user: null,
     page: 'overview',

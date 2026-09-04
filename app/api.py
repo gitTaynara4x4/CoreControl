@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import io
+import ipaddress
 import json
 import re
 import secrets
+import socket
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -248,9 +250,137 @@ def find_wake_relays(db: Session, target: Device) -> list[Device]:
     return relays
 
 
+
+WAKE_ROUTE_VALID_FOR = timedelta(days=7)
+
+
+def _command_json(value: str | None) -> dict:
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _version_at_least(value: str | None, minimum: tuple[int, int, int]) -> bool:
+    parts: list[int] = []
+    for piece in str(value or "").strip().lstrip("vV").split(".")[:3]:
+        digits = "".join(character for character in piece if character.isdigit())
+        parts.append(int(digits or 0))
+    current = tuple((parts + [0, 0, 0])[:3])
+    return current >= minimum
+
+
+def latest_wan_wake_route(db: Session, device: Device) -> dict:
+    probe = db.scalar(
+        select(AgentCommand)
+        .where(AgentCommand.device_id == device.id, AgentCommand.command_type == "power.route_probe")
+        .order_by(desc(AgentCommand.created_at), desc(AgentCommand.id))
+        .limit(1)
+    )
+    if not probe:
+        return {"verified": False, "status": "idle", "message": "A rota externa ainda não foi testada."}
+
+    probe_payload = _command_json(probe.payload_json)
+    probe_result = _command_json(probe.result_json)
+    token = str(probe_payload.get("probe_token") or probe_result.get("probe_token") or "").strip()
+
+    confirms = list(
+        db.scalars(
+            select(AgentCommand)
+            .where(AgentCommand.device_id == device.id, AgentCommand.command_type == "power.route_probe_confirm")
+            .order_by(desc(AgentCommand.created_at), desc(AgentCommand.id))
+            .limit(12)
+        ).all()
+    )
+    confirm: AgentCommand | None = None
+    for item in confirms:
+        payload = _command_json(item.payload_json)
+        result = _command_json(item.result_json)
+        item_token = str(payload.get("probe_token") or result.get("probe_token") or "").strip()
+        if token and item_token == token:
+            confirm = item
+            break
+
+    if probe.status in {"queued", "running"}:
+        return {"verified": False, "status": "testing", "message": "Testando UPnP e preparando a rota de Wake-on-LAN..."}
+    if probe.status == "failed":
+        return {
+            "verified": False,
+            "status": "failed",
+            "message": probe.error_text or "O roteador não permitiu criar automaticamente uma rota Wake-on-LAN.",
+        }
+    if confirm is None:
+        return {"verified": False, "status": "verifying", "message": "Rota criada. Aguardando o teste externo da VPS..."}
+    if confirm.status in {"queued", "running"}:
+        return {"verified": False, "status": "verifying", "message": "A VPS enviou o teste. Aguardando confirmação do PC..."}
+    if confirm.status != "succeeded":
+        return {
+            "verified": False,
+            "status": "failed",
+            "message": confirm.error_text or "O pacote enviado pela VPS não chegou ao PC pela rota criada.",
+        }
+
+    result = _command_json(confirm.result_json)
+    if not bool(result.get("verified")):
+        return {"verified": False, "status": "failed", "message": "O teste externo não confirmou a rota de Wake-on-LAN."}
+
+    finished_at = as_utc(confirm.finished_at or confirm.created_at)
+    if not finished_at or utcnow() - finished_at > WAKE_ROUTE_VALID_FOR:
+        return {
+            "verified": False,
+            "status": "expired",
+            "message": "A última rota confirmada expirou. Teste novamente antes de desligar o PC.",
+        }
+
+    external_ip = str(result.get("external_ip") or "").strip()
+    try:
+        parsed_ip = ipaddress.ip_address(external_ip)
+        external_ip_ok = parsed_ip.version == 4 and parsed_ip.is_global
+    except ValueError:
+        external_ip_ok = False
+    external_port = int(result.get("external_port") or 0)
+    if not external_ip_ok or not (40000 <= external_port <= 59999):
+        return {"verified": False, "status": "failed", "message": "A rota confirmada devolveu endereço externo inválido."}
+
+    return {
+        "verified": True,
+        "status": "verified",
+        "message": "Rota externa confirmada pela VPS.",
+        "method": str(result.get("method") or "upnp_broadcast"),
+        "external_ip": external_ip,
+        "external_port": external_port,
+        "internal_port": int(result.get("internal_port") or 0),
+        "broadcast_ip": str(result.get("broadcast_ip") or "").strip() or None,
+        "verified_at": iso(finished_at),
+        "valid_for_seconds": int(WAKE_ROUTE_VALID_FOR.total_seconds()),
+    }
+
+
+def _send_wan_magic_packet(route: dict, mac_text: str) -> None:
+    mac = normalize_mac(mac_text)
+    if not mac:
+        raise ValueError("MAC inválido para Wake-on-LAN")
+    raw_mac = bytes.fromhex(mac.replace(":", ""))
+    packet = b"\xff" * 6 + raw_mac * 16
+    external_ip = str(route.get("external_ip") or "").strip()
+    external_port = int(route.get("external_port") or 0)
+    parsed_ip = ipaddress.ip_address(external_ip)
+    if parsed_ip.version != 4 or not parsed_ip.is_global or not (40000 <= external_port <= 59999):
+        raise ValueError("Rota WAN de Wake-on-LAN inválida")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.settimeout(2.0)
+        for _ in range(3):
+            sock.sendto(packet, (external_ip, external_port))
+    finally:
+        sock.close()
+
+
 def device_power_readiness(db: Session, device: Device) -> dict:
     target_info = device_wol_info(db, device)
     relays = find_wake_relays(db, device)
+    wan_route = latest_wan_wake_route(db, device)
     mesh_fallback = bool(
         settings.remote_enabled
         and meshcentral_client.provisioning_configured
@@ -264,7 +394,7 @@ def device_power_readiness(db: Session, device: Device) -> dict:
     # porque o MeshCentral aceita o comando --wake.
     pc_wol_prepared = bool(target_info.get("windows_prepared"))
     amt_detected = bool(target_info.get("intel_amt_detected"))
-    wake_verified = bool(relays)
+    wake_verified = bool(relays or wan_route.get("verified"))
     wake_available = bool(wake_verified or mesh_fallback)
     off_available = bool(mesh_fallback)
     safe_to_power_off = bool(off_available and (wake_verified or not settings.power_require_verified_wake))
@@ -272,11 +402,13 @@ def device_power_readiness(db: Session, device: Device) -> dict:
     if not target_info.get("mac_address"):
         reason = "O Agent ainda não informou o endereço MAC deste computador."
     elif not target_info.get("capability_checked"):
-        reason = "Aguardando o Agent 0.9.6 concluir o diagnóstico automático de Wake-on-LAN."
+        reason = "Aguardando o Agent 0.9.7 concluir o diagnóstico automático de Wake-on-LAN."
     elif not pc_wol_prepared:
         reason = target_info.get("capability_reason") or "A placa de rede ainda não ficou preparada para Wake-on-LAN no Windows."
     elif relays:
         reason = "PC preparado e existe uma rota Wake-on-LAN verificada dentro da rede local."
+    elif wan_route.get("verified"):
+        reason = "PC preparado e a VPS confirmou uma rota externa UPnP até o broadcast da rede local."
     elif amt_detected:
         reason = (
             "O PC parece possuir Intel AMT/vPro e está preparado para WOL, mas o CoreControl ainda não confirmou o gerenciamento "
@@ -317,9 +449,14 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "firmware_needs_check": bool(target_info.get("firmware_needs_check")),
         "capability_reason": target_info.get("capability_reason") or None,
         "capability_error": target_info.get("capability_error") or None,
-        "relay_available": wake_verified,
+        "relay_available": bool(relays),
         "relay_count": len(relays),
         "relay_names": [relay.name for relay in relays[:5]],
+        "wan_route_verified": bool(wan_route.get("verified")),
+        "wan_route_status": wan_route.get("status") or "idle",
+        "wan_route_message": wan_route.get("message"),
+        "wan_route_method": wan_route.get("method"),
+        "wan_route_verified_at": wan_route.get("verified_at"),
         "mesh_fallback": mesh_fallback,
         "wake_available": wake_available,
         "wake_verified": wake_verified,
@@ -1500,6 +1637,55 @@ def device_power_readiness_endpoint(device_id: int, user: CurrentUser, db: Db):
     return {"device_id": device.id, **device_power_readiness(db, device)}
 
 
+@router.post("/devices/{device_id}/wake-route-test")
+def test_device_wake_route(device_id: int, user: CurrentUser, db: Db):
+    require_roles(user, "platform_admin", "company_admin", "technician")
+    device = db.get(Device, device_id)
+    if not device or not device.active:
+        raise HTTPException(status_code=404, detail="Computador não encontrado")
+    assert_device_access(user, device)
+    if not device_online(device):
+        raise HTTPException(status_code=409, detail="O computador precisa estar online para testar a rota de ligamento.")
+    if not _version_at_least(device.agent_version, (0, 9, 7)):
+        raise HTTPException(status_code=409, detail="Atualize o CoreControl Agent para 0.9.7 antes de testar a rota.")
+
+    target_info = device_wol_info(db, device)
+    if not target_info.get("windows_prepared"):
+        raise HTTPException(
+            status_code=409,
+            detail=target_info.get("capability_reason") or "Prepare o Wake-on-LAN deste computador antes de testar a rota externa.",
+        )
+    mac_address = target_info.get("mac_address") or ""
+    network_cidr = target_info.get("network_cidr") or ""
+    if not mac_address or not network_cidr:
+        raise HTTPException(status_code=409, detail="O Agent ainda não informou MAC e sub-rede suficientes para o teste.")
+
+    token = secrets.token_urlsafe(24)
+    digest = int(hashlib.sha256(mac_address.encode("utf-8")).hexdigest()[:8], 16)
+    external_port = 40000 + (digest % 19000)
+    command, created = queue_agent_command(
+        db,
+        device,
+        "power.route_probe",
+        {
+            "mac_address": mac_address,
+            "network_cidr": network_cidr,
+            "probe_token": token,
+            "external_port": external_port,
+        },
+        created_by=user.id,
+        deduplicate=True,
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "created": created,
+        "command_id": command.id,
+        "status": command.status,
+        "message": "Teste iniciado. O CoreControl vai tentar criar a rota e validar o acesso a partir da VPS.",
+    }
+
+
 @router.post("/devices/{device_id}/power")
 def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db):
     require_roles(user, "platform_admin", "company_admin", "technician")
@@ -1531,6 +1717,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         raise HTTPException(status_code=409, detail="O computador já aparece ligado.")
 
     readiness = device_power_readiness(db, device)
+    wan_route = latest_wan_wake_route(db, device)
     methods: list[str] = []
     relay_ids: list[int] = []
 
@@ -1556,6 +1743,13 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     else:
         target_info = device_wol_info(db, device)
         mac_address = target_info.get("mac_address") or ""
+        if mac_address and wan_route.get("verified"):
+            try:
+                _send_wan_magic_packet(wan_route, mac_address)
+                methods.append("corecontrol_wan_upnp")
+            except (OSError, ValueError):
+                # Ainda tentamos relays/MeshCentral abaixo.
+                pass
         relays = find_wake_relays(db, device) if mac_address else []
         for relay in relays[:3]:
             queue_agent_command(
@@ -1579,8 +1773,8 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                 meshcentral_client.device_power(device.mesh_node_id, "wake")
                 methods.append("meshcentral_wake")
             except MeshCentralCommandError:
-                # O relay CoreControl continua válido mesmo se o fallback MeshCentral falhar.
-                if not relay_ids:
+                # Uma rota WAN/relay CoreControl continua válida mesmo se o fallback MeshCentral falhar.
+                if not methods:
                     raise HTTPException(status_code=503, detail="Não foi possível enviar o Wake-on-LAN pelo MeshCentral.")
 
         if not methods:

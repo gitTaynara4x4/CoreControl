@@ -77,6 +77,10 @@ func executeAgentCommand(command pendingCommand) (map[string]interface{}, error)
 	switch command.Type {
 	case "power.wake_peer":
 		return executeWakePeerCommand(command)
+	case "power.route_probe":
+		return executeWOLRouteProbeCommand(command)
+	case "power.route_probe_confirm":
+		return executeWOLRouteProbeConfirmCommand(command)
 	case "updates.scan":
 		result, err := scanUpdates()
 		if err != nil {

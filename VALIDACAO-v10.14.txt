@@ -1,0 +1,35 @@
+CoreControl v10.14 - teste real de rota de ligamento remoto
+
+OBJETIVO
+- Permitir confirmar uma rota de Wake-on-LAN sem depender de outro computador na rede.
+- Continuar bloqueando o desligamento total enquanto a rota não estiver realmente validada.
+
+IMPLEMENTADO
+- Agent 0.9.7.
+- Novo botão "Testar rota de ligamento" na página do computador.
+- Agent descobre gateway UPnP/IGD e tenta criar um encaminhamento UDP para o broadcast IPv4 da LAN.
+- Durante o teste, o Agent abre temporariamente uma regra de Firewall do Windows apenas para a porta de validação e remove a regra ao terminar.
+- A VPS envia um token UDP de fora da rede para a rota criada.
+- O Agent só confirma a rota se receber exatamente esse token.
+- CGNAT/NAT privado não é marcado como confirmado.
+- Depois da confirmação, o backend passa a considerar a rota segura para o desligamento e usa essa mesma rota para enviar o Magic Packet ao ligar o PC.
+- A confirmação é considerada válida por 7 dias; pode ser testada novamente a qualquer momento.
+
+IMPORTANTE
+- NAT-PMP/PCP não são tratados como rota "garantida" nesta versão porque o mapeamento normal aponta para o IP unicast do PC e pode deixar de funcionar após a tabela ARP expirar com o PC desligado. A v10.14 só libera pela rota externa quando o UPnP aceita encaminhar para o broadcast e a VPS comprova o caminho de fora para dentro.
+- O roteador precisa oferecer UPnP/IGD e aceitar o encaminhamento ao broadcast. Se não aceitar, o CoreControl mantém o desligamento protegido e informa o motivo.
+
+VALIDAÇÃO
+- pytest tests/test_power_control.py: 11 passed.
+- go test ./... (Agent): passed.
+- build Windows amd64 GUI do CoreControlAgent.exe 0.9.7: passed.
+- suíte completa: 64 passed / 26 falhas legadas já presentes no pacote-base (cache/version tests antigos, Remote asset antigo e MeshCentral de ambiente). Nenhuma falha nova foi adicionada por este patch.
+
+APLICAÇÃO
+1. Aplicar o PATCH v10.14 por cima da v10.13.1.
+2. Force Rebuild no EasyPanel.
+3. Ctrl+F5 no navegador.
+4. Reinstalar/atualizar CoreControl na Luiza para receber o Agent 0.9.7.
+5. Esperar a Luiza ficar Online.
+6. Abrir "Proteções e capacidade" e clicar "Testar rota de ligamento".
+7. Somente quando aparecer "Confirmada · Internet/UPnP" o botão "Desligar computador" será liberado.

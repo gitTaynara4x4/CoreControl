@@ -1166,9 +1166,13 @@
       : powerState.pc_wol_prepared
         ? 'Preparado no Windows'
         : 'Ainda não preparado';
-    const wakeRouteStatus = powerState.wake_verified
-      ? `Confirmada${powerState.relay_names?.length ? ` · ${powerState.relay_names.join(', ')}` : ''}`
-      : 'Ainda não confirmada';
+    const wakeRouteStatus = powerState.wan_route_verified
+      ? 'Confirmada · Internet/UPnP'
+      : powerState.wake_verified
+        ? `Confirmada${powerState.relay_names?.length ? ` · ${powerState.relay_names.join(', ')}` : ''}`
+        : ['testing', 'verifying'].includes(powerState.wan_route_status)
+          ? 'Testando...'
+          : 'Ainda não confirmada';
 
     CT.$('#deviceProtection').innerHTML = [
       CT.info('Memória instalada', telemetry.memory_total_gb == null ? '—' : `${CT.fmtNum(telemetry.memory_total_gb, 1)} GB`),
@@ -1184,6 +1188,60 @@
       CT.info('Intel AMT / vPro', powerState.intel_amt_detected ? 'Detectado · falta validar gerenciamento' : 'Não detectado'),
       CT.info('Rota para ligar após desligar', wakeRouteStatus),
     ].join('');
+
+    const wakeRouteButton = CT.$('#wakeRouteTestBtn');
+    const wakeRouteFeedback = CT.$('#wakeRouteTestFeedback');
+    const canManagePower = ['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role);
+    const routeAgentSupported = activityVersionAtLeast(device.agent_version, '0.9.7');
+    const routeBusy = ['testing', 'verifying'].includes(powerState.wan_route_status);
+    if (wakeRouteFeedback) {
+      wakeRouteFeedback.textContent = powerState.wan_route_message || powerState.reason || '';
+    }
+    if (wakeRouteButton && canManagePower) {
+      wakeRouteButton.classList.remove('hidden');
+      wakeRouteButton.textContent = routeBusy
+        ? 'Testando rota...'
+        : powerState.wan_route_verified
+          ? 'Testar rota novamente'
+          : 'Testar rota de ligamento';
+      wakeRouteButton.disabled = !device.online || !powerState.pc_wol_prepared || !routeAgentSupported || routeBusy;
+      wakeRouteButton.title = !device.online
+        ? 'O computador precisa estar online para testar a rota.'
+        : !routeAgentSupported
+          ? 'Atualize o CoreControl Agent para 0.9.7.'
+          : !powerState.pc_wol_prepared
+            ? 'O Wake-on-LAN precisa estar preparado antes do teste externo.'
+            : 'A VPS tentará alcançar este PC pela internet antes de liberar o desligamento.';
+      wakeRouteButton.onclick = async () => {
+        const originalText = wakeRouteButton.textContent;
+        wakeRouteButton.disabled = true;
+        wakeRouteButton.textContent = 'Testando rota...';
+        if (wakeRouteFeedback) wakeRouteFeedback.textContent = 'Preparando UPnP e aguardando o pacote de validação da VPS...';
+        try {
+          const start = await CT.api(`/devices/${device.id}/wake-route-test`, { method: 'POST' });
+          CT.toast(start?.message || 'Teste de rota iniciado.');
+          let last = null;
+          for (let attempt = 0; attempt < 28; attempt += 1) {
+            if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, 2000));
+            last = await CT.api(`/devices/${device.id}/power-readiness`);
+            if (wakeRouteFeedback) wakeRouteFeedback.textContent = last.wan_route_message || 'Validando rota...';
+            if (last.wan_route_verified) {
+              CT.toast('Rota para ligar confirmada. O desligamento foi liberado.');
+              return CT.navigate('device', device.id);
+            }
+            if (['failed', 'expired'].includes(last.wan_route_status)) {
+              throw new Error(last.wan_route_message || 'A rota externa não pôde ser confirmada.');
+            }
+          }
+          throw new Error(last?.wan_route_message || 'O teste demorou mais que o esperado. Tente novamente.');
+        } catch (error) {
+          wakeRouteButton.disabled = false;
+          wakeRouteButton.textContent = originalText;
+          if (wakeRouteFeedback) wakeRouteFeedback.textContent = error.message || 'Não foi possível confirmar a rota.';
+          CT.toast(error.message || 'Não foi possível confirmar a rota de ligamento.', true);
+        }
+      };
+    }
 
     CT.$('#deviceRemoteLabel').innerHTML = CT.remoteLabel(device);
     CT.$('#deviceRemoteText').textContent = device.remote?.running
@@ -1209,8 +1267,8 @@
       devicePowerBtn.disabled = !powerAvailable;
       devicePowerBtn.title = powerAvailable
         ? (powerOn
-          ? `Desligamento protegido por Wake Relay${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`
-          : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
+          ? (powerState.wan_route_verified ? 'Desligamento protegido por rota externa Wake-on-LAN confirmada pela VPS.' : `Desligamento protegido por Wake Relay${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
+          : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
         : (powerState.reason || 'Não existe uma rota segura disponível para esta ação de energia.');
       devicePowerBtn.onclick = async () => {
         const originalText = devicePowerBtn.textContent;
