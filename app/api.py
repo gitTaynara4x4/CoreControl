@@ -1646,9 +1646,6 @@ def test_device_wake_route(device_id: int, user: CurrentUser, db: Db):
     assert_device_access(user, device)
     if not device_online(device):
         raise HTTPException(status_code=409, detail="O computador precisa estar online para testar a rota de ligamento.")
-    if not _version_at_least(device.agent_version, (0, 9, 7)):
-        raise HTTPException(status_code=409, detail="Atualize o CoreControl Agent para 0.9.7 antes de testar a rota.")
-
     target_info = device_wol_info(db, device)
     if not target_info.get("windows_prepared"):
         raise HTTPException(
@@ -2119,7 +2116,9 @@ def install_device(payload: DeviceInstallRequest, user: CurrentUser, db: Db):
         device.serial_number = payload.serial_number
         device.os_name = payload.os_name
         device.os_version = payload.os_version
-        device.agent_version = payload.agent_version
+        # A versão do Agent é atualizada pela telemetria do próprio Agent.
+        # O instalador possui uma versão própria (ex.: 0.4.x) e não deve
+        # sobrescrever a versão real já observada do CoreControlAgent.
         device.agent_secret_hash = sha256_text(raw_secret)
         device.last_seen = now
         device.active = True
@@ -2209,7 +2208,7 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
         device.serial_number = payload.serial_number
         device.os_name = payload.os_name
         device.os_version = payload.os_version
-        device.agent_version = payload.agent_version
+        # Preserve a versão real do Agent até a próxima telemetria do binário novo.
         device.agent_secret_hash = sha256_text(raw_secret)
         device.last_seen = now
         device.active = True

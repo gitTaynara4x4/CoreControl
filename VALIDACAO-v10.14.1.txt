@@ -1,0 +1,22 @@
+CoreControl v10.14.1 - correção do botão Testar rota de ligamento
+
+Problema encontrado:
+- O botão podia ficar desabilitado mesmo com WOL preparado porque a Central usava device.agent_version como trava.
+- Durante reinstalação, o Setup informa a versão do instalador (0.4.x), e isso podia sobrescrever temporariamente a versão real do Agent.
+
+Correções:
+- O teste de rota não depende mais de metadado de versão possivelmente defasado.
+- Se o Agent real não suportar power.route_probe, o próprio comando retorna falha em vez de deixar o botão permanentemente bloqueado.
+- Reinstalação/reenrollment não sobrescreve mais a versão real já observada do Agent com a versão do Setup.
+- O botão continua bloqueado somente quando o PC está offline, o WOL não está preparado ou já existe um teste em andamento.
+
+Validação:
+- tests/test_power_control.py: 13 passed
+- tests/test_flow.py -k 'reinstall or enrollment': 1 passed
+
+Aplicação:
+- Aplicar por cima da v10.14.
+- Force Rebuild.
+- Ctrl+F5.
+- NÃO precisa reinstalar a Luiza novamente para esta correção de interface/backend.
+- Depois clicar em Testar rota de ligamento.

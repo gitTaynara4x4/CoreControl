@@ -1192,7 +1192,6 @@
     const wakeRouteButton = CT.$('#wakeRouteTestBtn');
     const wakeRouteFeedback = CT.$('#wakeRouteTestFeedback');
     const canManagePower = ['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role);
-    const routeAgentSupported = activityVersionAtLeast(device.agent_version, '0.9.7');
     const routeBusy = ['testing', 'verifying'].includes(powerState.wan_route_status);
     if (wakeRouteFeedback) {
       wakeRouteFeedback.textContent = powerState.wan_route_message || powerState.reason || '';
@@ -1204,14 +1203,12 @@
         : powerState.wan_route_verified
           ? 'Testar rota novamente'
           : 'Testar rota de ligamento';
-      wakeRouteButton.disabled = !device.online || !powerState.pc_wol_prepared || !routeAgentSupported || routeBusy;
+      wakeRouteButton.disabled = !device.online || !powerState.pc_wol_prepared || routeBusy;
       wakeRouteButton.title = !device.online
         ? 'O computador precisa estar online para testar a rota.'
-        : !routeAgentSupported
-          ? 'Atualize o CoreControl Agent para 0.9.7.'
-          : !powerState.pc_wol_prepared
-            ? 'O Wake-on-LAN precisa estar preparado antes do teste externo.'
-            : 'A VPS tentará alcançar este PC pela internet antes de liberar o desligamento.';
+        : !powerState.pc_wol_prepared
+          ? 'O Wake-on-LAN precisa estar preparado antes do teste externo.'
+          : 'A VPS tentará alcançar este PC pela internet antes de liberar o desligamento.';
       wakeRouteButton.onclick = async () => {
         const originalText = wakeRouteButton.textContent;
         wakeRouteButton.disabled = true;

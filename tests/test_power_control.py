@@ -158,3 +158,17 @@ def test_wan_route_only_accepts_public_ipv4_and_high_udp_port():
     assert '40000 <= external_port <= 59999' in api
     assert 'parsed.is_global' in update_api
     assert 'CGNAT/NAT privado' in update_api
+
+
+def test_route_probe_does_not_depend_on_stale_setup_version_metadata():
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+    devices = (ROOT / "app/static/js/pages/devices.js").read_text(encoding="utf-8")
+    assert 'Atualize o CoreControl Agent para 0.9.7 antes de testar a rota.' not in api
+    assert "!routeAgentSupported" not in devices
+    assert "wakeRouteButton.disabled = !device.online || !powerState.pc_wol_prepared || routeBusy;" in devices
+
+
+def test_reinstall_does_not_overwrite_runtime_agent_version_with_setup_version():
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+    assert "O instalador possui uma versão própria" in api
+    assert "Preserve a versão real do Agent" in api
