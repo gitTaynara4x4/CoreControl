@@ -1,0 +1,9 @@
+Validação CoreControl v10.14.6
+
+- node --check app/remote_assets/meshcentral-custom.js: OK
+- vínculo explícito window.currentNode = n: OK
+- vínculo explícito window.desktopNode = n: OK
+- botão connectbutton1 liberado quando node online: OK
+- connectDesktop(null, 3): OK
+- gate xxcurrentView removido do prontoParaConectar: OK
+- guard específico v10.8 para não herdar travamento de versão antiga: OK

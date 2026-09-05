@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    var VERSAO = 'CoreControl Remote v10.7-session-recovery';
+    var VERSAO = 'CoreControl Remote v10.8-node-bind';
     var params = new URLSearchParams(window.location.search || '');
 
     function param(nome) {
@@ -96,8 +96,9 @@
         node: sessao.node
     };
 
-    if (!sessao.ativa || window.__coreTunerRemoteAutoStart) return;
+    if (!sessao.ativa || window.__coreTunerRemoteAutoStartV108) return;
 
+    window.__coreTunerRemoteAutoStartV108 = true;
     window.__coreTunerRemoteAutoStart = true;
 
     var nodeAlvo = String(sessao.node || '').trim();
@@ -155,17 +156,15 @@
         var n = localizarNodeExato();
         if (!n) return null;
         dispositivoSelecionado = n;
-        window.currentNode = n;
+        fixarNodeNoDesktop(n);
         // connectDesktop() usa desktopNode internamente. Em algumas rotas de
         // login/gotoDevice ele ainda está null mesmo com o nó já carregado.
-        window.desktopNode = n;
 
         if (!dispositivoAberto && typeof window.gotoDevice === 'function') {
             try {
                 dispositivoAberto = true;
                 window.gotoDevice(n._id, 11);
-                window.currentNode = n;
-                window.desktopNode = n;
+                fixarNodeNoDesktop(n);
                 log('Computador exato selecionado: ' + n._id);
             } catch (erro) {
                 dispositivoAberto = false;
@@ -177,15 +176,29 @@
     }
 
     function prontoParaConectar(n) {
+        // Algumas versões do MeshCentral não expõem xxcurrentView na página
+        // desktop, embora os controles KVM já estejam renderizados. O botão
+        // oficial connectbutton1 é uma indicação mais confiável de que a tela
+        // de Desktop está pronta.
+        var botao = document.getElementById('connectbutton1');
         return Boolean(
             document.readyState === 'complete' &&
             window.meshserver && window.meshserver.State === 2 &&
-            window.xxcurrentView === 11 &&
             n && n._id && n.agent &&
             ((n.conn & 1) !== 0) &&
-            ((n.agent.caps & 1) !== 0) &&
-            typeof window.connectDesktop === 'function'
+            typeof window.connectDesktop === 'function' &&
+            botao
         );
+    }
+
+    function fixarNodeNoDesktop(n) {
+        if (!n) return;
+        window.currentNode = n;
+        window.desktopNode = n;
+        try {
+            var botao = document.getElementById('connectbutton1');
+            if (botao && ((n.conn & 1) !== 0) && n.agent) botao.disabled = false;
+        } catch (_) {}
     }
 
     function habilitarControle() {
@@ -216,8 +229,7 @@
     function iniciarDesktop(n) {
         if (conexaoIniciada) return;
         conexaoIniciada = true;
-        window.currentNode = n;
-        window.desktopNode = n;
+        fixarNodeNoDesktop(n);
         status('Conectando automaticamente...');
         try {
             habilitarControle();
@@ -225,8 +237,10 @@
             // updateDesktopButtons pode restaurar o valor persistido, então
             // reaplicamos antes de criar a sessão KVM.
             habilitarControle();
-            window.connectDesktop(null, 1);
-            log('connectDesktop iniciado com mouse e teclado habilitados.');
+            // O próprio botão 'Conectar' desta versão do MeshCentral usa o
+            // tipo 3 para Desktop via Mesh Agent.
+            window.connectDesktop(null, 3);
+            log('connectDesktop(tipo 3) iniciado com mouse e teclado habilitados.');
         } catch (erro) {
             conexaoIniciada = false;
             log('Falha ao iniciar connectDesktop.', erro);
@@ -240,6 +254,8 @@
     }
 
     log('Automação iniciada. Nó recuperado via ' + sessao.origem + ': ' + nodeAlvo);
+    window.__coreControlRemoteDebug.nodeAlvo = nodeAlvo;
+    window.__coreControlRemoteDebug.bindVersion = 'v10.8';
 
     var timer = window.setInterval(function () {
         if (window.desktop && window.desktop.State === 3) {
@@ -263,8 +279,9 @@
             return;
         }
 
-        // Reaplica porque algumas rotinas internas do MeshCentral zeram currentNode.
-        window.currentNode = n;
+        // Reaplica porque algumas rotinas internas do MeshCentral zeram
+        // currentNode/desktopNode enquanto a página troca de view.
+        fixarNodeNoDesktop(n);
 
         if (!prontoParaConectar(n)) {
             paginaProntaDesde = 0;

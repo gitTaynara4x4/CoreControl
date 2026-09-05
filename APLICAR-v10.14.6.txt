@@ -1,0 +1,36 @@
+CoreControl v10.14.6 - Sessão remota: vínculo automático do node
+
+Correção baseada no diagnóstico real da Luiza:
+- o node alvo já estava em window.nodes e online;
+- o ID salvo em sessionStorage batia exatamente com o node;
+- desktopNode permanecia undefined;
+- connectbutton1 ficava disabled;
+- o botão oficial do MeshCentral usa connectDesktop(event, 3).
+
+O que muda:
+- vincula o node salvo diretamente a currentNode e desktopNode;
+- mantém o vínculo reaplicado durante as trocas internas de view;
+- habilita o botão Conectar quando o Agent está online;
+- não depende de xxcurrentView === 11;
+- usa connectDesktop(null, 3), igual ao botão oficial do MeshCentral;
+- mantém Input/mouse/teclado habilitados nas sessões CoreControl.
+
+Aplicação:
+1. Aplique este PATCH por cima da v10.14.5.
+2. Force Rebuild do CoreControl.
+3. No terminal do serviço coretuner-remote, execute:
+
+curl -fsSL \
+  https://apps-corecontrol.9ywrah.easypanel.host/remote-assets/meshcentral-custom.js \
+  -o /opt/meshcentral/meshcentral/public/scripts/custom.js
+
+node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
+
+grep "CoreControl Remote v10.8-node-bind" \
+  /opt/meshcentral/meshcentral/public/scripts/custom.js | head
+
+4. Reinicie o container coretuner-remote.
+5. Feche a sessão remota antiga.
+6. Ctrl+F5 no CoreControl e abra Acesso remoto da Luiza novamente.
+
+Não precisa reinstalar o Agent da Luiza.
