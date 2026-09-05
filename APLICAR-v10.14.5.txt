@@ -1,0 +1,13 @@
+CoreControl v10.14.5 - Recuperacao da sessao remota
+
+1. Aplique este PATCH por cima da v10.14.4 e faça Force Rebuild do CoreControl.
+2. No terminal do serviço coretuner-remote, execute:
+
+   curl -fsSL https://apps-corecontrol.9ywrah.easypanel.host/remote-assets/meshcentral-custom.js -o /opt/meshcentral/meshcentral/public/scripts/custom.js
+   node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
+   grep "CoreControl Remote v10.7-session-recovery" /opt/meshcentral/meshcentral/public/scripts/custom.js | head
+
+3. Reinicie o container coretuner-remote.
+4. Feche e abra novamente o Acesso remoto da Luiza.
+
+Não é necessário reinstalar o PC da Luiza.

@@ -1,0 +1,18 @@
+CoreControl v10.14.5 - Sessao remota / desktopNode
+
+Problema confirmado pelo Console:
+- coretuner vazio apos a autenticacao do MeshCentral;
+- desktopNode = null;
+- connectDesktop falhava ao ler desktopNode.agent.
+
+Correcao:
+- recupera o alvo por coretuner, ctnode/gotonode e sessionStorage recente;
+- expoe __coreControlRemoteVersion e __coreControlRemoteDebug mesmo quando a sessao nao inicia;
+- define desktopNode explicitamente antes de connectDesktop;
+- mantem Input (mouse/teclado) habilitado da v10.14.4.
+
+Validacoes:
+- node --check: OK
+- pytest especifico: 5 passed
+
+Nao requer reinstalacao no PC da Luiza.

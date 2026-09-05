@@ -23,7 +23,7 @@ def test_integration_user_is_always_synced_with_full_remote_control():
 
 def test_coretuner_remote_session_forces_meshcentral_input_on():
     script = (ROOT / "app" / "remote_assets" / "meshcentral-custom.js").read_text(encoding="utf-8")
-    assert "CoreControl Remote v10.6-control" in script
+    assert "CoreControl Remote v10.7-session-recovery" in script
     assert "function habilitarControle()" in script
     assert "input.checked = true" in script
     assert "window.putstore('DeskControl', 1)" in script

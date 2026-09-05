@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    var VERSAO = 'CoreControl Remote v10.6-control';
+    var VERSAO = 'CoreControl Remote v10.7-session-recovery';
     var params = new URLSearchParams(window.location.search || '');
 
     function param(nome) {
@@ -26,41 +26,82 @@
         }
     }
 
-    function extrairSessao() {
-        var marker = param('coretuner');
-        if (!marker) return { ativa: false, node: '' };
-
-        // Formato novo: coretuner=1_<node-id em base64url>
-        if (marker.indexOf('1_') === 0 && marker.length > 2) {
-            return { ativa: true, node: base64UrlDecodeUtf8(marker.slice(2)) };
-        }
-
-        // Compatibilidade com links antigos.
-        if (marker === '1') {
-            return {
-                ativa: true,
-                node: param('ctnode') || param('gotonode') || ''
-            };
-        }
-
-        return { ativa: false, node: '' };
+    function sessaoSalva() {
+        try {
+            var node = window.sessionStorage.getItem('coretuner.remote.node') || '';
+            var ts = Number(window.sessionStorage.getItem('coretuner.remote.ts') || '0');
+            // Só recupera um alvo recente. Evita que uma visita genérica ao
+            // MeshCentral reutilize indefinidamente um computador antigo.
+            if (node && ts && (Date.now() - ts) <= 120000) {
+                return String(node);
+            }
+        } catch (_) {}
+        return '';
     }
 
+    function salvarSessao(node) {
+        try {
+            if (!node) return;
+            window.sessionStorage.setItem('coretuner.remote.node', String(node));
+            window.sessionStorage.setItem('coretuner.remote.ts', String(Date.now()));
+        } catch (_) {}
+    }
+
+    function extrairSessao() {
+        var marker = param('coretuner');
+        var node = '';
+        var origem = '';
+
+        // Formato novo: coretuner=1_<node-id em base64url>.
+        if (marker && marker.indexOf('1_') === 0 && marker.length > 2) {
+            node = base64UrlDecodeUtf8(marker.slice(2));
+            origem = 'coretuner';
+        }
+
+        // O MeshCentral pode consumir/remover parâmetros desconhecidos durante
+        // o login por token. gotonode é nativo e costuma permanecer em args,
+        // por isso ele é o primeiro fallback seguro para a mesma sessão.
+        if (!node) {
+            node = param('ctnode') || param('gotonode') || '';
+            if (node) origem = 'gotonode';
+        }
+
+        // Compatibilidade com links antigos coretuner=1.
+        if (!node && marker === '1') {
+            node = param('ctnode') || param('gotonode') || '';
+            if (node) origem = 'legacy';
+        }
+
+        // Em alguns fluxos de autenticação há uma segunda navegação que limpa
+        // a query. Recuperamos apenas o alvo gravado nos últimos 2 minutos.
+        if (!node) {
+            node = sessaoSalva();
+            if (node) origem = 'sessionStorage';
+        }
+
+        return { ativa: Boolean(node), node: node, origem: origem, marker: marker };
+    }
+
+    // Sempre exponha a versão, mesmo quando a sessão não puder ser recuperada.
+    // Isso torna o diagnóstico pelo Console inequívoco.
+    window.__coreControlRemoteVersion = VERSAO;
+
     var sessao = extrairSessao();
+    window.__coreControlRemoteDebug = {
+        ativa: sessao.ativa,
+        origem: sessao.origem,
+        marker: sessao.marker,
+        gotonode: param('gotonode'),
+        ctnode: param('ctnode'),
+        node: sessao.node
+    };
+
     if (!sessao.ativa || window.__coreTunerRemoteAutoStart) return;
 
     window.__coreTunerRemoteAutoStart = true;
-    window.__coreControlRemoteVersion = VERSAO;
 
     var nodeAlvo = String(sessao.node || '').trim();
-
-    try {
-        if (nodeAlvo) {
-            window.sessionStorage.setItem('coretuner.remote.node', nodeAlvo);
-        } else {
-            nodeAlvo = window.sessionStorage.getItem('coretuner.remote.node') || '';
-        }
-    } catch (_) {}
+    salvarSessao(nodeAlvo);
 
     var inicio = Date.now();
     var LIMITE_TOTAL_MS = 90000;
@@ -115,12 +156,16 @@
         if (!n) return null;
         dispositivoSelecionado = n;
         window.currentNode = n;
+        // connectDesktop() usa desktopNode internamente. Em algumas rotas de
+        // login/gotoDevice ele ainda está null mesmo com o nó já carregado.
+        window.desktopNode = n;
 
         if (!dispositivoAberto && typeof window.gotoDevice === 'function') {
             try {
                 dispositivoAberto = true;
                 window.gotoDevice(n._id, 11);
                 window.currentNode = n;
+                window.desktopNode = n;
                 log('Computador exato selecionado: ' + n._id);
             } catch (erro) {
                 dispositivoAberto = false;
@@ -172,6 +217,7 @@
         if (conexaoIniciada) return;
         conexaoIniciada = true;
         window.currentNode = n;
+        window.desktopNode = n;
         status('Conectando automaticamente...');
         try {
             habilitarControle();
@@ -193,7 +239,7 @@
         return;
     }
 
-    log('Automação iniciada. Nó transportado no marcador coretuner.');
+    log('Automação iniciada. Nó recuperado via ' + sessao.origem + ': ' + nodeAlvo);
 
     var timer = window.setInterval(function () {
         if (window.desktop && window.desktop.State === 3) {
