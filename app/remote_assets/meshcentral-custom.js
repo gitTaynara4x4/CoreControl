@@ -1,12 +1,12 @@
 (function () {
     'use strict';
 
-    // CoreControl Remote v10.9
+    // CoreControl Remote v10.10
     // Fluxo intencionalmente simples: o CoreControl já abre a página Desktop.
     // Não use gotoDevice/gotoNode aqui. Apenas associe o node autorizado que já
     // está em window.nodes ao desktopNode e conecte usando o mesmo modo do botão
     // oficial do MeshCentral: connectDesktop(event, 3).
-    var VERSAO = 'CoreControl Remote v10.9-front-direct-bind';
+    var VERSAO = 'CoreControl Remote v10.10-front-direct-bind-fit';
     var STORAGE_NODE = 'coretuner.remote.node';
     var STORAGE_TS = 'coretuner.remote.ts';
     var MAX_SESSION_AGE_MS = 10 * 60 * 1000;
@@ -125,6 +125,24 @@
         } catch (_) {}
     }
 
+    function aplicarTelaInteira() {
+        try {
+            var css = [
+                'html,body{width:100%!important;height:100%!important;margin:0!important;overflow:hidden!important;background:#777!important;}',
+                '#p10,#p10desktop,#deskarea0,#deskarea1,#deskarea2,#DeskParent{max-width:100vw!important;max-height:100vh!important;overflow:hidden!important;}',
+                '#DeskParent{width:100vw!important;height:100vh!important;display:flex!important;align-items:center!important;justify-content:center!important;background:#777!important;}',
+                'canvas#Desk,#Desk{max-width:100%!important;max-height:100%!important;width:auto!important;height:auto!important;object-fit:contain!important;}'
+            ].join('');
+            var style = document.getElementById('corecontrol-fit-to-window');
+            if (!style) {
+                style = document.createElement('style');
+                style.id = 'corecontrol-fit-to-window';
+                (document.head || document.documentElement).appendChild(style);
+            }
+            if (style.textContent !== css) style.textContent = css;
+        } catch (_) {}
+    }
+
     function vincularNode(n) {
         if (!n) return false;
 
@@ -235,6 +253,7 @@
         if (estaConectado()) {
             habilitarEntrada();
             status('Conectado');
+            aplicarTelaInteira();
             window.__coreControlRemoteDebug.fase = 'conectado';
             window.__coreControlRemoteDebug.input = true;
             window.clearInterval(timer);
@@ -243,5 +262,9 @@
         }
 
         conectar(n);
+        aplicarTelaInteira();
     }, POLL_MS);
+
+    aplicarTelaInteira();
+    window.addEventListener('resize', aplicarTelaInteira);
 })();
