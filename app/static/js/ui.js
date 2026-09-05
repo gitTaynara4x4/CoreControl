@@ -134,6 +134,7 @@
   CT.mountGlobalComponents = async function mountGlobalComponents() {
     await CT.mountTemplate('#remoteViewerMount', 'components/remote-viewer.html');
     CT.$('#remoteViewerClose').onclick = CT.closeRemoteViewer;
+    CT.$('#remoteViewerTabClose').onclick = CT.closeRemoteViewer;
     CT.$('#remoteViewerDockClose').onclick = CT.closeRemoteViewer;
     CT.$('#remoteViewerMinimize').onclick = CT.minimizeRemoteViewer;
     CT.$('#remoteViewerRestore').onclick = CT.restoreRemoteViewer;
@@ -164,7 +165,11 @@
   CT.syncRemoteViewerFullscreenUi = function syncRemoteViewerFullscreenUi() {
     const btn = CT.$('#remoteViewerFullscreen');
     if (!btn) return;
-    btn.textContent = document.fullscreenElement ? 'Restaurar' : 'Maximizar';
+    const label = CT.$('#remoteViewerFullscreenLabel');
+    const value = document.fullscreenElement ? 'Restaurar' : 'Maximizar';
+    if (label) label.textContent = value;
+    btn.setAttribute('aria-label', value);
+    btn.setAttribute('title', value);
   };
 
   CT.minimizeRemoteViewer = function minimizeRemoteViewer() {
@@ -202,6 +207,7 @@
   };
 
   CT.closeRemoteViewer = function closeRemoteViewer() {
+    CT.remoteViewerRequestToken = (CT.remoteViewerRequestToken || 0) + 1;
     const viewer = CT.$('#remoteViewer');
     const frame = CT.$('#remoteViewerFrame');
     if (document.fullscreenElement) {
@@ -259,6 +265,8 @@
   };
 
   CT.openRemoteSession = async function openRemoteSession(deviceId) {
+    const requestToken = (CT.remoteViewerRequestToken || 0) + 1;
+    CT.remoteViewerRequestToken = requestToken;
     const viewer = CT.$('#remoteViewer');
     const frame = CT.$('#remoteViewerFrame');
     const loading = CT.$('#remoteViewerLoading');
@@ -274,13 +282,16 @@
     frame.classList.remove('ready');
     frame.src = 'about:blank';
     CT.$('#remoteViewerTitle').textContent = 'Acesso remoto';
+    CT.$('#remoteViewerConnectionId').textContent = 'Autorizando';
     CT.$('#remoteViewerStatus').textContent = 'Gerando acesso temporário...';
     CT.$('#remoteViewerDockTitle').textContent = 'Acesso remoto';
     CT.$('#remoteViewerDockStatus').textContent = 'Gerando acesso temporário...';
 
     try {
       const data = await CT.requestRemoteUrl(deviceId);
+      if (requestToken !== CT.remoteViewerRequestToken || viewer.classList.contains('hidden')) return;
       CT.$('#remoteViewerTitle').textContent = `Acesso remoto — ${data.device_name}`;
+      CT.$('#remoteViewerConnectionId').textContent = data.device_name || `PC ${deviceId}`;
       CT.$('#remoteViewerStatus').textContent = 'Sessão autorizada pelo CoreControl';
       CT.$('#remoteViewerDockTitle').textContent = `Acesso remoto — ${data.device_name}`;
       CT.$('#remoteViewerDockStatus').textContent = 'Sessão minimizada';

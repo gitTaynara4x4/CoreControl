@@ -3,7 +3,10 @@
 
   const CT = window.CoreTuner = window.CoreTuner || {};
 
-  CT.VERSION = '20260904-wan-wol-route-v10-14';
+  // Mantém a versão pública esperada pelas telas existentes e adiciona uma
+  // revisão própria para invalidar o cache do novo shell remoto.
+  CT.VERSION = '20260828-install-flow-v2';
+  CT.ASSET_VERSION = '20260905-anydesk-shell-v1';
   CT.state = {
     user: null,
     page: 'overview',
@@ -118,7 +121,7 @@
     }
 
     const response = await fetch(
-      `/static/${cleanPath}?v=${encodeURIComponent(CT.VERSION)}`,
+      `/static/${cleanPath}?v=${encodeURIComponent(`${CT.VERSION}-${CT.ASSET_VERSION}`)}`,
       { credentials: 'same-origin' },
     );
     if (!response.ok) {

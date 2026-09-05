@@ -1,25 +1,59 @@
 <section id="remoteViewer" class="remote-viewer hidden">
-  <div class="remote-viewer-body">
-    <header class="remote-viewer-header">
-      <div class="remote-viewer-title-wrap">
-        <strong id="remoteViewerTitle">Acesso remoto</strong>
-        <small id="remoteViewerStatus">Preparando conexão segura...</small>
+  <div class="remote-anydesk-shell">
+    <header class="remote-viewer-tabbar">
+      <div class="remote-viewer-product" aria-label="CoreControl">
+        <span class="remote-viewer-product-mark" aria-hidden="true"></span>
+        <span>CoreControl</span>
       </div>
-      <div class="remote-viewer-actions">
-        <button id="remoteViewerMinimize" type="button" class="btn small">Minimizar</button>
-        <button id="remoteViewerFullscreen" type="button" class="btn small">Maximizar</button>
-        <button id="remoteViewerNewTab" type="button" class="btn small">Abrir em nova guia</button>
-        <button id="remoteViewerClose" type="button" class="btn danger small">Encerrar</button>
+      <div class="remote-viewer-session-tab">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <strong id="remoteViewerTitle">Acesso remoto</strong>
+        <button id="remoteViewerTabClose" type="button" class="remote-viewer-tab-close" aria-label="Encerrar sessão">×</button>
+      </div>
+      <button id="remoteViewerNewTab" type="button" class="remote-viewer-new-tab" aria-label="Abrir sessão em nova guia" title="Abrir em nova guia">+</button>
+      <div class="remote-viewer-window-actions">
+        <button id="remoteViewerMinimize" type="button" class="remote-viewer-window-button" aria-label="Minimizar" title="Minimizar"><span aria-hidden="true">—</span></button>
+        <button id="remoteViewerFullscreen" type="button" class="remote-viewer-window-button" aria-label="Maximizar" title="Maximizar"><span id="remoteViewerFullscreenLabel" class="sr-only">Maximizar</span><span aria-hidden="true">□</span></button>
+        <button id="remoteViewerClose" type="button" class="remote-viewer-window-button remote-viewer-close-button" aria-label="Encerrar" title="Encerrar"><span aria-hidden="true">×</span></button>
       </div>
     </header>
-    <div id="remoteViewerLoading" class="remote-viewer-loading"><span></span><p>Conectando ao computador...</p></div>
-    <iframe id="remoteViewerFrame" title="Área de trabalho remota" allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
+
+    <div class="remote-viewer-commandbar">
+      <div class="remote-viewer-address" title="Sessão remota autorizada">
+        <span class="remote-viewer-online-dot" aria-hidden="true"></span>
+        <span id="remoteViewerConnectionId">Conectando</span>
+        <span class="remote-viewer-address-star" aria-hidden="true">☆</span>
+      </div>
+      <div class="remote-viewer-session-modes" aria-label="Sessões abertas">
+        <button type="button" class="remote-viewer-mode active" aria-label="Sessão atual">1</button>
+        <button type="button" class="remote-viewer-mode" aria-label="Nova sessão">2</button>
+      </div>
+      <div class="remote-viewer-tools" aria-label="Ferramentas da sessão">
+        <button type="button" aria-label="Ajustar visualização" title="Ajustar visualização"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg></button>
+        <button type="button" aria-label="Teclado e mouse" title="Teclado e mouse"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M10 10h.01M13 10h.01M16 10h.01M7 14h10"/></svg></button>
+        <button type="button" aria-label="Área de transferência" title="Área de transferência"><svg viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="16" rx="2"/><path d="M9 5V3h6v2M9 10h6M9 14h5"/></svg></button>
+        <button type="button" aria-label="Transferência de arquivos" title="Transferência de arquivos"><svg viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4z"/><path d="M12 5v8M9 10l3 3 3-3"/></svg></button>
+        <button type="button" aria-label="Privacidade" title="Privacidade"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.9 8 7 10 4.1-2 7-5.2 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg></button>
+        <button type="button" aria-label="Anotação" title="Anotação"><svg viewBox="0 0 24 24"><path d="m14 5 5 5M5 19l1-4L16 5l3 3L9 18z"/></svg></button>
+      </div>
+      <div class="remote-viewer-command-status">
+        <span id="remoteViewerStatus">Preparando conexão segura...</span>
+        <button type="button" class="remote-viewer-command-more" aria-label="Mais opções" title="Mais opções">⋮</button>
+      </div>
+    </div>
+
+    <main class="remote-viewer-stage">
+      <div class="remote-viewer-screen-frame">
+        <div id="remoteViewerLoading" class="remote-viewer-loading"><span></span><p>Conectando ao computador...</p></div>
+        <iframe id="remoteViewerFrame" title="Área de trabalho remota" allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
+      </div>
+    </main>
   </div>
 </section>
 <div id="remoteViewerDock" class="remote-viewer-dock hidden" aria-live="polite">
   <div class="remote-viewer-dock-title">
-    <strong id="remoteViewerDockTitle">Acesso remoto</strong>
-    <small id="remoteViewerDockStatus">Sessão minimizada</small>
+    <span class="remote-viewer-product-mark" aria-hidden="true"></span>
+    <div><strong id="remoteViewerDockTitle">Acesso remoto</strong><small id="remoteViewerDockStatus">Sessão minimizada</small></div>
   </div>
   <div class="remote-viewer-dock-actions">
     <button id="remoteViewerRestore" type="button" class="btn small">Restaurar</button>
