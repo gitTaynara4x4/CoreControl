@@ -1,0 +1,21 @@
+CoreControl v10.14.3 - correção teste de rota / falso offline
+
+Problema confirmado no ZIP atual:
+- /api/devices/{id}/wake-route-test bloqueava usando apenas Device.last_seen.
+- O Agent podia estar online e consultando a fila, mas o endpoint devolvia:
+  "O computador precisa estar online para testar a rota de ligamento."
+- O PATCH v10.14.2 não estava incorporado no app/update_api.py do ZIP analisado.
+
+Correções:
+1. Poll autenticado /api/agent/commands/next renova Device.last_seen (throttle 20 s).
+2. wake-route-test não bloqueia mais antes do teste por last_seen stale.
+   O próprio command probe passa a ser a prova de alcance do Agent.
+3. Se o Agent não buscar/responder ao probe em 55 s, readiness retorna failed com mensagem explícita.
+4. Um novo clique substitui probe antigo queued/running e cria um teste realmente novo.
+5. power-readiness agora expõe online, last_seen, remote_online e mac_address para diagnóstico no Console.
+
+Validação:
+- python -m py_compile app/api.py app/update_api.py: OK
+- pytest -q tests/test_power_control.py: 15 passed
+
+Não exige reinstalação do PC da Luiza. É alteração somente no servidor/CoreControl Central.

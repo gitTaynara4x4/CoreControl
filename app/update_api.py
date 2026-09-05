@@ -97,20 +97,19 @@ def _agent_device(db: Session, authorization: str | None, device_uid: str) -> De
     return device
 
 
+
 def _touch_agent_presence(device: Device, now, minimum_seconds: int = 20) -> bool:
-    """Keep Device.last_seen aligned with the Agent's authenticated command polling.
+    """Use authenticated command polling as proof that the CoreControl Agent is online.
 
     The Windows Agent polls /agent/commands/next every few seconds even between
-    telemetry samples. Treat that authenticated poll as proof that the Agent is
-    online, while throttling DB writes so large installations do not write on
-    every 5-second poll.
+    telemetry samples. Throttle writes so this does not update the database on
+    every poll.
     """
     previous = as_utc(device.last_seen)
     if previous and (now - previous).total_seconds() < minimum_seconds:
         return False
     device.last_seen = now
     return True
-
 
 def _latest_command(db: Session, device_id: int) -> AgentCommand | None:
     return db.scalar(
