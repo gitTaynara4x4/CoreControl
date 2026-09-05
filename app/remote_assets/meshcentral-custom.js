@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    var VERSAO = 'CoreControl Remote v10.5';
+    var VERSAO = 'CoreControl Remote v10.6-control';
     var params = new URLSearchParams(window.location.search || '');
 
     function param(nome) {
@@ -143,15 +143,44 @@
         );
     }
 
+    function habilitarControle() {
+        // O MeshCentral persiste o checkbox "Input" no navegador. Se uma
+        // sessão anterior foi aberta em modo visualização, o valor 0 pode ser
+        // reutilizado nas sessões seguintes mesmo quando o usuário possui
+        // RemoteControl. Para sessões autorizadas pelo CoreControl, force o
+        // controle de mouse/teclado. As permissões continuam sendo validadas
+        // pelo próprio MeshCentral/Agent no servidor.
+        try {
+            var input = document.getElementById('DeskControl');
+            if (!input) return false;
+            input.checked = true;
+            if (typeof window.putstore === 'function') {
+                window.putstore('DeskControl', 1);
+            } else {
+                window.localStorage.setItem('DeskControl', '1');
+            }
+            var span = document.getElementById('DeskControlSpan');
+            if (span) span.style.color = '';
+            return true;
+        } catch (erro) {
+            log('Não foi possível habilitar o controle de entrada.', erro);
+            return false;
+        }
+    }
+
     function iniciarDesktop(n) {
         if (conexaoIniciada) return;
         conexaoIniciada = true;
         window.currentNode = n;
         status('Conectando automaticamente...');
         try {
+            habilitarControle();
             if (typeof window.updateDesktopButtons === 'function') window.updateDesktopButtons();
+            // updateDesktopButtons pode restaurar o valor persistido, então
+            // reaplicamos antes de criar a sessão KVM.
+            habilitarControle();
             window.connectDesktop(null, 1);
-            log('connectDesktop iniciado para o nó correto.');
+            log('connectDesktop iniciado com mouse e teclado habilitados.');
         } catch (erro) {
             conexaoIniciada = false;
             log('Falha ao iniciar connectDesktop.', erro);
@@ -168,8 +197,9 @@
 
     var timer = window.setInterval(function () {
         if (window.desktop && window.desktop.State === 3) {
-            status('Conectado');
-            log('Desktop conectado.');
+            habilitarControle();
+            status('Conectado — controle de mouse e teclado ativo');
+            log('Desktop conectado com Input habilitado.');
             window.clearInterval(timer);
             return;
         }

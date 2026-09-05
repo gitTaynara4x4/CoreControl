@@ -303,13 +303,6 @@ def latest_wan_wake_route(db: Session, device: Device) -> dict:
             break
 
     if probe.status in {"queued", "running"}:
-        probe_started = as_utc(probe.claimed_at or probe.created_at)
-        if probe_started and (utcnow() - probe_started).total_seconds() > 55:
-            return {
-                "verified": False,
-                "status": "failed",
-                "message": "O CoreControl Agent não respondeu ao teste de rota dentro do tempo esperado.",
-            }
         return {"verified": False, "status": "testing", "message": "Testando UPnP e preparando a rota de Wake-on-LAN..."}
     if probe.status == "failed":
         return {
@@ -438,10 +431,6 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         )
 
     return {
-        "online": device_online(device),
-        "last_seen": iso(device.last_seen),
-        "remote_online": bool(device.remote_online),
-        "mac_address": target_info.get("mac_address") or None,
         "mac_known": bool(target_info.get("mac_address")),
         "network_cidr": target_info.get("network_cidr") or None,
         "adapter_name": target_info.get("adapter_name"),
@@ -1582,7 +1571,19 @@ def create_remote_session(device_id: int, user: CurrentUser, db: Db):
             detail="Login automático do acesso remoto ainda não foi configurado",
         )
 
+    # Antes de cada sessão, reconcilia o grupo e os direitos do usuário
+    # técnico. Assim uma empresa provisionada por versões antigas não fica
+    # presa em RemoteViewOnly e não exige reinstalar o Agent no PC.
+    company = db.get(Company, device.company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa do computador não encontrada")
     try:
+        mesh_id, _mesh_hex, group_name = meshcentral_client.ensure_company_group(company)
+        if company.mesh_group_id != mesh_id or company.mesh_group_name != group_name:
+            company.mesh_group_id = mesh_id
+            company.mesh_group_name = group_name
+            company.mesh_group_synced_at = utcnow()
+            db.commit()
         refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
     except MeshCentralCommandError as exc:
         raise HTTPException(status_code=503, detail=f"MeshCentral indisponível: {exc}") from exc
@@ -1655,10 +1656,8 @@ def test_device_wake_route(device_id: int, user: CurrentUser, db: Db):
     if not device or not device.active:
         raise HTTPException(status_code=404, detail="Computador não encontrado")
     assert_device_access(user, device)
-    # Do not reject the test from Device.last_seen alone. The route probe itself
-    # is the authoritative reachability check: if the Agent is really offline,
-    # the command will remain unclaimed and the readiness endpoint reports a
-    # timeout instead of producing a false "offline" before the test starts.
+    if not device_online(device):
+        raise HTTPException(status_code=409, detail="O computador precisa estar online para testar a rota de ligamento.")
     target_info = device_wol_info(db, device)
     if not target_info.get("windows_prepared"):
         raise HTTPException(
@@ -1669,22 +1668,6 @@ def test_device_wake_route(device_id: int, user: CurrentUser, db: Db):
     network_cidr = target_info.get("network_cidr") or ""
     if not mac_address or not network_cidr:
         raise HTTPException(status_code=409, detail="O Agent ainda não informou MAC e sub-rede suficientes para o teste.")
-
-    # A new click must create a fresh probe. Old queued/running probes can be
-    # leftovers from a previous deployment or from an Agent that was offline.
-    active_probes = list(
-        db.scalars(
-            select(AgentCommand).where(
-                AgentCommand.device_id == device.id,
-                AgentCommand.command_type == "power.route_probe",
-                AgentCommand.status.in_(["queued", "running"]),
-            )
-        ).all()
-    )
-    for old_probe in active_probes:
-        old_probe.status = "failed"
-        old_probe.finished_at = utcnow()
-        old_probe.error_text = "Teste substituído por uma nova validação de rota."
 
     token = secrets.token_urlsafe(24)
     digest = int(hashlib.sha256(mac_address.encode("utf-8")).hexdigest()[:8], 16)
@@ -1700,7 +1683,7 @@ def test_device_wake_route(device_id: int, user: CurrentUser, db: Db):
             "external_port": external_port,
         },
         created_by=user.id,
-        deduplicate=False,
+        deduplicate=True,
     )
     db.commit()
     return {

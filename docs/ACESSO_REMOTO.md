@@ -76,3 +76,21 @@ Também existe o instalador `tools/install_meshcentral_custom.sh`, que tenta pri
 Não é necessário reinstalar o CoreControl Setup nem o Mesh Agent nos computadores.
 
 O arquivo gravado diretamente dentro do contêiner pode ser perdido em uma recriação do serviço `coretuner-remote`. Para produção, mantenha `/opt/meshcentral/meshcentral/public/scripts/custom.js` em volume persistente ou em uma imagem personalizada do MeshCentral.
+
+
+## Controle de mouse e teclado — v10.6-control
+
+Nas sessões abertas pelo CoreControl, o script customizado do MeshCentral força o checkbox `Input` ligado somente depois de uma sessão temporária autorizada pelo CoreControl. O MeshCentral continua validando o direito `RemoteControl` no servidor/Agent.
+
+Antes de cada nova sessão, o backend também reconcilia os direitos do usuário técnico no grupo da empresa. Isso remove estados antigos de `RemoteViewOnly` sem reinstalar o Mesh Agent no computador.
+
+Após atualizar o serviço CoreControl, atualize o `custom.js` no serviço `coretuner-remote`:
+
+```bash
+curl -fsSL http://apps-coretuner:8280/remote-assets/meshcentral-custom.js \
+  -o /opt/meshcentral/meshcentral/public/scripts/custom.js
+node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
+grep "CoreControl Remote v10.6-control" /opt/meshcentral/meshcentral/public/scripts/custom.js | head
+```
+
+Não é necessário reinstalar o Agent no PC do cliente. Feche a sessão remota antiga e abra uma nova sessão pelo CoreControl.

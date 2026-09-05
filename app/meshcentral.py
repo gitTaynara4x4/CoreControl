@@ -458,29 +458,32 @@ class MeshCentralClient:
             )
 
         integration_user_id = self.ensure_integration_user()
-        links = selected.get("links")
-        already_linked = isinstance(links, dict) and integration_user_id in links
-        if not already_linked:
-            try:
-                self._meshctrl_command(
-                    "AddUserToDeviceGroup",
-                    [
-                        "--id",
-                        mesh_id,
-                        "--userid",
-                        integration_user_id,
-                        "--remotecontrol",
-                        "--noterminal",
-                        "--nofiles",
-                        "--noregistry",
-                        "--noamt",
-                        "--limitedevents",
-                    ],
-                )
-            except MeshCentralCommandError as exc:
-                message = str(exc).lower()
-                if "already" not in message and "já" not in message:
-                    raise
+
+        # Sincronize SEMPRE as permissões do usuário técnico. O MeshCentral
+        # aceita AddUserToDeviceGroup também para um vínculo já existente e,
+        # nesse caso, substitui os direitos pelo valor informado. Versões
+        # antigas do CoreControl podiam deixar o usuário com RemoteViewOnly
+        # (bit 256) ou com um conjunto parcial de direitos; apenas verificar se
+        # o usuário já estava no grupo mantinha esse estado para sempre.
+        #
+        # Direitos desejados: RemoteControl + esconder Terminal/Files/Registry/
+        # AMT + eventos limitados. Deliberadamente NÃO usamos
+        # --desktopviewonly nem --limiteddesktop.
+        self._meshctrl_command(
+            "AddUserToDeviceGroup",
+            [
+                "--id",
+                mesh_id,
+                "--userid",
+                integration_user_id,
+                "--remotecontrol",
+                "--noterminal",
+                "--nofiles",
+                "--noregistry",
+                "--noamt",
+                "--limitedevents",
+            ],
+        )
         return mesh_id, mesh_hex.lower(), group_name
 
     def remove_company_group(self, mesh_id: str) -> None:
