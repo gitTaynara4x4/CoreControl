@@ -134,19 +134,83 @@
   CT.mountGlobalComponents = async function mountGlobalComponents() {
     await CT.mountTemplate('#remoteViewerMount', 'components/remote-viewer.html');
     CT.$('#remoteViewerClose').onclick = CT.closeRemoteViewer;
+    CT.$('#remoteViewerDockClose').onclick = CT.closeRemoteViewer;
+    CT.$('#remoteViewerMinimize').onclick = CT.minimizeRemoteViewer;
+    CT.$('#remoteViewerRestore').onclick = CT.restoreRemoteViewer;
+    CT.$('#remoteViewerFullscreen').onclick = CT.toggleRemoteViewerFullscreen;
     document.addEventListener('keydown', (event) => {
       const viewer = CT.$('#remoteViewer');
+      if (event.key === 'Escape' && document.fullscreenElement) {
+        document.exitFullscreen?.();
+        return;
+      }
       if (event.key === 'Escape' && viewer && !viewer.classList.contains('hidden')) {
         CT.closeRemoteViewer();
       }
     });
+    document.addEventListener('fullscreenchange', () => {
+      CT.syncRemoteViewerFullscreenUi();
+    });
+  };
+
+  CT.syncRemoteViewerDock = function syncRemoteViewerDock() {
+    const viewer = CT.$('#remoteViewer');
+    const dock = CT.$('#remoteViewerDock');
+    if (!viewer || !dock) return;
+    const minimized = viewer.classList.contains('is-minimized');
+    dock.classList.toggle('hidden', !minimized);
+  };
+
+  CT.syncRemoteViewerFullscreenUi = function syncRemoteViewerFullscreenUi() {
+    const btn = CT.$('#remoteViewerFullscreen');
+    if (!btn) return;
+    btn.textContent = document.fullscreenElement ? 'Sair do máximo' : 'Maximizar';
+  };
+
+  CT.minimizeRemoteViewer = function minimizeRemoteViewer() {
+    const viewer = CT.$('#remoteViewer');
+    if (!viewer || viewer.classList.contains('hidden')) return;
+    viewer.classList.add('is-minimized');
+    CT.$('#remoteViewerDockTitle').textContent = CT.$('#remoteViewerTitle')?.textContent || 'Acesso remoto';
+    CT.$('#remoteViewerDockStatus').textContent = 'Sessão minimizada';
+    CT.syncRemoteViewerDock();
+    document.body.classList.remove('remote-viewer-open');
+  };
+
+  CT.restoreRemoteViewer = function restoreRemoteViewer() {
+    const viewer = CT.$('#remoteViewer');
+    if (!viewer) return;
+    viewer.classList.remove('hidden', 'is-minimized');
+    document.body.classList.add('remote-viewer-open');
+    CT.syncRemoteViewerDock();
+  };
+
+  CT.toggleRemoteViewerFullscreen = async function toggleRemoteViewerFullscreen() {
+    const viewer = CT.$('#remoteViewer');
+    if (!viewer) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen?.();
+      } else {
+        await viewer.requestFullscreen?.();
+      }
+    } catch (error) {
+      CT.toast('Não foi possível alternar a visualização máxima.', true);
+    } finally {
+      CT.syncRemoteViewerFullscreenUi();
+    }
   };
 
   CT.closeRemoteViewer = function closeRemoteViewer() {
     const viewer = CT.$('#remoteViewer');
     const frame = CT.$('#remoteViewerFrame');
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    }
     if (frame) frame.src = 'about:blank';
     if (viewer) viewer.classList.add('hidden');
+    if (viewer) viewer.classList.remove('is-minimized');
+    CT.syncRemoteViewerDock();
     document.body.classList.remove('remote-viewer-open');
   };
 
@@ -202,18 +266,24 @@
       throw new Error('Visualizador remoto não foi carregado');
     }
 
-    viewer.classList.remove('hidden');
+    viewer.classList.remove('hidden', 'is-minimized');
+    CT.syncRemoteViewerDock();
+    CT.syncRemoteViewerFullscreenUi();
     document.body.classList.add('remote-viewer-open');
     loading.classList.remove('hidden');
     frame.classList.remove('ready');
     frame.src = 'about:blank';
     CT.$('#remoteViewerTitle').textContent = 'Acesso remoto';
     CT.$('#remoteViewerStatus').textContent = 'Gerando acesso temporário...';
+    CT.$('#remoteViewerDockTitle').textContent = 'Acesso remoto';
+    CT.$('#remoteViewerDockStatus').textContent = 'Gerando acesso temporário...';
 
     try {
       const data = await CT.requestRemoteUrl(deviceId);
       CT.$('#remoteViewerTitle').textContent = `Acesso remoto — ${data.device_name}`;
       CT.$('#remoteViewerStatus').textContent = 'Sessão autorizada pelo CoreControl';
+      CT.$('#remoteViewerDockTitle').textContent = `Acesso remoto — ${data.device_name}`;
+      CT.$('#remoteViewerDockStatus').textContent = 'Sessão minimizada';
       frame.onload = () => {
         loading.classList.add('hidden');
         frame.classList.add('ready');
