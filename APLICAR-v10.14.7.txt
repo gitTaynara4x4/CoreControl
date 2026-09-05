@@ -1,0 +1,29 @@
+CoreControl v10.14.7 — Remote Front Direct Bind
+
+Correção:
+- Remove o fluxo gotoDevice do custom.js.
+- Replica o fluxo que funcionou manualmente no Console na sessão da Luiza.
+- Localiza coretuner.remote.node em window.nodes.
+- Define window.currentNode e window.desktopNode diretamente.
+- Libera connectbutton1.
+- Habilita DeskControl (Entrada).
+- Executa connectDesktop(null, 3), igual ao botão oficial do MeshCentral.
+
+Aplicação:
+1. Aplicar este PATCH por cima do CoreControl atual.
+2. Force Rebuild no CoreControl.
+3. No container coretuner-remote executar:
+
+curl -fsSL \
+  https://apps-corecontrol.9ywrah.easypanel.host/remote-assets/meshcentral-custom.js \
+  -o /opt/meshcentral/meshcentral/public/scripts/custom.js
+
+node --check /opt/meshcentral/meshcentral/public/scripts/custom.js
+
+grep "CoreControl Remote v10.9-front-direct-bind" \
+  /opt/meshcentral/meshcentral/public/scripts/custom.js | head
+
+4. Reiniciar coretuner-remote.
+5. Fechar a sessão remota antiga, Ctrl+F5 no CoreControl e abrir a Luiza novamente.
+
+Não precisa reinstalar nada no PC da Luiza.

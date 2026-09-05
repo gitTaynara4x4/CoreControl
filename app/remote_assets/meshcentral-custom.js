@@ -1,16 +1,24 @@
 (function () {
     'use strict';
 
-    var VERSAO = 'CoreControl Remote v10.8-node-bind';
-    var params = new URLSearchParams(window.location.search || '');
+    // CoreControl Remote v10.9
+    // Fluxo intencionalmente simples: o CoreControl já abre a página Desktop.
+    // Não use gotoDevice/gotoNode aqui. Apenas associe o node autorizado que já
+    // está em window.nodes ao desktopNode e conecte usando o mesmo modo do botão
+    // oficial do MeshCentral: connectDesktop(event, 3).
+    var VERSAO = 'CoreControl Remote v10.9-front-direct-bind';
+    var STORAGE_NODE = 'coretuner.remote.node';
+    var STORAGE_TS = 'coretuner.remote.ts';
+    var MAX_SESSION_AGE_MS = 10 * 60 * 1000;
+    var MAX_WAIT_MS = 90000;
+    var POLL_MS = 250;
+    var RETRY_CONNECT_MS = 6000;
 
-    function param(nome) {
-        var valor = params.get(nome);
-        if (valor) return String(valor);
-        try {
-            if (window.args && window.args[nome] != null) return String(window.args[nome]);
-        } catch (_) {}
-        return '';
+    window.__coreControlRemoteVersion = VERSAO;
+
+    function log(msg, extra) {
+        if (extra !== undefined) console.log('[' + VERSAO + '] ' + msg, extra);
+        else console.log('[' + VERSAO + '] ' + msg);
     }
 
     function base64UrlDecodeUtf8(valor) {
@@ -20,279 +28,220 @@
             var bin = window.atob(normal);
             var bytes = new Uint8Array(bin.length);
             for (var i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-            return new TextDecoder('utf-8').decode(bytes);
+            if (window.TextDecoder) return new TextDecoder('utf-8').decode(bytes);
+            var escaped = '';
+            for (var j = 0; j < bytes.length; j += 1) escaped += '%' + ('0' + bytes[j].toString(16)).slice(-2);
+            return decodeURIComponent(escaped);
         } catch (_) {
             return '';
         }
     }
 
-    function sessaoSalva() {
+    function idCurto(id) {
+        var partes = String(id || '').trim().split('/');
+        return partes[partes.length - 1] || '';
+    }
+
+    function alvoDaUrl() {
         try {
-            var node = window.sessionStorage.getItem('coretuner.remote.node') || '';
-            var ts = Number(window.sessionStorage.getItem('coretuner.remote.ts') || '0');
-            // Só recupera um alvo recente. Evita que uma visita genérica ao
-            // MeshCentral reutilize indefinidamente um computador antigo.
-            if (node && ts && (Date.now() - ts) <= 120000) {
-                return String(node);
+            var p = new URLSearchParams(window.location.search || '');
+            var marker = p.get('coretuner') || '';
+            if (marker.indexOf('1_') === 0 && marker.length > 2) {
+                return base64UrlDecodeUtf8(marker.slice(2));
             }
+            return p.get('ctnode') || p.get('gotonode') || '';
+        } catch (_) {
+            return '';
+        }
+    }
+
+    function alvoSalvo() {
+        try {
+            var node = window.sessionStorage.getItem(STORAGE_NODE) || '';
+            var ts = Number(window.sessionStorage.getItem(STORAGE_TS) || '0');
+            // Compatibilidade: versões anteriores salvaram apenas o node.
+            if (!ts && node) return node;
+            if (node && ts && (Date.now() - ts) <= MAX_SESSION_AGE_MS) return node;
         } catch (_) {}
         return '';
     }
 
-    function salvarSessao(node) {
+    function salvarAlvo(node) {
         try {
             if (!node) return;
-            window.sessionStorage.setItem('coretuner.remote.node', String(node));
-            window.sessionStorage.setItem('coretuner.remote.ts', String(Date.now()));
+            window.sessionStorage.setItem(STORAGE_NODE, String(node));
+            window.sessionStorage.setItem(STORAGE_TS, String(Date.now()));
         } catch (_) {}
     }
 
-    function extrairSessao() {
-        var marker = param('coretuner');
-        var node = '';
-        var origem = '';
-
-        // Formato novo: coretuner=1_<node-id em base64url>.
-        if (marker && marker.indexOf('1_') === 0 && marker.length > 2) {
-            node = base64UrlDecodeUtf8(marker.slice(2));
-            origem = 'coretuner';
-        }
-
-        // O MeshCentral pode consumir/remover parâmetros desconhecidos durante
-        // o login por token. gotonode é nativo e costuma permanecer em args,
-        // por isso ele é o primeiro fallback seguro para a mesma sessão.
-        if (!node) {
-            node = param('ctnode') || param('gotonode') || '';
-            if (node) origem = 'gotonode';
-        }
-
-        // Compatibilidade com links antigos coretuner=1.
-        if (!node && marker === '1') {
-            node = param('ctnode') || param('gotonode') || '';
-            if (node) origem = 'legacy';
-        }
-
-        // Em alguns fluxos de autenticação há uma segunda navegação que limpa
-        // a query. Recuperamos apenas o alvo gravado nos últimos 2 minutos.
-        if (!node) {
-            node = sessaoSalva();
-            if (node) origem = 'sessionStorage';
-        }
-
-        return { ativa: Boolean(node), node: node, origem: origem, marker: marker };
+    var nodeAlvo = String(alvoDaUrl() || alvoSalvo() || '').trim();
+    if (!nodeAlvo) {
+        window.__coreControlRemoteDebug = { ativa: false, versao: VERSAO, motivo: 'sem-node-alvo' };
+        return;
     }
 
-    // Sempre exponha a versão, mesmo quando a sessão não puder ser recuperada.
-    // Isso torna o diagnóstico pelo Console inequívoco.
-    window.__coreControlRemoteVersion = VERSAO;
+    salvarAlvo(nodeAlvo);
 
-    var sessao = extrairSessao();
-    window.__coreControlRemoteDebug = {
-        ativa: sessao.ativa,
-        origem: sessao.origem,
-        marker: sessao.marker,
-        gotonode: param('gotonode'),
-        ctnode: param('ctnode'),
-        node: sessao.node
-    };
-
-    if (!sessao.ativa || window.__coreTunerRemoteAutoStartV108) return;
-
-    window.__coreTunerRemoteAutoStartV108 = true;
+    if (window.__coreControlDirectBindStarted) return;
+    window.__coreControlDirectBindStarted = true;
     window.__coreTunerRemoteAutoStart = true;
 
-    var nodeAlvo = String(sessao.node || '').trim();
-    salvarSessao(nodeAlvo);
-
     var inicio = Date.now();
-    var LIMITE_TOTAL_MS = 90000;
-    var INTERVALO_MS = 300;
-    var ESTAVEL_MS = 900;
-    var paginaProntaDesde = 0;
-    var dispositivoSelecionado = null;
-    var dispositivoAberto = false;
-    var conexaoIniciada = false;
+    var ultimaTentativa = 0;
+    var nodeVinculado = null;
 
-    function log(msg, erro) {
-        if (erro) console.error('[' + VERSAO + '] ' + msg, erro);
-        else console.log('[' + VERSAO + '] ' + msg);
-    }
-
-    function status(texto) {
-        var el = document.getElementById('deskstatus');
-        if (el && (!window.desktop || window.desktop.State !== 3)) el.textContent = texto;
-    }
-
-    function idCurto(id) {
-        var texto = String(id || '').trim();
-        if (!texto) return '';
-        var partes = texto.split('/');
-        return partes[partes.length - 1];
-    }
+    window.__coreControlRemoteDebug = {
+        ativa: true,
+        versao: VERSAO,
+        nodeAlvo: nodeAlvo,
+        fase: 'aguardando-nodes'
+    };
 
     function listarNodes() {
-        var origem = window.nodes;
-        if (Array.isArray(origem)) return origem.filter(function (n) { return n && n._id; });
-        if (origem && typeof origem === 'object') {
-            return Object.keys(origem).map(function (k) { return origem[k]; })
-                .filter(function (n) { return n && n._id; });
-        }
+        try {
+            if (Array.isArray(window.nodes)) return window.nodes.filter(function (n) { return n && n._id; });
+            if (window.nodes && typeof window.nodes === 'object') {
+                return Object.keys(window.nodes).map(function (k) { return window.nodes[k]; })
+                    .filter(function (n) { return n && n._id; });
+            }
+        } catch (_) {}
         return [];
     }
 
-    function localizarNodeExato() {
-        var alvo = idCurto(nodeAlvo);
-        if (!alvo) return null;
+    function localizarNode() {
+        var alvoCurto = idCurto(nodeAlvo);
         var lista = listarNodes();
         for (var i = 0; i < lista.length; i += 1) {
-            if (String(lista[i]._id) === String(nodeAlvo) || idCurto(lista[i]._id) === alvo) {
-                return lista[i];
-            }
+            var n = lista[i];
+            if (String(n._id) === nodeAlvo || idCurto(n._id) === alvoCurto) return n;
         }
         return null;
     }
 
-    function selecionarNode() {
-        var n = localizarNodeExato();
-        if (!n) return null;
-        dispositivoSelecionado = n;
-        fixarNodeNoDesktop(n);
-        // connectDesktop() usa desktopNode internamente. Em algumas rotas de
-        // login/gotoDevice ele ainda está null mesmo com o nó já carregado.
-
-        if (!dispositivoAberto && typeof window.gotoDevice === 'function') {
-            try {
-                dispositivoAberto = true;
-                window.gotoDevice(n._id, 11);
-                fixarNodeNoDesktop(n);
-                log('Computador exato selecionado: ' + n._id);
-            } catch (erro) {
-                dispositivoAberto = false;
-                log('Falha ao abrir o computador selecionado.', erro);
-                return null;
-            }
-        }
-        return n;
-    }
-
-    function prontoParaConectar(n) {
-        // Algumas versões do MeshCentral não expõem xxcurrentView na página
-        // desktop, embora os controles KVM já estejam renderizados. O botão
-        // oficial connectbutton1 é uma indicação mais confiável de que a tela
-        // de Desktop está pronta.
-        var botao = document.getElementById('connectbutton1');
-        return Boolean(
-            document.readyState === 'complete' &&
-            window.meshserver && window.meshserver.State === 2 &&
-            n && n._id && n.agent &&
-            ((n.conn & 1) !== 0) &&
-            typeof window.connectDesktop === 'function' &&
-            botao
-        );
-    }
-
-    function fixarNodeNoDesktop(n) {
-        if (!n) return;
-        window.currentNode = n;
-        window.desktopNode = n;
+    function status(texto) {
         try {
-            var botao = document.getElementById('connectbutton1');
-            if (botao && ((n.conn & 1) !== 0) && n.agent) botao.disabled = false;
+            var el = document.getElementById('deskstatus');
+            if (el) el.textContent = texto;
         } catch (_) {}
     }
 
-    function habilitarControle() {
-        // O MeshCentral persiste o checkbox "Input" no navegador. Se uma
-        // sessão anterior foi aberta em modo visualização, o valor 0 pode ser
-        // reutilizado nas sessões seguintes mesmo quando o usuário possui
-        // RemoteControl. Para sessões autorizadas pelo CoreControl, force o
-        // controle de mouse/teclado. As permissões continuam sendo validadas
-        // pelo próprio MeshCentral/Agent no servidor.
+    function vincularNode(n) {
+        if (!n) return false;
+
+        // Esta é a parte que resolveu o caso real da Luiza no Console.
+        window.currentNode = n;
+        window.desktopNode = n;
+        nodeVinculado = n;
+
         try {
-            var input = document.getElementById('DeskControl');
-            if (!input) return false;
-            input.checked = true;
+            var conectar = document.getElementById('connectbutton1');
+            if (conectar) {
+                conectar.disabled = false;
+                conectar.removeAttribute('disabled');
+            }
+        } catch (_) {}
+
+        window.__coreControlRemoteDebug.fase = 'node-vinculado';
+        window.__coreControlRemoteDebug.node = n._id;
+        window.__coreControlRemoteDebug.nome = n.name || '';
+        window.__coreControlRemoteDebug.conn = n.conn;
+        return true;
+    }
+
+    function habilitarEntrada() {
+        try {
+            var entrada = document.getElementById('DeskControl');
+            if (entrada) {
+                entrada.checked = true;
+                entrada.removeAttribute('disabled');
+            }
+
             if (typeof window.putstore === 'function') {
                 window.putstore('DeskControl', 1);
-            } else {
-                window.localStorage.setItem('DeskControl', '1');
             }
-            var span = document.getElementById('DeskControlSpan');
-            if (span) span.style.color = '';
-            return true;
-        } catch (erro) {
-            log('Não foi possível habilitar o controle de entrada.', erro);
+
+            // Em algumas builds o checkbox existe mas só é atualizado depois
+            // que os controles do desktop são redesenhados. Não chamamos
+            // updateDesktopButtons antes da conexão porque ele pode zerar o node.
+            return Boolean(entrada);
+        } catch (_) {
             return false;
         }
     }
 
-    function iniciarDesktop(n) {
-        if (conexaoIniciada) return;
-        conexaoIniciada = true;
-        fixarNodeNoDesktop(n);
-        status('Conectando automaticamente...');
+    function estaConectado() {
         try {
-            habilitarControle();
-            if (typeof window.updateDesktopButtons === 'function') window.updateDesktopButtons();
-            // updateDesktopButtons pode restaurar o valor persistido, então
-            // reaplicamos antes de criar a sessão KVM.
-            habilitarControle();
-            // O próprio botão 'Conectar' desta versão do MeshCentral usa o
-            // tipo 3 para Desktop via Mesh Agent.
-            window.connectDesktop(null, 3);
-            log('connectDesktop(tipo 3) iniciado com mouse e teclado habilitados.');
-        } catch (erro) {
-            conexaoIniciada = false;
-            log('Falha ao iniciar connectDesktop.', erro);
+            return Boolean(window.desktop && window.desktop.State === 3);
+        } catch (_) {
+            return false;
         }
     }
 
-    if (!nodeAlvo) {
-        status('O link remoto não informou o computador.');
-        log('Sessão CoreControl sem node alvo.');
-        return;
+    function conectar(n) {
+        if (!n || typeof window.connectDesktop !== 'function') return false;
+        if (!n.agent || ((Number(n.conn || 0) & 1) === 0)) return false;
+        if (!document.getElementById('connectbutton1')) return false;
+        if (estaConectado()) return true;
+        if ((Date.now() - ultimaTentativa) < RETRY_CONNECT_MS) return false;
+
+        ultimaTentativa = Date.now();
+
+        // Reaplica imediatamente antes da chamada. Rotinas internas do
+        // MeshCentral podem limpar desktopNode enquanto a página inicializa.
+        vincularNode(n);
+        habilitarEntrada();
+
+        try {
+            status('Conectando...');
+            window.__coreControlRemoteDebug.fase = 'connectDesktop';
+            window.connectDesktop(null, 3);
+            log('Node vinculado diretamente e connectDesktop(null, 3) executado.', {
+                nome: n.name,
+                id: n._id,
+                conn: n.conn
+            });
+            return true;
+        } catch (erro) {
+            window.__coreControlRemoteDebug.fase = 'erro-connectDesktop';
+            window.__coreControlRemoteDebug.erro = String(erro && erro.message ? erro.message : erro);
+            console.error('[' + VERSAO + '] connectDesktop falhou.', erro);
+            return false;
+        }
     }
 
-    log('Automação iniciada. Nó recuperado via ' + sessao.origem + ': ' + nodeAlvo);
-    window.__coreControlRemoteDebug.nodeAlvo = nodeAlvo;
-    window.__coreControlRemoteDebug.bindVersion = 'v10.8';
+    log('Sessão CoreControl detectada. Aguardando node autorizado: ' + nodeAlvo);
 
     var timer = window.setInterval(function () {
-        if (window.desktop && window.desktop.State === 3) {
-            habilitarControle();
-            status('Conectado — controle de mouse e teclado ativo');
-            log('Desktop conectado com Input habilitado.');
+        if ((Date.now() - inicio) > MAX_WAIT_MS) {
             window.clearInterval(timer);
+            window.__coreControlRemoteDebug.fase = 'timeout';
+            status('Não foi possível conectar automaticamente.');
+            log('Tempo limite aguardando conexão remota.');
             return;
         }
 
-        if (Date.now() - inicio > LIMITE_TOTAL_MS) {
-            status(dispositivoSelecionado ? 'Não foi possível conectar automaticamente.' : 'Computador remoto não encontrado.');
-            log('Tempo limite da conexão automática atingido.');
-            window.clearInterval(timer);
-            return;
-        }
-
-        var n = selecionarNode();
+        var n = localizarNode();
         if (!n) {
-            paginaProntaDesde = 0;
+            window.__coreControlRemoteDebug.fase = 'aguardando-node';
+            window.__coreControlRemoteDebug.nodes = listarNodes().length;
             return;
         }
 
-        // Reaplica porque algumas rotinas internas do MeshCentral zeram
-        // currentNode/desktopNode enquanto a página troca de view.
-        fixarNodeNoDesktop(n);
+        // Sempre mantenha o node correto associado. Isto é deliberado e
+        // substitui o antigo fluxo com gotoDevice(), que causava o estado
+        // "Desconectado" + botão Conectar desabilitado.
+        vincularNode(n);
 
-        if (!prontoParaConectar(n)) {
-            paginaProntaDesde = 0;
+        if (estaConectado()) {
+            habilitarEntrada();
+            status('Conectado');
+            window.__coreControlRemoteDebug.fase = 'conectado';
+            window.__coreControlRemoteDebug.input = true;
+            window.clearInterval(timer);
+            log('Desktop conectado; mouse e teclado habilitados.');
             return;
         }
 
-        if (!paginaProntaDesde) {
-            paginaProntaDesde = Date.now();
-            return;
-        }
-
-        if (Date.now() - paginaProntaDesde >= ESTAVEL_MS) iniciarDesktop(n);
-    }, INTERVALO_MS);
+        conectar(n);
+    }, POLL_MS);
 })();
