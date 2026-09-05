@@ -6,7 +6,6 @@
   // Mantém a versão pública esperada pelas telas existentes e adiciona uma
   // revisão própria para invalidar o cache do novo shell remoto.
   CT.VERSION = '20260828-install-flow-v2';
-  CT.ASSET_VERSION = '20260905-anydesk-shell-v1';
   CT.state = {
     user: null,
     page: 'overview',
@@ -121,7 +120,7 @@
     }
 
     const response = await fetch(
-      `/static/${cleanPath}?v=${encodeURIComponent(`${CT.VERSION}-${CT.ASSET_VERSION}`)}`,
+      `/static/${cleanPath}?v=${encodeURIComponent(CT.VERSION)}`,
       { credentials: 'same-origin' },
     );
     if (!response.ok) {

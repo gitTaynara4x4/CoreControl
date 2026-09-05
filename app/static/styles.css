@@ -263,69 +263,7 @@ td strong{font-weight:650;color:var(--ink)}
 .danger-summary span{display:block;margin-top:4px;color:#7c4549;font-size:10px;line-height:1.4}
 .modal h2{margin:0 0 6px;font-size:17px}.modal>p{margin:0 0 18px;color:var(--muted);font-size:11px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.stack{display:grid;gap:13px}.stack label{font-size:10.5px;font-weight:650}.stack input,.stack select{width:100%;height:38px;margin-top:5px;padding:0 11px;border:1px solid var(--border-strong);border-radius:9px;background:#fff}.token-box{padding:12px;border:1px solid #c8dafb;border-radius:10px;background:#f3f7ff;word-break:break-all;font:10.5px/1.45 "Inter",sans-serif}.toast{position:fixed;right:22px;bottom:22px;padding:11px 14px;border-radius:9px;background:#10213d;color:#fff;font-size:10.5px;z-index:40;opacity:0;transform:translateY(8px);pointer-events:none;transition:.18s}.toast.show{opacity:1;transform:none}.toast.error{background:#b4232a}
 
-/* ===== Remote viewer — shell visual inspirado no AnyDesk ===== */
-.remote-viewer{position:fixed;inset:0;z-index:50;display:flex;overflow:hidden;background:#777;color:#262626;font-family:"Inter","Segoe UI",sans-serif}
-.remote-anydesk-shell{width:100%;height:100%;min-height:0;display:grid;grid-template-rows:38px 42px minmax(0,1fr);overflow:hidden;background:#777}
-.remote-viewer-tabbar{display:flex;align-items:stretch;gap:0;min-width:0;height:38px;background:#f5f5f5;border-bottom:1px solid #c9c9c9;box-shadow:0 1px 3px rgba(0,0,0,.15);z-index:4}
-.remote-viewer-product{display:flex;align-items:center;gap:7px;min-width:119px;padding:0 13px;color:#242424;font-size:12px;font-weight:750;letter-spacing:-.02em;white-space:nowrap}
-.remote-viewer-product-mark{display:inline-block;width:18px;height:18px;flex:0 0 18px;background:#ef403d;clip-path:polygon(0 25%,50% 0,100% 25%,100% 75%,50% 100%,0 75%);position:relative}
-.remote-viewer-product-mark::after{content:"";position:absolute;inset:5px 4px;background:#fff;clip-path:polygon(0 0,100% 50%,0 100%)}
-.remote-viewer-session-tab{display:flex;align-items:center;gap:7px;min-width:170px;max-width:min(390px,42vw);height:32px;align-self:flex-end;padding:0 7px 0 10px;border:1px solid #cfcfcf;border-bottom:0;border-radius:5px 5px 0 0;background:#fff;color:#2d2d2d;box-shadow:0 -1px 3px rgba(0,0,0,.04);font-size:11px}
-.remote-viewer-session-tab svg{width:15px;height:15px;flex:0 0 15px;fill:none;stroke:#5b5b5b;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.remote-viewer-session-tab strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:650}
-.remote-viewer-tab-close{width:23px;height:23px;margin-left:auto;border:0;border-radius:4px;background:transparent;color:#777;font-size:18px;line-height:1;cursor:pointer}
-.remote-viewer-tab-close:hover{background:#ededed;color:#222}
-.remote-viewer-new-tab{width:34px;height:32px;align-self:flex-end;margin:0 0 0 3px;border:0;border-radius:5px 5px 0 0;background:transparent;color:#595959;font-size:22px;line-height:1;cursor:pointer}
-.remote-viewer-new-tab:hover{background:#e9e9e9;color:#202020}
-.remote-viewer-window-actions{display:flex;align-items:center;gap:1px;margin-left:auto;padding:0 7px}
-.remote-viewer-window-button{display:grid;place-items:center;width:34px;height:27px;border:0;border-radius:4px;background:transparent;color:#464646;font-size:17px;line-height:1;cursor:pointer}
-.remote-viewer-window-button:hover{background:#e5e5e5;color:#171717}
-.remote-viewer-close-button:hover{background:#e94a4a;color:#fff}
-.remote-viewer-commandbar{display:flex;align-items:center;gap:9px;height:42px;min-width:0;padding:0 9px;background:#ededed;border-bottom:1px solid #c4c4c4;box-shadow:0 1px 2px rgba(0,0,0,.1);z-index:3}
-.remote-viewer-address{display:flex;align-items:center;gap:8px;width:min(280px,28vw);height:29px;padding:0 9px;border:1px solid #c4c4c4;border-radius:4px;background:#fff;color:#3c3c3c;font-size:11px;box-shadow:inset 0 1px 1px rgba(0,0,0,.03)}
-.remote-viewer-address span:nth-child(2){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.remote-viewer-online-dot{width:11px;height:11px;flex:0 0 11px;border-radius:50%;background:#49ae56;box-shadow:0 0 0 2px #d9f0dc}
-.remote-viewer-address-star{margin-left:auto;color:#c69825;font-size:19px;line-height:1}
-.remote-viewer-session-modes{display:flex;align-items:center;gap:4px}
-.remote-viewer-mode{width:26px;height:26px;border:1px solid #c8c8c8;border-radius:4px;background:#e4e4e4;color:#555;font-size:11px;cursor:pointer}
-.remote-viewer-mode.active{background:#d7d7d7;color:#222;font-weight:750;box-shadow:inset 0 0 0 1px #b9b9b9}
-.remote-viewer-tools{display:flex;align-items:center;gap:1px;min-width:0}
-.remote-viewer-tools button{display:grid;place-items:center;width:31px;height:28px;border:0;border-radius:4px;background:transparent;color:#555;cursor:pointer}
-.remote-viewer-tools button:hover{background:#dedede;color:#222}
-.remote-viewer-tools svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.55;stroke-linecap:round;stroke-linejoin:round}
-.remote-viewer-command-status{display:flex;align-items:center;gap:5px;min-width:0;margin-left:auto;color:#777;font-size:9.5px;white-space:nowrap}
-.remote-viewer-command-status span{max-width:235px;overflow:hidden;text-overflow:ellipsis}
-.remote-viewer-command-more{width:24px;height:27px;border:0;border-radius:4px;background:transparent;color:#555;font-size:19px;line-height:1;cursor:pointer}
-.remote-viewer-command-more:hover{background:#dedede}
-.remote-viewer-stage{position:relative;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden;padding:10px 12px 12px;background:#777}
-.remote-viewer-screen-frame{position:relative;display:flex;flex:0 0 auto;width:min(1600px,calc(100% - 24px),calc((100vh - 112px) * 1.7778));height:auto;aspect-ratio:16 / 9;min-height:220px;max-height:100%;overflow:hidden;background:#fff;border:1px solid #4b4b4b;box-shadow:0 4px 16px rgba(0,0,0,.28)}
-.remote-viewer-screen-frame iframe{display:block;width:100%;height:100%;border:0;background:#fff}
-.remote-viewer-loading{position:absolute;inset:0;z-index:2;display:grid;place-items:center;align-content:center;gap:9px;background:#f7f7f7;color:#707070;font-size:11px}
-.remote-viewer-loading span{width:21px;height:21px;border:2px solid #d1d1d1;border-top-color:#ef403d;border-radius:50%;animation:remoteViewerSpin .8s linear infinite}
-.remote-viewer-loading p{margin:0}
-@keyframes remoteViewerSpin{to{transform:rotate(360deg)}}
-body.remote-viewer-open{overflow:hidden}
-.remote-viewer-dock{position:fixed;right:15px;bottom:15px;z-index:55;display:flex;align-items:center;gap:14px;min-width:min(390px,calc(100vw - 30px));max-width:calc(100vw - 30px);padding:9px 11px;border:1px solid #c6c6c6;border-radius:6px;background:#f5f5f5;color:#333;box-shadow:0 8px 24px rgba(0,0,0,.25)}
-.remote-viewer-dock-title{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
-.remote-viewer-dock-title>div{min-width:0}
-.remote-viewer-dock strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.1;font-weight:700}
-.remote-viewer-dock small{display:block;margin-top:3px;color:#777;font-size:9px;line-height:1.1;white-space:nowrap}
-.remote-viewer-dock-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.remote-viewer-dock .btn.small{height:27px;padding:0 9px;border-radius:5px;font-size:10px}
-.remote-viewer-dock .btn.danger.small{background:#fff0f0;border-color:#efb8b8;color:#be2f37}
-.remote-viewer-dock .remote-viewer-product-mark{width:16px;height:16px;flex-basis:16px}
-.remote-viewer.is-minimized{display:none!important}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-@media (max-width:980px){.remote-viewer-product{min-width:101px;padding:0 9px}.remote-viewer-product>span:last-child{display:none}.remote-viewer-address{width:220px}.remote-viewer-command-status{display:none}.remote-viewer-tools button{width:28px}}
-@media (max-width:700px){.remote-viewer-tabbar{height:36px}.remote-anydesk-shell{grid-template-rows:36px 40px minmax(0,1fr)}.remote-viewer-session-tab{min-width:0;max-width:calc(100vw - 210px)}.remote-viewer-window-actions{padding:0 3px}.remote-viewer-window-button{width:29px}.remote-viewer-commandbar{height:40px;gap:4px;padding:0 5px}.remote-viewer-address{width:min(190px,45vw);font-size:10px}.remote-viewer-session-modes{display:none}.remote-viewer-tools button:nth-child(n+4){display:none}.remote-viewer-stage{padding:5px}.remote-viewer-screen-frame{width:100%;min-height:0}.remote-viewer-dock{left:10px;right:10px;bottom:10px;min-width:0;flex-direction:column;align-items:stretch}.remote-viewer-dock-actions{justify-content:flex-end}}
-/* Abas reais dos navegadores: lista completa com scroll independente. */
-.activity-browser-scroll{max-height:390px;overflow:auto;scrollbar-gutter:stable}
-.activity-browser-scroll .activity-table thead th{position:sticky;top:0;z-index:2;background:var(--card)}
-.activity-browser-table th:nth-child(1){width:160px}
-.activity-browser-table th:nth-child(3){width:170px}
-.activity-browser-table th:nth-child(4){width:90px}
-.activity-tab-title{max-width:440px;color:var(--ink)}
-html[data-theme="dark"] .activity-browser-scroll .activity-table thead th{background:#2a2a2a}
+/* Remote viewer styles live inside app/static/components/remote-viewer.html to avoid affecting other pages. */
 
 /* ===== Atividade agrupada estilo Gerenciador de Tarefas ===== */
 .activity-grouped-title{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
