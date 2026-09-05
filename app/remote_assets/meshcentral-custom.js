@@ -1,21 +1,24 @@
 (function () {
     'use strict';
 
-    var VERSAO = 'CoreControl Remote v10.10-quick-controls';
-    var params = new URLSearchParams(window.location.search || '');
+    // CoreControl Remote v10.9
+    // Fluxo intencionalmente simples: o CoreControl já abre a página Desktop.
+    // Não use gotoDevice/gotoNode aqui. Apenas associe o node autorizado que já
+    // está em window.nodes ao desktopNode e conecte usando o mesmo modo do botão
+    // oficial do MeshCentral: connectDesktop(event, 3).
+    var VERSAO = 'CoreControl Remote v10.9-front-direct-bind';
+    var STORAGE_NODE = 'coretuner.remote.node';
+    var STORAGE_TS = 'coretuner.remote.ts';
+    var MAX_SESSION_AGE_MS = 10 * 60 * 1000;
+    var MAX_WAIT_MS = 90000;
+    var POLL_MS = 250;
+    var RETRY_CONNECT_MS = 6000;
 
-    function log(msg, erro) {
-        if (erro) console.error('[' + VERSAO + '] ' + msg, erro);
+    window.__coreControlRemoteVersion = VERSAO;
+
+    function log(msg, extra) {
+        if (extra !== undefined) console.log('[' + VERSAO + '] ' + msg, extra);
         else console.log('[' + VERSAO + '] ' + msg);
-    }
-
-    function param(nome) {
-        var valor = params.get(nome);
-        if (valor) return String(valor);
-        try {
-            if (window.args && window.args[nome] != null) return String(window.args[nome]);
-        } catch (_) {}
-        return '';
     }
 
     function base64UrlDecodeUtf8(valor) {
@@ -25,187 +28,220 @@
             var bin = window.atob(normal);
             var bytes = new Uint8Array(bin.length);
             for (var i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-            return new TextDecoder('utf-8').decode(bytes);
+            if (window.TextDecoder) return new TextDecoder('utf-8').decode(bytes);
+            var escaped = '';
+            for (var j = 0; j < bytes.length; j += 1) escaped += '%' + ('0' + bytes[j].toString(16)).slice(-2);
+            return decodeURIComponent(escaped);
         } catch (_) {
             return '';
         }
     }
 
-    function extrairSessao() {
-        var marker = param('coretuner');
-        if (!marker) return { ativa: false, node: '' };
-        if (marker.indexOf('1_') === 0 && marker.length > 2) {
-            return { ativa: true, node: base64UrlDecodeUtf8(marker.slice(2)) };
-        }
-        if (marker === '1') {
-            return { ativa: true, node: param('ctnode') || param('gotonode') || '' };
-        }
-        return { ativa: false, node: '' };
-    }
-
-    var sessao = extrairSessao();
-    if (!sessao.ativa || window.__coreTunerRemoteAutoStart) return;
-
-    window.__coreTunerRemoteAutoStart = true;
-    window.__coreControlRemoteVersion = VERSAO;
-
-    var nodeAlvo = String(sessao.node || '').trim();
-    try {
-        if (nodeAlvo) window.sessionStorage.setItem('coretuner.remote.node', nodeAlvo);
-        else nodeAlvo = window.sessionStorage.getItem('coretuner.remote.node') || '';
-    } catch (_) {}
-
     function idCurto(id) {
-        var texto = String(id || '').trim();
-        if (!texto) return '';
-        var partes = texto.split('/');
-        return partes[partes.length - 1];
+        var partes = String(id || '').trim().split('/');
+        return partes[partes.length - 1] || '';
     }
+
+    function alvoDaUrl() {
+        try {
+            var p = new URLSearchParams(window.location.search || '');
+            var marker = p.get('coretuner') || '';
+            if (marker.indexOf('1_') === 0 && marker.length > 2) {
+                return base64UrlDecodeUtf8(marker.slice(2));
+            }
+            return p.get('ctnode') || p.get('gotonode') || '';
+        } catch (_) {
+            return '';
+        }
+    }
+
+    function alvoSalvo() {
+        try {
+            var node = window.sessionStorage.getItem(STORAGE_NODE) || '';
+            var ts = Number(window.sessionStorage.getItem(STORAGE_TS) || '0');
+            // Compatibilidade: versões anteriores salvaram apenas o node.
+            if (!ts && node) return node;
+            if (node && ts && (Date.now() - ts) <= MAX_SESSION_AGE_MS) return node;
+        } catch (_) {}
+        return '';
+    }
+
+    function salvarAlvo(node) {
+        try {
+            if (!node) return;
+            window.sessionStorage.setItem(STORAGE_NODE, String(node));
+            window.sessionStorage.setItem(STORAGE_TS, String(Date.now()));
+        } catch (_) {}
+    }
+
+    var nodeAlvo = String(alvoDaUrl() || alvoSalvo() || '').trim();
+    if (!nodeAlvo) {
+        window.__coreControlRemoteDebug = { ativa: false, versao: VERSAO, motivo: 'sem-node-alvo' };
+        return;
+    }
+
+    salvarAlvo(nodeAlvo);
+
+    if (window.__coreControlDirectBindStarted) return;
+    window.__coreControlDirectBindStarted = true;
+    window.__coreTunerRemoteAutoStart = true;
+
+    var inicio = Date.now();
+    var ultimaTentativa = 0;
+    var nodeVinculado = null;
+
+    window.__coreControlRemoteDebug = {
+        ativa: true,
+        versao: VERSAO,
+        nodeAlvo: nodeAlvo,
+        fase: 'aguardando-nodes'
+    };
 
     function listarNodes() {
-        var origem = window.nodes;
-        if (Array.isArray(origem)) return origem.filter(function (n) { return n && n._id; });
-        if (origem && typeof origem === 'object') {
-            return Object.keys(origem).map(function (k) { return origem[k]; }).filter(function (n) { return n && n._id; });
-        }
+        try {
+            if (Array.isArray(window.nodes)) return window.nodes.filter(function (n) { return n && n._id; });
+            if (window.nodes && typeof window.nodes === 'object') {
+                return Object.keys(window.nodes).map(function (k) { return window.nodes[k]; })
+                    .filter(function (n) { return n && n._id; });
+            }
+        } catch (_) {}
         return [];
     }
 
-    function localizarNodeExato() {
-        var alvo = idCurto(nodeAlvo);
-        if (!alvo) return null;
+    function localizarNode() {
+        var alvoCurto = idCurto(nodeAlvo);
         var lista = listarNodes();
         for (var i = 0; i < lista.length; i += 1) {
-            if (String(lista[i]._id) === String(nodeAlvo) || idCurto(lista[i]._id) === alvo) return lista[i];
+            var n = lista[i];
+            if (String(n._id) === nodeAlvo || idCurto(n._id) === alvoCurto) return n;
         }
         return null;
     }
 
-    function garantirNode() {
-        var n = localizarNodeExato();
-        if (!n) return null;
+    function status(texto) {
+        try {
+            var el = document.getElementById('deskstatus');
+            if (el) el.textContent = texto;
+        } catch (_) {}
+    }
+
+    function vincularNode(n) {
+        if (!n) return false;
+
+        // Esta é a parte que resolveu o caso real da Luiza no Console.
         window.currentNode = n;
         window.desktopNode = n;
-        return n;
-    }
+        nodeVinculado = n;
 
-    function setDeskControl(valor) {
-        var box = document.getElementById('DeskControl');
-        if (box) box.checked = !!valor;
-        try { if (typeof window.putstore === 'function') window.putstore('DeskControl', valor ? 1 : 0); } catch (_) {}
-    }
-
-    function toggleSidePanel(forceHide) {
-        var proc = document.getElementById('p10rightOfButtons') || document.getElementById('deskarea3x') || document.querySelector('td[style*="width:320px"]');
-        if (!proc) return;
-        var esconder = typeof forceHide === 'boolean' ? forceHide : proc.style.display !== 'none';
-        proc.style.display = esconder ? 'none' : '';
-        document.body.classList.toggle('cc-remote-side-hidden', esconder);
-    }
-
-    function syncQuickBar() {
-        var bar = document.getElementById('ccQuickBar');
-        if (!bar) return;
-        var node = window.desktopNode || window.currentNode || localizarNodeExato();
-        var state = document.getElementById('deskstatus');
-        var label = document.getElementById('ccQuickBarStatus');
-        if (label) {
-            var conectado = window.desktop && window.desktop.State === 3;
-            label.textContent = conectado ? 'Conectado' : ((state && state.textContent) || (node ? 'Pronto para conectar' : 'Aguardando PC'));
-        }
-        var connectBtn = document.getElementById('connectbutton1');
-        if (connectBtn && node && node.agent && ((node.conn & 1) !== 0)) {
-            connectBtn.disabled = false;
-            connectBtn.removeAttribute('disabled');
-        }
-        var inputToggle = document.getElementById('ccQuickBarInput');
-        var deskControl = document.getElementById('DeskControl');
-        if (inputToggle && deskControl) inputToggle.checked = !!deskControl.checked;
-    }
-
-    function ensureQuickBar() {
-        if (document.getElementById('ccQuickBar')) return;
-        var style = document.createElement('style');
-        style.textContent = '' +
-            '#ccQuickBar{position:fixed;top:10px;right:86px;z-index:99999;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-radius:12px;background:rgba(8,26,56,.96);color:#fff;box-shadow:0 12px 28px rgba(8,18,36,.35);font-family:Inter,Arial,sans-serif}' +
-            '#ccQuickBar strong{font-size:12px;line-height:1;margin-right:2px}' +
-            '#ccQuickBar small{font-size:10px;line-height:1.2;opacity:.78}' +
-            '#ccQuickBar .cc-btn{height:30px;padding:0 10px;border:1px solid rgba(255,255,255,.16);border-radius:9px;background:#102545;color:#fff;cursor:pointer}' +
-            '#ccQuickBar .cc-btn:hover{background:#17335f}' +
-            '#ccQuickBar label{display:flex;align-items:center;gap:6px;font-size:11px;padding:0 8px;height:30px;border:1px solid rgba(255,255,255,.16);border-radius:9px;background:#102545}' +
-            '#ccQuickBar input[type="checkbox"]{margin:0}' +
-            'body.cc-remote-side-hidden #deskarea3x, body.cc-remote-side-hidden #p10rightOfButtons{display:none !important}';
-        document.head.appendChild(style);
-
-        var bar = document.createElement('div');
-        bar.id = 'ccQuickBar';
-        bar.innerHTML = '' +
-            '<strong>CoreControl</strong>' +
-            '<small id="ccQuickBarStatus">Preparando...</small>' +
-            '<button type="button" class="cc-btn" id="ccQuickBarConnect">Conectar</button>' +
-            '<button type="button" class="cc-btn" id="ccQuickBarPanel">Maximizar</button>' +
-            '<label><input type="checkbox" id="ccQuickBarInput"> Entrada</label>';
-        document.body.appendChild(bar);
-
-        document.getElementById('ccQuickBarConnect').onclick = function () {
-            var n = garantirNode();
-            if (!n) return;
-            setDeskControl(true);
-            try { if (typeof window.connectDesktop === 'function') window.connectDesktop(null, 3); } catch (erro) { log('Falha ao conectar pelo atalho.', erro); }
-            window.setTimeout(syncQuickBar, 250);
-        };
-        document.getElementById('ccQuickBarPanel').onclick = function () {
-            var esconder = !document.body.classList.contains('cc-remote-side-hidden');
-            toggleSidePanel(esconder);
-            this.textContent = esconder ? 'Minimizar' : 'Maximizar';
-        };
-        document.getElementById('ccQuickBarInput').onchange = function () { setDeskControl(this.checked); };
-    }
-
-    function tentativaDireta() {
-        var n = garantirNode();
-        if (!n || !n.agent || ((n.conn & 1) === 0)) return false;
-        var connectBtn = document.getElementById('connectbutton1');
-        if (connectBtn) {
-            connectBtn.disabled = false;
-            connectBtn.removeAttribute('disabled');
-        }
-        setDeskControl(true);
-        if (window.desktop && window.desktop.State === 3) return true;
         try {
-            if (typeof window.connectDesktop === 'function') {
-                window.connectDesktop(null, 3);
-                log('Conectando via bind direto do front.');
-                return true;
+            var conectar = document.getElementById('connectbutton1');
+            if (conectar) {
+                conectar.disabled = false;
+                conectar.removeAttribute('disabled');
             }
+        } catch (_) {}
+
+        window.__coreControlRemoteDebug.fase = 'node-vinculado';
+        window.__coreControlRemoteDebug.node = n._id;
+        window.__coreControlRemoteDebug.nome = n.name || '';
+        window.__coreControlRemoteDebug.conn = n.conn;
+        return true;
+    }
+
+    function habilitarEntrada() {
+        try {
+            var entrada = document.getElementById('DeskControl');
+            if (entrada) {
+                entrada.checked = true;
+                entrada.removeAttribute('disabled');
+            }
+
+            if (typeof window.putstore === 'function') {
+                window.putstore('DeskControl', 1);
+            }
+
+            // Em algumas builds o checkbox existe mas só é atualizado depois
+            // que os controles do desktop são redesenhados. Não chamamos
+            // updateDesktopButtons antes da conexão porque ele pode zerar o node.
+            return Boolean(entrada);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function estaConectado() {
+        try {
+            return Boolean(window.desktop && window.desktop.State === 3);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function conectar(n) {
+        if (!n || typeof window.connectDesktop !== 'function') return false;
+        if (!n.agent || ((Number(n.conn || 0) & 1) === 0)) return false;
+        if (!document.getElementById('connectbutton1')) return false;
+        if (estaConectado()) return true;
+        if ((Date.now() - ultimaTentativa) < RETRY_CONNECT_MS) return false;
+
+        ultimaTentativa = Date.now();
+
+        // Reaplica imediatamente antes da chamada. Rotinas internas do
+        // MeshCentral podem limpar desktopNode enquanto a página inicializa.
+        vincularNode(n);
+        habilitarEntrada();
+
+        try {
+            status('Conectando...');
+            window.__coreControlRemoteDebug.fase = 'connectDesktop';
+            window.connectDesktop(null, 3);
+            log('Node vinculado diretamente e connectDesktop(null, 3) executado.', {
+                nome: n.name,
+                id: n._id,
+                conn: n.conn
+            });
+            return true;
         } catch (erro) {
-            log('Falha no bind direto.', erro);
+            window.__coreControlRemoteDebug.fase = 'erro-connectDesktop';
+            window.__coreControlRemoteDebug.erro = String(erro && erro.message ? erro.message : erro);
+            console.error('[' + VERSAO + '] connectDesktop falhou.', erro);
+            return false;
         }
-        return false;
     }
 
-    if (!nodeAlvo) {
-        log('Sessão CoreControl sem node alvo.');
-        return;
-    }
+    log('Sessão CoreControl detectada. Aguardando node autorizado: ' + nodeAlvo);
 
-    ensureQuickBar();
-    syncQuickBar();
-
-    var inicio = Date.now();
-    var LIMITE_TOTAL_MS = 90000;
     var timer = window.setInterval(function () {
-        ensureQuickBar();
-        syncQuickBar();
-        if (window.desktop && window.desktop.State === 3) {
-            syncQuickBar();
-            return;
-        }
-        if (Date.now() - inicio > LIMITE_TOTAL_MS) {
-            log('Tempo limite da conexão automática atingido.');
+        if ((Date.now() - inicio) > MAX_WAIT_MS) {
             window.clearInterval(timer);
+            window.__coreControlRemoteDebug.fase = 'timeout';
+            status('Não foi possível conectar automaticamente.');
+            log('Tempo limite aguardando conexão remota.');
             return;
         }
-        tentativaDireta();
-    }, 500);
+
+        var n = localizarNode();
+        if (!n) {
+            window.__coreControlRemoteDebug.fase = 'aguardando-node';
+            window.__coreControlRemoteDebug.nodes = listarNodes().length;
+            return;
+        }
+
+        // Sempre mantenha o node correto associado. Isto é deliberado e
+        // substitui o antigo fluxo com gotoDevice(), que causava o estado
+        // "Desconectado" + botão Conectar desabilitado.
+        vincularNode(n);
+
+        if (estaConectado()) {
+            habilitarEntrada();
+            status('Conectado');
+            window.__coreControlRemoteDebug.fase = 'conectado';
+            window.__coreControlRemoteDebug.input = true;
+            window.clearInterval(timer);
+            log('Desktop conectado; mouse e teclado habilitados.');
+            return;
+        }
+
+        conectar(n);
+    }, POLL_MS);
 })();
