@@ -1,12 +1,12 @@
 (function () {
     'use strict';
 
-    // CoreControl Remote v10.10
+    // CoreControl Remote v10.11
     // Fluxo intencionalmente simples: o CoreControl já abre a página Desktop.
     // Não use gotoDevice/gotoNode aqui. Apenas associe o node autorizado que já
     // está em window.nodes ao desktopNode e conecte usando o mesmo modo do botão
     // oficial do MeshCentral: connectDesktop(event, 3).
-    var VERSAO = 'CoreControl Remote v10.10-front-direct-bind-fit';
+    var VERSAO = 'CoreControl Remote v10.11-mesh-fit';
     var STORAGE_NODE = 'coretuner.remote.node';
     var STORAGE_TS = 'coretuner.remote.ts';
     var MAX_SESSION_AGE_MS = 10 * 60 * 1000;
@@ -129,9 +129,12 @@
         try {
             var css = [
                 'html,body{width:100%!important;height:100%!important;margin:0!important;overflow:hidden!important;background:#777!important;}',
-                '#p10,#p10desktop,#deskarea0,#deskarea1,#deskarea2,#DeskParent{max-width:100vw!important;max-height:100vh!important;overflow:hidden!important;}',
-                '#DeskParent{width:100vw!important;height:100vh!important;display:flex!important;align-items:center!important;justify-content:center!important;background:#777!important;}',
-                'canvas#Desk,#Desk{max-width:100%!important;max-height:100%!important;width:auto!important;height:auto!important;object-fit:contain!important;}'
+                '#p10,#p10desktop,#deskarea3,#DeskParent{box-sizing:border-box!important;}',
+                '#p10desktop{top:0!important;bottom:0!important;left:0!important;right:0!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#777!important;}',
+                '#deskarea1,#deskarea4{display:none!important;}',
+                '#deskarea3{top:0!important;left:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;padding-right:0!important;background:#777!important;overflow:hidden!important;text-align:center!important;}',
+                '#DeskParent{width:100%!important;height:100%!important;overflow:hidden!important;background:#777!important;}',
+                '#Desk{max-width:100%!important;max-height:100%!important;}'
             ].join('');
             var style = document.getElementById('corecontrol-fit-to-window');
             if (!style) {
@@ -140,6 +143,17 @@
                 (document.head || document.documentElement).appendChild(style);
             }
             if (style.textContent !== css) style.textContent = css;
+        } catch (_) {}
+    }
+
+    function ajustarTelaMesh() {
+        aplicarTelaInteira();
+        try {
+            if (typeof window.deskAdjust === 'function') {
+                window.deskAdjust();
+                window.setTimeout(window.deskAdjust, 80);
+                window.setTimeout(window.deskAdjust, 250);
+            }
         } catch (_) {}
     }
 
@@ -253,8 +267,9 @@
         if (estaConectado()) {
             habilitarEntrada();
             status('Conectado');
-            aplicarTelaInteira();
+            ajustarTelaMesh();
             window.__coreControlRemoteDebug.fase = 'conectado';
+            window.__coreControlRemoteDebug.fit = true;
             window.__coreControlRemoteDebug.input = true;
             window.clearInterval(timer);
             log('Desktop conectado; mouse e teclado habilitados.');
@@ -262,9 +277,9 @@
         }
 
         conectar(n);
-        aplicarTelaInteira();
+        ajustarTelaMesh();
     }, POLL_MS);
 
-    aplicarTelaInteira();
-    window.addEventListener('resize', aplicarTelaInteira);
+    ajustarTelaMesh();
+    window.addEventListener('resize', ajustarTelaMesh);
 })();
