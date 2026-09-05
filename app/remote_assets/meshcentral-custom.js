@@ -1,12 +1,12 @@
 (function () {
     'use strict';
 
-    // CoreControl Remote v10.11
+    // CoreControl Remote v10.12
     // Fluxo intencionalmente simples: o CoreControl já abre a página Desktop.
     // Não use gotoDevice/gotoNode aqui. Apenas associe o node autorizado que já
     // está em window.nodes ao desktopNode e conecte usando o mesmo modo do botão
     // oficial do MeshCentral: connectDesktop(event, 3).
-    var VERSAO = 'CoreControl Remote v10.11-mesh-fit';
+    var VERSAO = 'CoreControl Remote v10.12-mesh-fit-input';
     var STORAGE_NODE = 'coretuner.remote.node';
     var STORAGE_TS = 'coretuner.remote.ts';
     var MAX_SESSION_AGE_MS = 10 * 60 * 1000;
@@ -129,12 +129,17 @@
         try {
             var css = [
                 'html,body{width:100%!important;height:100%!important;margin:0!important;overflow:hidden!important;background:#777!important;}',
-                '#p10,#p10desktop,#deskarea3,#DeskParent{box-sizing:border-box!important;}',
+                '#p10,#p10desktop,#deskarea3,#deskarea4,#DeskParent{box-sizing:border-box!important;}',
                 '#p10desktop{top:0!important;bottom:0!important;left:0!important;right:0!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#777!important;}',
-                '#deskarea1,#deskarea4{display:none!important;}',
-                '#deskarea3{top:0!important;left:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;padding-right:0!important;background:#777!important;overflow:hidden!important;text-align:center!important;}',
+                '#deskarea1{display:none!important;}',
+                '#deskarea4{display:block!important;position:absolute!important;left:0!important;right:0!important;bottom:0!important;width:100%!important;height:30px!important;z-index:20!important;overflow:hidden!important;background:#c0c0c0!important;}',
+                '#deskarea4>div{height:30px!important;padding:2px 6px!important;background:#c0c0c0!important;display:flex!important;align-items:center!important;}',
+                '#deskarea4>div>div:first-child,#deskarea4 input[type=button],#DeskLockButton,#DeskChatButton,#DeskToastButton,#DeskOpenWebButton,#DeskRunButton{display:none!important;}',
+                '#deskarea4 label,#DeskControlSpan{display:inline-flex!important;align-items:center!important;gap:4px!important;margin:0!important;color:#111!important;font:12px Arial,sans-serif!important;}',
+                '#DeskControl{display:inline-block!important;margin:0 4px 0 0!important;pointer-events:auto!important;}',
+                '#deskarea3{top:0!important;left:0!important;right:0!important;bottom:30px!important;width:100%!important;height:calc(100% - 30px)!important;padding-right:0!important;background:#777!important;overflow:hidden!important;text-align:center!important;}',
                 '#DeskParent{width:100%!important;height:100%!important;overflow:hidden!important;background:#777!important;}',
-                '#Desk{max-width:100%!important;max-height:100%!important;}'
+                '#Desk{max-width:100%!important;max-height:100%!important;pointer-events:auto!important;}'
             ].join('');
             var style = document.getElementById('corecontrol-fit-to-window');
             if (!style) {
@@ -148,6 +153,8 @@
 
     function ajustarTelaMesh() {
         aplicarTelaInteira();
+        habilitarEntrada();
+        focarTelaRemota();
         try {
             if (typeof window.deskAdjust === 'function') {
                 window.deskAdjust();
@@ -155,6 +162,23 @@
                 window.setTimeout(window.deskAdjust, 250);
             }
         } catch (_) {}
+    }
+
+    function focarTelaRemota() {
+        try {
+            var desk = document.getElementById('Desk');
+            if (!desk) return false;
+            desk.setAttribute('tabindex', '0');
+            if (!desk.__coreControlFocusBound) {
+                desk.__coreControlFocusBound = true;
+                desk.addEventListener('mousedown', function () { focarTelaRemota(); }, true);
+                desk.addEventListener('touchstart', function () { focarTelaRemota(); }, true);
+            }
+            if (typeof desk.focus === 'function') desk.focus({ preventScroll: true });
+            return true;
+        } catch (_) {
+            return false;
+        }
     }
 
     function vincularNode(n) {
@@ -186,6 +210,15 @@
             if (entrada) {
                 entrada.checked = true;
                 entrada.removeAttribute('disabled');
+                try {
+                    entrada.dispatchEvent(new Event('input', { bubbles: true }));
+                    entrada.dispatchEvent(new Event('change', { bubbles: true }));
+                } catch (_) {}
+            }
+
+            var entradaSpan = document.getElementById('DeskControlSpan');
+            if (entradaSpan) {
+                entradaSpan.style.display = 'inline-flex';
             }
 
             if (typeof window.putstore === 'function') {
@@ -271,6 +304,7 @@
             window.__coreControlRemoteDebug.fase = 'conectado';
             window.__coreControlRemoteDebug.fit = true;
             window.__coreControlRemoteDebug.input = true;
+            window.__coreControlRemoteDebug.foco = focarTelaRemota();
             window.clearInterval(timer);
             log('Desktop conectado; mouse e teclado habilitados.');
             return;
