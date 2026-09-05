@@ -148,9 +148,9 @@
     const toggle = group.expandable
       ? `<button class="activity-group-toggle ${expanded ? 'expanded' : ''}" type="button" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="${expanded ? 'Recolher' : 'Expandir'} ${CT.esc(displayName)}" data-activity-toggle="${encodedKey}"><span>›</span></button>`
       : '<span class="activity-group-toggle-spacer" aria-hidden="true"></span>';
-    const count = group.expandable ? ` <span class="activity-group-number">(${group.childCount})</span>` : '';
+    const count = group.expandable ? `<span class="activity-group-number">(${group.childCount})</span>` : '';
     const status = group.focused ? '<span class="pill resolved">Em uso</span>' : '<span class="pill">Aberto</span>';
-    let html = `<tr class="activity-group-parent"><td><div class="activity-app-name activity-group-app">${toggle}${activityAppIcon(group.process_name, group.focused)}<span class="activity-group-label" title="${CT.esc(displayName)}">${CT.esc(displayName)}${count}</span></div></td><td><div class="activity-window-title" title="${CT.esc(group.window_title || '')}">${CT.esc(group.window_title || '—')}</div></td><td>${CT.fmtNum(group.cpu_percent, 1)}%</td><td>${CT.fmtNum(group.memory_mb, 0)} MB</td><td>${status}</td></tr>`;
+    let html = `<tr class="activity-group-parent"><td><div class="activity-app-name activity-group-app">${toggle}${activityAppIcon(group.process_name, group.focused)}<span class="activity-group-label" title="${CT.esc(displayName)}"><span class="activity-group-label-name">${CT.esc(displayName)}</span>${count}</span></div></td><td><div class="activity-window-title" title="${CT.esc(group.window_title || '')}">${CT.esc(group.window_title || '—')}</div></td><td>${CT.fmtNum(group.cpu_percent, 1)}%</td><td>${CT.fmtNum(group.memory_mb, 0)} MB</td><td>${status}</td></tr>`;
 
     if (!group.expandable) return html;
 

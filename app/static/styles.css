@@ -265,6 +265,100 @@ td strong{font-weight:650;color:var(--ink)}
 
 /* Remote viewer styles live inside app/static/components/remote-viewer.html to avoid affecting other pages. */
 
+/* ===== Atividade do dispositivo ===== */
+.activity-card{overflow:hidden}
+.activity-current{margin:2px 0 15px}
+.activity-current-main{
+  min-width:0;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:11px;
+}
+.activity-current-copy{min-width:0;display:grid;gap:3px}
+.activity-current-copy strong{
+  display:block;
+  min-width:0;
+  color:var(--ink);
+  font-size:14px;
+  font-weight:700;
+  line-height:1.2;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.activity-current-copy span{
+  display:block;
+  min-width:0;
+  color:var(--text);
+  font-size:12px;
+  line-height:1.25;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.activity-current-meta{color:var(--muted);font-size:10px;white-space:nowrap}
+.activity-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(270px,.34fr);gap:16px;align-items:start}
+.activity-layout>div{min-width:0}
+.activity-subhead{
+  min-width:0;
+  min-height:22px;
+  margin:0 0 8px;
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:10px;
+}
+.activity-subhead strong{display:block;color:var(--ink);font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap}
+.activity-subhead span{display:block;min-width:0;color:var(--muted);font-size:10px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-apps-area,.activity-timeline{min-width:0}
+.activity-empty{padding:13px;border:1px dashed var(--border-strong);border-radius:10px;background:#fbfcfe;color:var(--muted);font-size:10.5px;line-height:1.45}
+.activity-app-icon{
+  width:28px;
+  height:28px;
+  flex:0 0 28px;
+  position:relative;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  border:1px solid #e2e8f0;
+  border-radius:8px;
+  background:#f8fafc;
+}
+.activity-app-icon img{width:22px;height:22px;display:block;object-fit:contain}
+.activity-app-icon.fallback b{font-size:10px;font-weight:800;color:#51647c;line-height:1}
+.activity-app-icon.focused::after{
+  content:"";
+  position:absolute;
+  right:1px;
+  bottom:1px;
+  width:7px;
+  height:7px;
+  border:2px solid #fff;
+  border-radius:50%;
+  background:var(--green);
+}
+.activity-current-icon{width:42px!important;height:42px!important;flex:0 0 42px!important;border-radius:12px!important}
+.activity-current-icon img{width:34px!important;height:34px!important}
+.activity-event-icon{width:30px!important;height:30px!important;flex:0 0 30px!important}
+.activity-timeline{display:grid;gap:8px}
+.activity-event{
+  min-width:0;
+  min-height:44px;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:9px;
+  padding:8px 0;
+  border-bottom:1px solid #edf1f5;
+}
+.activity-event:last-child{border-bottom:0}
+.activity-event>div{min-width:0;display:grid;gap:3px}
+.activity-event strong,.activity-event small{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.activity-event strong{font-size:10px;font-weight:680;color:var(--ink)}
+.activity-event small{font-size:9px;color:var(--muted)}
+.activity-event time{font-size:9px;color:var(--muted);white-space:nowrap}
+
 /* ===== Atividade agrupada estilo Gerenciador de Tarefas ===== */
 .activity-grouped-title{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .activity-grouped-title small{margin-left:7px;font-size:8.4px;font-weight:500;color:var(--muted)}
@@ -330,10 +424,9 @@ html[data-theme="dark"] .activity-tree-child td{background:#272727}
   font-size:16px!important;
   font-weight:500;
 }
-.activity-group-label{
-  font-weight:650;
-  letter-spacing:-.01em;
-}
+.activity-app-name{min-width:0;display:flex;align-items:center;gap:9px;white-space:nowrap}
+.activity-group-label{min-width:0;display:inline-flex;align-items:baseline;gap:4px;font-weight:650;letter-spacing:-.01em}
+.activity-group-label-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .activity-group-number{
   margin-left:2px;
   font-size:8.8px;
@@ -409,6 +502,7 @@ html[data-theme="dark"] .activity-tree-child td{background:#272727}
   color:#7a899d!important;
 }
 .activity-child-metric{color:#8b98aa!important}
+.activity-window-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
 
 /* Dark mantém a mesma hierarquia visual, sem contraste exagerado */
 html[data-theme="dark"] .activity-group-parent td{background:#2a2a2a}
@@ -419,10 +513,17 @@ html[data-theme="dark"] .activity-tree-child td{
 }
 html[data-theme="dark"] .activity-tree-child:hover td{background:#2d2d2d!important}
 html[data-theme="dark"] .activity-group-toggle:hover{background:#353535;color:#f1f1f1}
+html[data-theme="dark"] .activity-empty{background:#242424;border-color:#3a3a3a;color:#aeb7c4}
+html[data-theme="dark"] .activity-app-icon{background:#242424;border-color:#3a3a3a}
+html[data-theme="dark"] .activity-current-copy span,html[data-theme="dark"] .activity-window-title{color:#d7dde6}
 html[data-theme="dark"] .activity-child-app>span:last-child{color:#e7e7e7}
 html[data-theme="dark"] .activity-child-context{color:#9d9d9d!important}
+html[data-theme="dark"] .activity-event{border-bottom-color:#373737}
 
 @media(max-width:760px){
+  .activity-current-main{grid-template-columns:auto minmax(0,1fr)}
+  .activity-current-meta{grid-column:2}
+  .activity-layout{grid-template-columns:1fr}
   .activity-grouped-table th:first-child{width:230px}
   .activity-child-app{padding-left:28px!important}
 }
