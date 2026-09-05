@@ -164,7 +164,7 @@
   CT.syncRemoteViewerFullscreenUi = function syncRemoteViewerFullscreenUi() {
     const btn = CT.$('#remoteViewerFullscreen');
     if (!btn) return;
-    btn.textContent = document.fullscreenElement ? 'Sair do máximo' : 'Maximizar';
+    btn.textContent = document.fullscreenElement ? 'Restaurar' : 'Maximizar';
   };
 
   CT.minimizeRemoteViewer = function minimizeRemoteViewer() {

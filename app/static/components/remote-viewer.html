@@ -1,17 +1,17 @@
 <section id="remoteViewer" class="remote-viewer hidden">
-  <header class="remote-viewer-header">
-    <div>
-      <strong id="remoteViewerTitle">Acesso remoto</strong>
-      <small id="remoteViewerStatus">Preparando conexão segura...</small>
-    </div>
-    <div class="remote-viewer-actions">
-      <button id="remoteViewerMinimize" type="button" class="btn small">Minimizar</button>
-      <button id="remoteViewerFullscreen" type="button" class="btn small">Maximizar</button>
-      <button id="remoteViewerNewTab" type="button" class="btn small">Abrir em nova guia</button>
-      <button id="remoteViewerClose" type="button" class="btn danger small">Encerrar</button>
-    </div>
-  </header>
   <div class="remote-viewer-body">
+    <header class="remote-viewer-header">
+      <div class="remote-viewer-title-wrap">
+        <strong id="remoteViewerTitle">Acesso remoto</strong>
+        <small id="remoteViewerStatus">Preparando conexão segura...</small>
+      </div>
+      <div class="remote-viewer-actions">
+        <button id="remoteViewerMinimize" type="button" class="btn small">Minimizar</button>
+        <button id="remoteViewerFullscreen" type="button" class="btn small">Maximizar</button>
+        <button id="remoteViewerNewTab" type="button" class="btn small">Abrir em nova guia</button>
+        <button id="remoteViewerClose" type="button" class="btn danger small">Encerrar</button>
+      </div>
+    </header>
     <div id="remoteViewerLoading" class="remote-viewer-loading"><span></span><p>Conectando ao computador...</p></div>
     <iframe id="remoteViewerFrame" title="Área de trabalho remota" allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
   </div>
