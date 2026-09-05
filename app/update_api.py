@@ -9,6 +9,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from .api import (
+    as_utc,
     assert_device_access,
     current_user,
     device_online,
@@ -94,6 +95,21 @@ def _agent_device(db: Session, authorization: str | None, device_uid: str) -> De
     if not device:
         raise HTTPException(status_code=401, detail="Agente não autorizado")
     return device
+
+
+def _touch_agent_presence(device: Device, now, minimum_seconds: int = 20) -> bool:
+    """Keep Device.last_seen aligned with the Agent's authenticated command polling.
+
+    The Windows Agent polls /agent/commands/next every few seconds even between
+    telemetry samples. Treat that authenticated poll as proof that the Agent is
+    online, while throttling DB writes so large installations do not write on
+    every 5-second poll.
+    """
+    previous = as_utc(device.last_seen)
+    if previous and (now - previous).total_seconds() < minimum_seconds:
+        return False
+    device.last_seen = now
+    return True
 
 
 def _latest_command(db: Session, device_id: int) -> AgentCommand | None:
@@ -441,6 +457,7 @@ def agent_next_command(
 ):
     device = _agent_device(db, authorization, device_uid)
     now = utcnow()
+    presence_touched = _touch_agent_presence(device, now)
     stale_before = now - timedelta(hours=2)
     stale = list(
         db.scalars(
@@ -473,7 +490,7 @@ def agent_next_command(
                 "payload": json_object(command.payload_json),
             }
         }
-    if stale:
+    if stale or presence_touched:
         db.commit()
     return {"command": None}
 

@@ -1,0 +1,16 @@
+CoreControl v10.14.2 - correção presença online do Agent
+
+Problema corrigido:
+- O endpoint /api/devices/{id}/wake-route-test validava online usando Device.last_seen.
+- Device.last_seen era atualizado apenas pela telemetria.
+- O Agent 0.9.7 consulta /api/agent/commands/next a cada 5 segundos, mas esse polling autenticado não renovava last_seen.
+- Assim a Central podia considerar o Agent offline no momento de iniciar o teste de rota, mesmo com o serviço ativo e consultando comandos.
+
+Correção:
+- O polling autenticado da fila agora renova Device.last_seen.
+- A gravação é limitada a no máximo uma atualização a cada 20 segundos para evitar escrita no banco a cada poll de 5 segundos.
+- Não exige atualização/reinstalação do Agent da Luiza.
+
+Validação:
+- python -m py_compile app/update_api.py: OK
+- pytest -q tests/test_power_control.py: 13 passed
