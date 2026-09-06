@@ -353,6 +353,33 @@ class MeshCentralClient:
             timeout=max(20, settings.remote_command_timeout_seconds),
         )
 
+    def device_shutdown_for_wol(self, node_id: str) -> str:
+        """Gracefully shut down Windows while re-arming Wake-on-LAN first.
+
+        MeshCentral's generic power-off action is kept as a fallback by the API.
+        Running shutdown.exe /s performs a normal full Windows shutdown, while
+        the short PowerShell preflight re-enables Magic Packet wake on active
+        physical adapters immediately before the machine enters S5.
+        """
+        clean_node = (node_id or "").strip()
+        if not clean_node:
+            raise MeshCentralCommandError("O computador não possui identificador remoto para controle de energia.")
+        script = (
+            "$ErrorActionPreference='SilentlyContinue';"
+            "$adapters=@(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq 'Up'});"
+            "foreach($a in $adapters){"
+            "Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null;"
+            "$desc=[string]$a.InterfaceDescription;"
+            "if($desc){& powercfg.exe /deviceenablewake $desc 2>$null | Out-Null}"
+            "};"
+            "& shutdown.exe /s /f /t 2"
+        )
+        return self._meshctrl_command(
+            "RunCommand",
+            ["--id", clean_node, "--run", script, "--powershell"],
+            timeout=max(20, settings.remote_command_timeout_seconds),
+        )
+
     def _list_users(self) -> list[dict[str, Any]]:
         output = self._meshctrl_command("ListUsers", ["--json"])
         value = _json_from_output(output)

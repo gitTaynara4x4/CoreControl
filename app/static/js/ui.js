@@ -246,7 +246,7 @@
         : '';
       const wakeWarning = readiness.wake_verified
         ? ''
-        : `\n\nATENÇÃO: ainda não existe uma rota de ligamento verificada. O computador será desligado, mas pode não ser possível ligá-lo remotamente depois.\n\n${readiness.reason || 'Valide o Wake-on-LAN antes de depender do religamento remoto.'}`;
+        : `\n\nATENÇÃO: a rota para ligar este computador novamente ainda não está verificada. O CoreControl vai preparar o Windows para Wake-on-LAN antes de desligar, mas o suporte após desligamento total também depende da BIOS/UEFI e da rede.\n\n${readiness.reason || ''}`;
       const accepted = window.confirm(`Desligar ${device.name || 'este computador'}?${wakeWarning}${relayText}${wanText}`);
       if (!accepted) return null;
     } else if (!readiness.wake_available) {

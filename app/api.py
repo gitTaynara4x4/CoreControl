@@ -1736,15 +1736,25 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                 status_code=503,
                 detail="O desligamento remoto exige o vínculo MeshCentral deste computador.",
             )
-        # A rota de Wake-on-LAN continua sendo diagnosticada, mas não bloqueia
-        # o desligamento. Se o MeshCentral estiver vinculado e confirmar que o
-        # computador está online, o comando pode ser enviado; o frontend avisa
-        # quando ainda não existe uma rota verificada para ligá-lo novamente.
-        try:
-            meshcentral_client.device_power(device.mesh_node_id, "off")
-        except MeshCentralCommandError as exc:
-            raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {exc}") from exc
-        methods.append("meshcentral_off")
+        # Não bloqueie o desligamento só porque a rota de Wake ainda não foi
+        # verificada. O frontend mostra o aviso ao operador. Para Windows,
+        # prefira um shutdown normal após rearmar Wake-on-LAN; isso mantém a
+        # placa de rede em um estado muito mais compatível com wake após S5.
+        shutdown_error: MeshCentralCommandError | None = None
+        if "windows" in str(device.os_name or "").lower():
+            try:
+                meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
+                methods.append("meshcentral_windows_wol_shutdown")
+            except MeshCentralCommandError as exc:
+                shutdown_error = exc
+
+        if not methods:
+            try:
+                meshcentral_client.device_power(device.mesh_node_id, "off")
+                methods.append("meshcentral_off")
+            except MeshCentralCommandError as exc:
+                detail = shutdown_error or exc
+                raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {detail}") from exc
     else:
         target_info = device_wol_info(db, device)
         mac_address = target_info.get("mac_address") or ""
