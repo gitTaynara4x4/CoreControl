@@ -235,15 +235,17 @@
       const remoteReady = Boolean(device.remote?.available);
       const powerState = device.power || {};
       const powerAvailable = powerOn
-        ? Boolean(powerState.off_available && powerState.safe_to_power_off)
+        ? Boolean(powerState.off_available)
         : Boolean(powerState.wake_available);
       const powerAction = powerOn ? 'off' : 'wake';
       const powerLabel = powerOn ? 'Desligar computador' : 'Ligar computador';
       const powerTitle = powerAvailable
         ? (powerOn
-          ? `Desligamento protegido por Wake Relay${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`
-          : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
-        : (powerState.reason || 'Não existe uma rota segura disponível para esta ação de energia.');
+          ? (powerState.wake_verified
+            ? `Desligar pelo MeshCentral${powerState.relay_names?.length ? `. Wake Relay verificado: ${powerState.relay_names.join(', ')}` : '.'}`
+            : 'Desligar pelo MeshCentral. Atenção: a rota para ligar novamente ainda não foi verificada.')
+          : powerState.wake_verified ? 'Ligar usando uma rota Wake-on-LAN verificada.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
+        : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
       const stateTone = powerOn ? (device.health_score >= 80 ? 'good' : 'warn') : 'bad';
       return `
         <article class="ops-device-card" data-device-card="${device.id}">

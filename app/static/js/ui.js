@@ -235,13 +235,19 @@
     if (!device?.id || !['wake', 'off'].includes(normalized)) throw new Error('Ação de energia inválida.');
     const readiness = await CT.api(`/devices/${device.id}/power-readiness`);
     if (normalized === 'off') {
-      if (readiness.requires_verified_wake && !readiness.safe_to_power_off) {
-        throw new Error(`Desligamento bloqueado por segurança. ${readiness.reason || 'Não existe uma rota verificada para ligar este PC novamente.'}`);
+      if (!readiness.off_available) {
+        throw new Error('O desligamento remoto exige que este computador esteja vinculado ao MeshCentral.');
       }
       const relayText = readiness.relay_count
         ? `\n\nWake Relay verificado: ${readiness.relay_names?.join(', ') || `${readiness.relay_count} computador(es)`}.`
         : '';
-      const accepted = window.confirm(`Desligar ${device.name || 'este computador'}?\n\nO CoreControl só permite o desligamento total quando existe uma rota segura para ligá-lo novamente.${relayText}`);
+      const wanText = readiness.wan_route_verified
+        ? '\n\nRota externa de Wake-on-LAN confirmada pela VPS.'
+        : '';
+      const wakeWarning = readiness.wake_verified
+        ? ''
+        : `\n\nATENÇÃO: ainda não existe uma rota de ligamento verificada. O computador será desligado, mas pode não ser possível ligá-lo remotamente depois.\n\n${readiness.reason || 'Valide o Wake-on-LAN antes de depender do religamento remoto.'}`;
+      const accepted = window.confirm(`Desligar ${device.name || 'este computador'}?${wakeWarning}${relayText}${wanText}`);
       if (!accepted) return null;
     } else if (!readiness.wake_available) {
       throw new Error(readiness.reason || 'Não existe uma rota disponível para Wake-on-LAN.');

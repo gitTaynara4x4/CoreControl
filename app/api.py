@@ -1736,14 +1736,10 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                 status_code=503,
                 detail="O desligamento remoto exige o vínculo MeshCentral deste computador.",
             )
-        if settings.power_require_verified_wake and not readiness["safe_to_power_off"]:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Desligamento bloqueado por segurança: não existe uma rota verificada para ligar este PC novamente. "
-                    + readiness["reason"]
-                ),
-            )
+        # A rota de Wake-on-LAN continua sendo diagnosticada, mas não bloqueia
+        # o desligamento. Se o MeshCentral estiver vinculado e confirmar que o
+        # computador está online, o comando pode ser enviado; o frontend avisa
+        # quando ainda não existe uma rota verificada para ligá-lo novamente.
         try:
             meshcentral_client.device_power(device.mesh_node_id, "off")
         except MeshCentralCommandError as exc:

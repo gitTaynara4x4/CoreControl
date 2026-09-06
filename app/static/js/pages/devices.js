@@ -1256,7 +1256,7 @@
       const powerOn = CT.devicePowerIsOn(device);
       const powerAction = powerOn ? 'off' : 'wake';
       const powerAvailable = powerOn
-        ? Boolean(powerState.off_available && powerState.safe_to_power_off)
+        ? Boolean(powerState.off_available)
         : Boolean(powerState.wake_available);
       devicePowerBtn.classList.remove('hidden', 'primary', 'danger');
       devicePowerBtn.classList.add(powerOn ? 'danger' : 'primary');
@@ -1264,9 +1264,11 @@
       devicePowerBtn.disabled = !powerAvailable;
       devicePowerBtn.title = powerAvailable
         ? (powerOn
-          ? (powerState.wan_route_verified ? 'Desligamento protegido por rota externa Wake-on-LAN confirmada pela VPS.' : `Desligamento protegido por Wake Relay${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
+          ? (powerState.wake_verified
+            ? (powerState.wan_route_verified ? 'Desligar pelo MeshCentral. Rota externa de Wake-on-LAN confirmada.' : `Desligar pelo MeshCentral. Wake Relay verificado${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
+            : 'Desligar pelo MeshCentral. Atenção: a rota para ligar este computador novamente ainda não foi verificada.')
           : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
-        : (powerState.reason || 'Não existe uma rota segura disponível para esta ação de energia.');
+        : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
       devicePowerBtn.onclick = async () => {
         const originalText = devicePowerBtn.textContent;
         try {
