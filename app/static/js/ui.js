@@ -31,8 +31,23 @@
     return '<span class="pill critical">Não instalado</span>';
   };
 
+  CT.healthAvailable = function healthAvailable(device) {
+    return Boolean(device?.online && device?.telemetry && device?.health_score != null && Number.isFinite(Number(device.health_score)));
+  };
+
+  CT.healthMarkup = function healthMarkup(device, options = {}) {
+    const prefix = options.prefix === true ? 'Saúde ' : '';
+    if (!CT.healthAvailable(device)) {
+      const title = CT.devicePowerIsOn?.(device)
+        ? 'Aguardando comunicação atual do CoreControl Agent.'
+        : 'Computador desligado. Saúde indisponível.';
+      return `<span class="health unavailable" title="${CT.esc(title)}">${prefix}—</span>`;
+    }
+    return `<span class="health ${CT.healthClass(device.health_score)}">${prefix}${device.health_score}/100</span>`;
+  };
+
   CT.deviceTable = function deviceTable(devices) {
-    return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa / setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Remoto</th><th>Alertas</th></tr></thead><tbody>${devices.map((device) => `<tr data-device="${device.id}" class="${device.active === false ? 'entity-inactive' : ''}" style="cursor:pointer"><td><strong>${CT.esc(device.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.hostname)}</small></td><td><strong class="table-company-name">${CT.esc(device.company_name || `Empresa #${device.company_id}`)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.sector || 'Setor não informado')}</small></td><td>${device.active === false ? '<span class="pill critical">Desativado</span>' : `<span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span>`}</td><td><span class="health ${CT.healthClass(device.health_score)}">${device.health_score}/100</span></td><td>${CT.fmtNum(device.telemetry?.cpu_percent)}%</td><td>${CT.fmtNum(device.telemetry?.memory_percent)}%</td><td>${CT.fmtNum(device.telemetry?.disk_percent)}%</td><td>${CT.remoteLabel(device)}</td><td>${device.alerts_open ? `<span class="pill critical">${device.alerts_open}</span>` : '—'}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa / setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Remoto</th><th>Alertas</th></tr></thead><tbody>${devices.map((device) => `<tr data-device="${device.id}" class="${device.active === false ? 'entity-inactive' : ''}" style="cursor:pointer"><td><strong>${CT.esc(device.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.hostname)}</small></td><td><strong class="table-company-name">${CT.esc(device.company_name || `Empresa #${device.company_id}`)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.sector || 'Setor não informado')}</small></td><td>${device.active === false ? '<span class="pill critical">Desativado</span>' : `<span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span>`}</td><td>${CT.healthMarkup(device)}</td><td>${CT.fmtNum(device.telemetry?.cpu_percent)}%</td><td>${CT.fmtNum(device.telemetry?.memory_percent)}%</td><td>${CT.fmtNum(device.telemetry?.disk_percent)}%</td><td>${CT.remoteLabel(device)}</td><td>${device.alerts_open ? `<span class="pill critical">${device.alerts_open}</span>` : '—'}</td></tr>`).join('')}</tbody></table></div>`;
   };
 
   CT.metric = function metric(label, value, suffix, percent, extra = '') {

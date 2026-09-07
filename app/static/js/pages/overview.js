@@ -207,8 +207,9 @@
     const operations = summary.operations || {};
     const companyName = operations.company_name || CT.state.user?.company?.name || devices[0]?.company_name || 'Sua empresa';
     const onlineDevices = devices.filter((device) => device.online);
-    const onlineHealth = onlineDevices.map((device) => Number(device.health_score || 0));
-    const avgHealth = onlineHealth.length ? Math.round(onlineHealth.reduce((sum, value) => sum + value, 0) / onlineHealth.length) : 0;
+    const healthDevices = onlineDevices.filter((device) => CT.healthAvailable(device));
+    const onlineHealth = healthDevices.map((device) => Number(device.health_score));
+    const avgHealth = onlineHealth.length ? Math.round(onlineHealth.reduce((sum, value) => sum + value, 0) / onlineHealth.length) : null;
     const optimized = devices.filter((device) => cleanProfile(device.profile)).length;
     const issueRows = devices.flatMap((device) => deviceIssues(device).map((issue) => ({ ...issue, device })));
     const attentionDevices = new Set(issueRows.map((row) => row.device.id)).size;
@@ -249,7 +250,8 @@
               : 'Desligar pelo MeshCentral. Atenção: a rota para ligar novamente ainda não foi verificada.')
             : powerState.wake_verified ? 'Ligar usando uma rota Wake-on-LAN verificada.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
           : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
-      const stateTone = powerOn ? (device.health_score >= 80 ? 'good' : 'warn') : 'bad';
+      const healthAvailable = CT.healthAvailable(device);
+      const stateTone = healthAvailable ? (device.health_score >= 80 ? 'good' : 'warn') : 'unavailable';
       return `
         <article class="ops-device-card" data-device-card="${device.id}">
           <div class="ops-device-head">
@@ -257,7 +259,7 @@
               <span class="ops-device-icon">${icon('monitor')}</span>
               <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${pendingAction ? 'power-pending-status' : (powerOn ? 'online' : 'offline')}" ${pendingAction ? 'aria-busy="true"' : ''}><i class="${pendingAction ? 'power-pulse' : ''}"></i>${pendingAction ? CT.powerPendingLabel(pendingAction) : (powerOn ? 'Ligado' : 'Desligado')}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
             </div>
-            <div class="ops-health-badge ${stateTone}"><strong>${device.health_score}</strong><span>Saúde</span></div>
+            <div class="ops-health-badge ${stateTone}" title="${CT.esc(healthAvailable ? 'Saúde calculada com telemetria atual.' : (powerOn ? 'Aguardando comunicação atual do CoreControl Agent.' : 'Computador desligado. Saúde indisponível.'))}"><strong>${healthAvailable ? device.health_score : '—'}</strong><span>Saúde</span></div>
           </div>
           <div class="ops-device-focus"><span class="ops-focus-label">Em foco agora</span><strong>${CT.esc(currentApp)}</strong><small title="${CT.esc(currentWindow)}">${CT.esc(currentWindow)}</small></div>
           <div class="ops-device-metrics">
@@ -290,7 +292,10 @@
       const powerOn = CT.devicePowerIsOn(device);
       const app = powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado' : 'Desligado';
       const windowTitle = powerOn && device.online ? (activity.window_title || 'Sem janela identificada') : powerOn ? 'Aguardando telemetria do CoreControl Agent' : `Último contato ${ago(device.last_seen)}`;
-      return `<button class="ops-activity-row" data-ops="device" data-device="${device.id}"><span class="ops-activity-status ${powerOn ? 'online' : 'offline'}"></span><span class="ops-activity-device"><strong>${CT.esc(device.name || 'Computador sem nome')}</strong><small>${device.hostname ? `Nome técnico: ${CT.esc(device.hostname)}` : 'Nome técnico não informado'}</small></span><span class="ops-activity-app"><strong>${CT.esc(app)}</strong><small title="${CT.esc(windowTitle)}">${CT.esc(windowTitle)}</small></span><span class="ops-activity-health ${CT.healthClass(device.health_score)}">${device.health_score}/100</span>${icon('chevron')}</button>`;
+      const healthAvailable = CT.healthAvailable(device);
+      const healthClass = healthAvailable ? CT.healthClass(device.health_score) : 'unavailable';
+      const healthText = healthAvailable ? `${device.health_score}/100` : '—';
+      return `<button class="ops-activity-row" data-ops="device" data-device="${device.id}"><span class="ops-activity-status ${powerOn ? 'online' : 'offline'}"></span><span class="ops-activity-device"><strong>${CT.esc(device.name || 'Computador sem nome')}</strong><small>${device.hostname ? `Nome técnico: ${CT.esc(device.hostname)}` : 'Nome técnico não informado'}</small></span><span class="ops-activity-app"><strong>${CT.esc(app)}</strong><small title="${CT.esc(windowTitle)}">${CT.esc(windowTitle)}</small></span><span class="ops-activity-health ${healthClass}">${healthText}</span>${icon('chevron')}</button>`;
     }).join('') : '<div class="ops-empty-compact"><span>Sem atividade para exibir.</span></div>';
 
     const last24 = operations.last_24h || {};
@@ -318,7 +323,7 @@
 
         <div class="ops-kpis">
           <div class="ops-kpi"><span class="ops-kpi-icon">${icon('monitor')}</span><div><small>Computadores online</small><strong>${summary.online}<em>/${summary.devices}</em></strong><p>${summary.offline ? `${summary.offline} sem comunicação` : 'Todos comunicando'}</p></div></div>
-          <div class="ops-kpi"><span class="ops-kpi-icon">${icon('pulse')}</span><div><small>Saúde média</small><strong>${avgHealth}<em>/100</em></strong><p>${onlineDevices.length ? healthLabel(avgHealth) : 'Sem leitura'}</p></div></div>
+          <div class="ops-kpi"><span class="ops-kpi-icon">${icon('pulse')}</span><div><small>Saúde média</small><strong>${avgHealth == null ? '—' : avgHealth}${avgHealth == null ? '' : '<em>/100</em>'}</strong><p>${healthDevices.length ? healthLabel(avgHealth) : 'Sem leitura atual'}</p></div></div>
           <div class="ops-kpi"><span class="ops-kpi-icon">${icon('alert')}</span><div><small>Precisam de atenção</small><strong>${attentionDevices}</strong><p>${summary.alerts_open ? `${summary.alerts_open} alerta${summary.alerts_open === 1 ? '' : 's'} ativo${summary.alerts_open === 1 ? '' : 's'}` : 'Sem alertas ativos'}</p></div></div>
           <div class="ops-kpi"><span class="ops-kpi-icon">${icon('spark')}</span><div><small>Com otimização ativa</small><strong>${optimized}<em>/${summary.devices}</em></strong><p>${optimized ? 'Perfis aplicados' : 'Nenhum perfil ativo'}</p></div></div>
           <div class="ops-kpi"><span class="ops-kpi-icon">${icon('update')}</span><div><small>Atualizações</small><strong>${updatesPending}</strong><p>${rebootRequired ? `${rebootRequired} aguardando reinício` : 'Sem reinício pendente'}</p></div></div>

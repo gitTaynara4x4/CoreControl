@@ -1129,8 +1129,13 @@
       CT.clearPowerPendingStatus(deviceOnlineStatusEl);
       deviceOnlineStatusEl.innerHTML = `<i class="dot ${deviceOnlineTone}"></i>${deviceOnlineLabel}`;
     }
-    CT.$('#deviceHealthStatus').className = `health ${CT.healthClass(device.health_score)}`;
-    CT.$('#deviceHealthStatus').textContent = `Saúde ${device.health_score}/100`;
+    const healthStatusEl = CT.$('#deviceHealthStatus');
+    const healthAvailable = CT.healthAvailable(device);
+    healthStatusEl.className = healthAvailable ? `health ${CT.healthClass(device.health_score)}` : 'health unavailable';
+    healthStatusEl.textContent = healthAvailable ? `Saúde ${device.health_score}/100` : 'Saúde —';
+    healthStatusEl.title = healthAvailable
+      ? 'Saúde calculada com a telemetria atual do CoreControl Agent.'
+      : (devicePowerOn ? 'Aguardando comunicação atual do CoreControl Agent.' : 'Computador desligado. Saúde indisponível.');
 
     const temperatureSource = String(telemetry.temperature_source || '').trim();
     const temperatureLabel = temperatureSource === 'GPU NVIDIA' ? 'Temperatura GPU' : 'Temperatura';
