@@ -23,7 +23,7 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.15"
+const appVersion = "0.4.16"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -1405,12 +1405,16 @@ func (a *App) installRemoteAgent(info RemoteAgentInfo, deviceID int, agentBearer
 	}
 
 	setText(a.status, "Baixando o agente remoto exclusivo desta empresa...")
+	downloadBearer := strings.TrimSpace(agentBearer)
+	if downloadBearer == "" {
+		downloadBearer = strings.TrimSpace(a.token)
+	}
 	raw, err := a.downloadComponentWithBearer(ComponentInfo{
 		Filename: info.Filename,
 		URL:      info.URL,
 		SHA256:   info.SHA256,
 		Size:     info.Size,
-	}, agentBearer)
+	}, downloadBearer)
 	if err != nil {
 		return fmt.Errorf("falha ao baixar o agente remoto da empresa: %w", err)
 	}

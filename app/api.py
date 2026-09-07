@@ -570,14 +570,17 @@ def device_power_readiness(db: Session, device: Device) -> dict:
 
 def remote_state(device: Device, sample: Telemetry | None) -> dict:
     extra = sample_extra(sample)
-    installed = bool(extra.get("remote_agent_installed"))
-    running = bool(extra.get("remote_agent_running"))
     checked_at = as_utc(device.remote_checked_at)
     verified_recently = bool(
         checked_at
         and (utcnow() - checked_at).total_seconds() <= settings.remote_status_stale_seconds
     )
     mesh_connected = bool(device.mesh_node_id and device.remote_online and verified_recently)
+    # Uma conexão ativa no MeshCentral é evidência mais forte que uma amostra de
+    # telemetria anterior: se o nó está conectado, o Mesh Agent está instalado e
+    # rodando agora. Isso evita o falso "Não instalado" logo após o Setup.
+    installed = bool(extra.get("remote_agent_installed") or device.mesh_node_id)
+    running = bool(extra.get("remote_agent_running") or mesh_connected)
     enabled = bool(settings.remote_enabled and settings.remote_url)
     return {
         "enabled": enabled,
@@ -2372,6 +2375,20 @@ def get_agent_secret(authorization: str | None) -> str:
     return authorization.split(" ", 1)[1].strip()
 
 
+def get_agent_device_by_secret(db: Session, authorization: str | None) -> Device:
+    raw_secret = get_agent_secret(authorization)
+    secret_hash = sha256_text(raw_secret)
+    device = db.scalar(
+        select(Device).where(
+            Device.agent_secret_hash == secret_hash,
+            Device.active.is_(True),
+        )
+    )
+    if not device:
+        raise HTTPException(status_code=401, detail="Agente não autorizado")
+    return device
+
+
 @router.post("/agent/enroll", status_code=201)
 def agent_enroll(payload: EnrollmentRequest, db: Db):
     enrollment, company = get_valid_enrollment(db, payload.enrollment_token)
@@ -2448,13 +2465,79 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
         )
     )
     db.commit()
+
+    # A autorização temporária vincula apenas este computador à empresa. Depois
+    # do vínculo, o Agent recebe uma credencial própria e pode baixar somente o
+    # agente remoto pertencente à mesma empresa. Isso permite que a instalação
+    # por código configure diagnóstico + acesso remoto em um único fluxo, sem
+    # expor login/senha da empresa e sem reutilizar o token de uso único.
+    remote_agent, remote_warning = prepare_remote_install(db, company, device)
+    if remote_agent is not None:
+        remote_agent = dict(remote_agent)
+        remote_agent["url"] = "/api/agent/remote-agent"
+
     return {
         "device_id": device.id,
         "agent_secret": raw_secret,
         "company_id": device.company_id,
         "company_name": company.name,
-        "remote_agent": None,
-        "remote_warning": "Acesso remoto não é instalado pela autorização temporária de uso único.",
+        "remote_agent": remote_agent,
+        "remote_warning": remote_warning,
+    }
+
+
+@router.get("/agent/remote-agent")
+def download_agent_remote_agent(
+    db: Db,
+    authorization: Annotated[str | None, Header()] = None,
+):
+    device = get_agent_device_by_secret(db, authorization)
+    company = db.get(Company, device.company_id)
+    if not company or not company.active:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    if not settings.remote_enabled:
+        raise HTTPException(status_code=503, detail="O acesso remoto está desativado no servidor")
+    if not meshcentral_client.provisioning_configured:
+        raise HTTPException(status_code=503, detail="A automação do acesso remoto não está configurada")
+    try:
+        prepared = meshcentral_client.prepare_company_agent(company)
+    except (MeshCentralCommandError, MeshCentralTokenError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    company.mesh_group_id = prepared.mesh_group_id
+    company.mesh_group_name = prepared.mesh_group_name
+    company.mesh_group_synced_at = utcnow()
+    db.commit()
+    return FileResponse(
+        prepared.path,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename=prepared.filename,
+        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/agent/remote-status")
+def get_agent_remote_status(
+    db: Db,
+    authorization: Annotated[str | None, Header()] = None,
+):
+    device = get_agent_device_by_secret(db, authorization)
+    sync_error = None
+    try:
+        refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
+    except MeshCentralCommandError as exc:
+        sync_error = str(exc)
+    sample = latest_telemetry(db, device.id)
+    state = remote_state(device, sample)
+    return {
+        "ok": True,
+        "device_id": device.id,
+        "hostname": device.hostname,
+        "mesh_connected": state["mesh_connected"],
+        "mesh_node_id": device.mesh_node_id,
+        "service_running": state["running"],
+        "available": state["available"],
+        "checked_at": state["checked_at"],
+        "warning": sync_error,
     }
 
 
