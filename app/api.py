@@ -2253,23 +2253,33 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     detail="O desligamento remoto exige o vínculo MeshCentral deste computador.",
                 )
 
-            # Quando existe rota de Wake realmente verificada, podemos fazer
-            # desligamento total. Sem rota verificada, Windows entra em
-            # hibernação preparada para WOL em vez de S5: evita repetir o caso
-            # em que o PC fica totalmente inacessível depois de desligar.
+            # v10.29: o botão se chama "Desligar computador", então ele precisa
+            # executar um desligamento REAL do Windows. Versões anteriores
+            # trocavam silenciosamente essa ação por hibernação quando a rota de
+            # Wake ainda não estava verificada. Se a hibernação falhasse, o
+            # MeshCtrl ainda podia considerar o RunCommand despachado e a tela
+            # ficava presa em "Desligando..." enquanto o PC continuava ligado.
+            #
+            # Agora Windows sempre recebe shutdown /s após rearmar WOL. A rota
+            # de religamento continua sendo diagnosticada/avisada separadamente
+            # e não muda a semântica do botão de desligar.
             if "windows" in str(device.os_name or "").lower():
-                if readiness.get("full_shutdown_safe"):
+                shutdown_error: MeshCentralCommandError | None = None
+                try:
+                    meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
+                    methods.append("meshcentral_windows_wol_shutdown")
+                except MeshCentralCommandError as exc:
+                    shutdown_error = exc
+
+                # Se nem o comando limpo pôde ser despachado, recorra ao
+                # DevicePower do MeshCentral em vez de informar sucesso falso.
+                if not methods:
                     try:
-                        meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
-                        methods.append("meshcentral_windows_wol_shutdown")
+                        meshcentral_client.device_power(device.mesh_node_id, "off")
+                        methods.append("meshcentral_off_fallback")
                     except MeshCentralCommandError as exc:
-                        raise HTTPException(status_code=503, detail=f"Não foi possível desligar o Windows: {exc}") from exc
-                else:
-                    try:
-                        meshcentral_client.device_hibernate_for_wol(device.mesh_node_id)
-                        methods.append("meshcentral_windows_wol_hibernate")
-                    except MeshCentralCommandError as exc:
-                        raise HTTPException(status_code=503, detail=f"Não foi possível colocar o Windows em modo seguro para religamento: {exc}") from exc
+                        detail = shutdown_error or exc
+                        raise HTTPException(status_code=503, detail=f"Não foi possível desligar o Windows: {detail}") from exc
             else:
                 try:
                     meshcentral_client.device_power(device.mesh_node_id, "off")
@@ -2390,10 +2400,12 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     db.commit()
     pending = device_power_pending_state(db, device, currently_on=currently_on)
 
-    if requested == "off" and "meshcentral_windows_wol_hibernate" in methods:
-        message = "Modo seguro enviado: o Windows vai hibernar para preservar a melhor chance de religamento remoto enquanto a rota Wake não está verificada."
-    elif requested == "off":
-        message = "Comando para desligar enviado. O CoreControl acompanhará até o computador ficar offline."
+    if requested == "off":
+        message = (
+            "Comando para desligar enviado. O CoreControl acompanhará até o computador ficar offline."
+            if readiness.get("wake_verified")
+            else "Comando para desligar enviado. A rota de religamento ainda não está verificada; o CoreControl continuará acompanhando até o computador ficar offline."
+        )
     elif is_retry:
         message = "Novo Wake-on-LAN enviado. Continuando a aguardar o computador voltar online."
     elif relay_ids:

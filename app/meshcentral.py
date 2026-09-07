@@ -488,30 +488,38 @@ class MeshCentralClient:
         return value
 
     def device_shutdown_for_wol(self, node_id: str) -> str:
-        """Gracefully shut down Windows while re-arming Wake-on-LAN first.
+        """Schedule a real Windows shutdown after re-arming Wake-on-LAN.
 
-        MeshCentral's generic power-off action is kept as a fallback by the API.
-        Running shutdown.exe /s performs a normal full Windows shutdown, while
-        the short PowerShell preflight re-enables Magic Packet wake on active
-        physical adapters immediately before the machine enters S5.
+        The critical difference from the old implementation is that the final
+        shutdown launch is *not* hidden behind ``SilentlyContinue``. We first
+        perform best-effort WOL preparation, then start ``shutdown.exe /s`` as
+        a detached process with a short delay. This lets MeshCtrl receive the
+        command result before the Mesh Agent disappears during shutdown.
         """
         clean_node = (node_id or "").strip()
         if not clean_node:
             raise MeshCentralCommandError("O computador não possui identificador remoto para controle de energia.")
         script = (
-            "$ErrorActionPreference='SilentlyContinue';"
+            "$ErrorActionPreference='Stop';"
+            "$ProgressPreference='SilentlyContinue';"
             "$adapters=@(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq 'Up'});"
             "foreach($a in $adapters){"
-            "Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null;Set-NetAdapterPowerManagement -Name $a.Name -ArpOffload Enabled -ErrorAction SilentlyContinue | Out-Null;"
+            "try{Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null}catch{};"
+            "try{Set-NetAdapterPowerManagement -Name $a.Name -ArpOffload Enabled -ErrorAction SilentlyContinue | Out-Null}catch{};"
             "$desc=[string]$a.InterfaceDescription;"
-            "if($desc){& powercfg.exe /deviceenablewake $desc 2>$null | Out-Null}"
+            "if($desc){try{& powercfg.exe /deviceenablewake $desc 2>$null | Out-Null}catch{}}"
             "};"
-            "& shutdown.exe /s /f /t 2"
+            "$shutdown=Join-Path $env:SystemRoot 'System32\\shutdown.exe';"
+            "if(-not (Test-Path $shutdown)){throw 'shutdown.exe não foi encontrado no Windows.'};"
+            "try{& $shutdown /a 2>$null | Out-Null}catch{};"
+            "$proc=Start-Process -FilePath $shutdown -ArgumentList @('/s','/f','/t','5') -WindowStyle Hidden -PassThru -ErrorAction Stop;"
+            "if($null -eq $proc){throw 'O Windows não aceitou o agendamento do desligamento.'};"
+            "'CORECONTROL_SHUTDOWN_SCHEDULED'"
         )
         return self._meshctrl_command(
             "RunCommand",
             ["--id", clean_node, "--run", script, "--powershell"],
-            timeout=max(20, settings.remote_command_timeout_seconds),
+            timeout=min(max(15, settings.remote_command_timeout_seconds), 30),
         )
 
     def device_hibernate_for_wol(self, node_id: str) -> str:
