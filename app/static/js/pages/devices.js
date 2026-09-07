@@ -1283,7 +1283,7 @@
         const remainingSeconds = Math.max(1, Number(powerState.pending_seconds_remaining || (pendingWake ? 300 : 180)));
         const attempts = Math.max(1, Math.ceil((remainingSeconds * 1000) / 1500));
         window.setTimeout(async () => {
-          const watched = await CT.waitForDevicePower(device.id, pendingWake, { attempts, delayMs: 1500 });
+          const watched = await CT.waitForDevicePower(device.id, pendingWake, { attempts, delayMs: 1500, retryWake: pendingWake, retryEveryAttempts: 10, maxWakeRetries: 8 });
           if (!document.body.contains(devicePowerBtn)) return;
           if (watched.changed) {
             CT.toast(pendingWake ? 'Computador online.' : 'Computador desligado.');
@@ -1323,7 +1323,7 @@
             if (!response) return;
             if (!dispatched) showPending();
             CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
-            const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake', { attempts: powerAction === 'wake' ? 200 : 120, delayMs: 1500 });
+            const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake', { attempts: powerAction === 'wake' ? 200 : 120, delayMs: 1500, retryWake: powerAction === 'wake', retryEveryAttempts: 10, maxWakeRetries: 8 });
             if (watched.changed) {
               const nowOn = powerAction === 'wake';
               if (statusEl) statusEl.innerHTML = `<i class="dot ${nowOn ? 'online' : 'offline'}"></i>${nowOn ? 'Online' : 'Desligado'}`;

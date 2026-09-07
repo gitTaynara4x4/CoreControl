@@ -241,8 +241,8 @@
           ? `Wake Relay verificado${readiness.relay_names?.length ? `: ${CT.esc(readiness.relay_names.join(', '))}` : '.'}`
           : 'Nenhuma rota externa de religamento foi confirmada ainda.';
       const warning = wakeVerified
-        ? 'O CoreControl encontrou uma rota de religamento disponível.'
-        : 'O CoreControl vai preparar o Windows para Wake-on-LAN antes de desligar, mas a possibilidade de ligar novamente após o desligamento total também depende da BIOS/UEFI e da rede.';
+        ? 'O CoreControl encontrou uma rota de religamento verificada e fará o desligamento normal.'
+        : 'A rota de religamento ainda não foi confirmada. Para não repetir o bloqueio do computador offline, o CoreControl usará hibernação preparada para Wake-on-LAN em vez de desligamento total.';
 
       CT.openModal(`
         <div class="danger-modal-head">
@@ -262,7 +262,7 @@
         </div>
         <div class="modal-actions">
           <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>
-          <button class="btn danger" type="button" id="confirmPowerOff">Desligar computador</button>
+          <button class="btn danger" type="button" id="confirmPowerOff">${wakeVerified ? 'Desligar computador' : 'Desligar em modo seguro'}</button>
         </div>`);
 
       let settled = false;
@@ -297,6 +297,11 @@
   CT.waitForDevicePower = async function waitForDevicePower(deviceId, expectedOn, options = {}) {
     const attempts = Math.max(1, Number(options.attempts || 60));
     const delayMs = Math.max(1000, Number(options.delayMs || 1500));
+    const retryWake = Boolean(expectedOn && options.retryWake);
+    const retryEveryAttempts = Math.max(3, Number(options.retryEveryAttempts || 10));
+    const maxWakeRetries = Math.max(0, Number(options.maxWakeRetries ?? 8));
+    let wakeRetries = 0;
+
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
       try {
@@ -305,6 +310,19 @@
         if (Boolean(status.mesh_connected) === Boolean(expectedOn)) return { changed: true, status };
       } catch (_) {
         // Durante inicialização/desligamento o serviço pode oscilar por alguns segundos.
+      }
+
+      // Wake-on-LAN é idempotente. Um único pacote pode se perder no roteador,
+      // no broadcast ou enquanto a NIC troca de estado. Reenvie em intervalos
+      // controlados, inclusive quando esta espera foi retomada depois de um F5.
+      if (retryWake && attempt > 0 && attempt % retryEveryAttempts === 0 && wakeRetries < maxWakeRetries) {
+        wakeRetries += 1;
+        try {
+          await CT.api(`/devices/${deviceId}/power?action=wake&ts=${Date.now()}`, { method: 'POST' });
+          if (typeof options.onWakeRetry === 'function') options.onWakeRetry(wakeRetries);
+        } catch (_) {
+          // O polling continua; uma rota pode voltar a ficar disponível na próxima tentativa.
+        }
       }
     }
     return { changed: false, status: null };

@@ -365,7 +365,7 @@
             if (!response) return;
             if (!dispatched) showPending();
             CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
-            const watched = await CT.waitForDevicePower(deviceId, powerAction === 'wake');
+            const watched = await CT.waitForDevicePower(deviceId, powerAction === 'wake', { retryWake: powerAction === 'wake', retryEveryAttempts: 10, maxWakeRetries: 8 });
             if (watched.changed) {
               button.classList.remove('primary', 'danger');
               button.classList.add(powerAction === 'wake' ? 'danger' : 'primary');
