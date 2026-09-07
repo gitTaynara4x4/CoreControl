@@ -1188,14 +1188,6 @@
           ? 'Configurando...'
           : 'Não configurada';
 
-    const wakeRoutePublicMessage = (() => {
-      if (powerState.wan_route_verified) return 'Rota externa confirmada e pronta para religamento remoto.';
-      if (powerState.wan_route_status === 'testing') return 'Configurando automaticamente a rota pelo roteador...';
-      if (powerState.wan_route_status === 'verifying') return 'Aguardando a confirmação automática da rota...';
-      if (powerState.wan_route_status === 'expired') return 'A validação da rota expirou. Teste novamente quando desejar.';
-      if (powerState.wan_route_status === 'failed') return 'Não foi possível configurar automaticamente a rota pelo roteador.';
-      return '';
-    })();
 
     CT.$('#deviceProtection').innerHTML = [
       CT.info('Memória instalada', telemetry.memory_total_gb == null ? '—' : `${CT.fmtNum(telemetry.memory_total_gb, 1)} GB`),
@@ -1213,12 +1205,8 @@
     ].join('');
 
     const wakeRouteButton = CT.$('#wakeRouteTestBtn');
-    const wakeRouteFeedback = CT.$('#wakeRouteTestFeedback');
     const canManagePower = ['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role);
     const routeBusy = ['testing', 'verifying'].includes(powerState.wan_route_status);
-    if (wakeRouteFeedback) {
-      wakeRouteFeedback.textContent = wakeRoutePublicMessage;
-    }
     if (wakeRouteButton && canManagePower) {
       wakeRouteButton.classList.remove('hidden');
       wakeRouteButton.textContent = routeBusy
@@ -1236,7 +1224,6 @@
         const originalText = wakeRouteButton.textContent;
         wakeRouteButton.disabled = true;
         wakeRouteButton.textContent = 'Testando rota...';
-        if (wakeRouteFeedback) wakeRouteFeedback.textContent = 'Preparando UPnP e aguardando o pacote de validação da VPS...';
         try {
           const start = await CT.api(`/devices/${device.id}/wake-route-test`, { method: 'POST' });
           CT.toast(start?.message || 'Teste de rota iniciado.');
@@ -1244,20 +1231,6 @@
           for (let attempt = 0; attempt < 28; attempt += 1) {
             if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, 2000));
             last = await CT.api(`/devices/${device.id}/power-readiness`);
-            if (wakeRouteFeedback) {
-              const status = String(last.wan_route_status || '');
-              wakeRouteFeedback.textContent = last.wan_route_verified
-                ? 'Rota externa confirmada e pronta para religamento remoto.'
-                : status === 'testing'
-                  ? 'Configurando automaticamente a rota pelo roteador...'
-                  : status === 'verifying'
-                    ? 'Aguardando a confirmação automática da rota...'
-                    : status === 'expired'
-                      ? 'A validação da rota expirou. Teste novamente quando desejar.'
-                      : status === 'failed'
-                        ? 'Não foi possível configurar automaticamente a rota pelo roteador.'
-                        : 'Validando rota...';
-            }
             if (last.wan_route_verified) {
               CT.toast('Rota para ligar confirmada. O desligamento foi liberado.');
               return CT.navigate('device', device.id);
@@ -1270,7 +1243,6 @@
         } catch (error) {
           wakeRouteButton.disabled = false;
           wakeRouteButton.textContent = originalText;
-          if (wakeRouteFeedback) wakeRouteFeedback.textContent = 'Não foi possível configurar automaticamente a rota pelo roteador.';
           CT.toast(error.message || 'Não foi possível confirmar a rota de ligamento.', true);
         }
       };
