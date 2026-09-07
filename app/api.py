@@ -250,6 +250,67 @@ def find_wake_relays(db: Session, target: Device) -> list[Device]:
     return relays
 
 
+def _same_wol_network(target_info: dict, peer_info: dict) -> bool:
+    """Conservative same-LAN check for MeshCentral WOL relays.
+
+    Prefer the network CIDR reported by the Agent. Older samples may not have
+    it, so fall back to IPv4 membership when one side does provide a network.
+    We deliberately avoid broadcasting through arbitrary company devices that
+    may be installed at another physical site.
+    """
+    target_cidr = str(target_info.get("network_cidr") or "").strip()
+    peer_cidr = str(peer_info.get("network_cidr") or "").strip()
+    if target_cidr and peer_cidr:
+        try:
+            return ipaddress.ip_network(target_cidr, strict=False) == ipaddress.ip_network(peer_cidr, strict=False)
+        except ValueError:
+            return False
+
+    try:
+        target_ip = ipaddress.ip_address(str(target_info.get("ip_local") or "").strip())
+        peer_ip = ipaddress.ip_address(str(peer_info.get("ip_local") or "").strip())
+    except ValueError:
+        return False
+    if target_ip.version != 4 or peer_ip.version != 4 or not target_ip.is_private or not peer_ip.is_private:
+        return False
+    if target_cidr:
+        try:
+            return peer_ip in ipaddress.ip_network(target_cidr, strict=False)
+        except ValueError:
+            return False
+    if peer_cidr:
+        try:
+            return target_ip in ipaddress.ip_network(peer_cidr, strict=False)
+        except ValueError:
+            return False
+    # Last-resort compatibility for old telemetry: only /24 private peers.
+    return int(target_ip) >> 8 == int(peer_ip) >> 8
+
+
+def find_mesh_wake_relays(db: Session, target: Device) -> list[Device]:
+    """Online Mesh Agents in the same company/LAN usable as WOL relays."""
+    target_info = device_wol_info(db, target)
+    if not target_info.get("mac_address"):
+        return []
+    peers = list(
+        db.scalars(
+            select(Device).where(
+                Device.company_id == target.company_id,
+                Device.active.is_(True),
+                Device.id != target.id,
+                Device.mesh_node_id.is_not(None),
+            )
+        ).all()
+    )
+    relays: list[Device] = []
+    for peer in peers:
+        if not bool(peer.remote_online):
+            continue
+        peer_info = device_wol_info(db, peer)
+        if _same_wol_network(target_info, peer_info):
+            relays.append(peer)
+    return relays
+
 
 WAKE_ROUTE_VALID_FOR = timedelta(days=7)
 
@@ -1943,6 +2004,25 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
             if relay_ids:
                 methods.append("corecontrol_lan_relay")
 
+            # v10.27: não dependa apenas do CoreControl Agent do relay. Se outro
+            # Mesh Agent estiver online na mesma LAN, execute o Magic Packet
+            # diretamente nele. Isso cobre PCs antigos cujo Agent ainda não
+            # iniciou sessão e redes onde DevicePower --wake não entrega o
+            # broadcast de forma confiável.
+            mesh_relay_ids: list[int] = []
+            if mac_address:
+                for relay in find_mesh_wake_relays(db, device)[:3]:
+                    try:
+                        meshcentral_client.device_wake_via_peer(relay.mesh_node_id, mac_address)
+                        mesh_relay_ids.append(relay.id)
+                    except MeshCentralCommandError:
+                        continue
+                if mesh_relay_ids:
+                    methods.append("meshcentral_lan_relay")
+                    for relay_id in mesh_relay_ids:
+                        if relay_id not in relay_ids:
+                            relay_ids.append(relay_id)
+
             if mesh_ready:
                 try:
                     meshcentral_client.device_power(device.mesh_node_id, "wake")
@@ -2014,7 +2094,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     elif is_retry:
         message = "Novo Wake-on-LAN enviado. Continuando a aguardar o computador voltar online."
     elif relay_ids:
-        message = "Wake-on-LAN enviado pela rede local e pelo fallback disponível. O CoreControl acompanhará até o computador voltar online."
+        message = "Wake-on-LAN enviado por um computador online da mesma rede e pelos fallbacks disponíveis. O CoreControl acompanhará até o computador voltar online."
     else:
         message = "Sinal para ligar enviado. O CoreControl acompanhará o computador até ele voltar online."
 

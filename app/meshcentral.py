@@ -353,6 +353,42 @@ class MeshCentralClient:
             timeout=max(20, settings.remote_command_timeout_seconds),
         )
 
+    def device_wake_via_peer(self, peer_node_id: str, mac_address: str) -> str:
+        """Emit a Magic Packet from an online Windows Mesh Agent on the LAN.
+
+        MeshCentral's DevicePower --wake is kept as a fallback, but some
+        networks do not relay that packet reliably. Running this tiny
+        PowerShell snippet on another online machine in the same subnet makes
+        the delivery deterministic without requiring the CoreControl Agent on
+        that relay machine to be currently reporting telemetry.
+        """
+        clean_node = (peer_node_id or "").strip()
+        clean_mac = "".join(ch for ch in str(mac_address or "") if ch in "0123456789abcdefABCDEF")
+        if not clean_node:
+            raise MeshCentralCommandError("O computador relay não possui identificador remoto.")
+        if len(clean_mac) != 12:
+            raise MeshCentralCommandError("O endereço MAC para Wake-on-LAN é inválido.")
+        script = (
+            "$ErrorActionPreference='Stop';"
+            f"$mac='{clean_mac.upper()}';"
+            "$bytes=New-Object byte[] 102;"
+            "0..5|ForEach-Object{$bytes[$_]=0xFF};"
+            "$macBytes=0..5|ForEach-Object{[Convert]::ToByte($mac.Substring($_*2,2),16)};"
+            "for($i=1;$i -le 16;$i++){[Array]::Copy($macBytes,0,$bytes,$i*6,6)};"
+            "$udp=New-Object System.Net.Sockets.UdpClient;"
+            "$udp.EnableBroadcast=$true;"
+            "foreach($port in @(9,7)){"
+            "$ep=New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Broadcast,$port);"
+            "1..4|ForEach-Object{[void]$udp.Send($bytes,$bytes.Length,$ep);Start-Sleep -Milliseconds 120}"
+            "};"
+            "$udp.Close();'WOL_SENT'"
+        )
+        return self._meshctrl_command(
+            "RunCommand",
+            ["--id", clean_node, "--run", script, "--powershell"],
+            timeout=min(max(12, settings.remote_command_timeout_seconds), 25),
+        )
+
     def device_shutdown_for_wol(self, node_id: str) -> str:
         """Gracefully shut down Windows while re-arming Wake-on-LAN first.
 
