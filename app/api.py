@@ -305,20 +305,23 @@ def latest_wan_wake_route(db: Session, device: Device) -> dict:
     if probe.status in {"queued", "running"}:
         return {"verified": False, "status": "testing", "message": "Testando UPnP e preparando a rota de Wake-on-LAN..."}
     if probe.status == "failed":
+        # O erro técnico completo permanece registrado em AgentCommand.error_text
+        # para diagnóstico, mas nunca é exposto na interface do cliente.
         return {
             "verified": False,
             "status": "failed",
-            "message": probe.error_text or "O roteador não permitiu criar automaticamente uma rota Wake-on-LAN.",
+            "message": "Não foi possível configurar automaticamente a rota pelo roteador.",
         }
     if confirm is None:
         return {"verified": False, "status": "verifying", "message": "Rota criada. Aguardando o teste externo da VPS..."}
     if confirm.status in {"queued", "running"}:
         return {"verified": False, "status": "verifying", "message": "A VPS enviou o teste. Aguardando confirmação do PC..."}
     if confirm.status != "succeeded":
+        # Mantém detalhes técnicos somente nos logs/comandos internos.
         return {
             "verified": False,
             "status": "failed",
-            "message": confirm.error_text or "O pacote enviado pela VPS não chegou ao PC pela rota criada.",
+            "message": "Não foi possível confirmar automaticamente a rota de religamento.",
         }
 
     result = _command_json(confirm.result_json)
