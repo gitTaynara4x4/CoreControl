@@ -389,6 +389,104 @@ class MeshCentralClient:
             timeout=min(max(12, settings.remote_command_timeout_seconds), 25),
         )
 
+    def device_prepare_wan_wake_route(self, node_id: str, external_port: int) -> dict[str, Any]:
+        """Create/refresh a UPnP UDP mapping to this Windows host.
+
+        This route is intentionally *unicast* to the machine's current IPv4
+        address instead of attempting to map directly to the subnet broadcast
+        address. A large number of consumer routers reject UPnP mappings whose
+        internal client is a broadcast address. The route is later verified
+        from the CoreControl server before it is trusted for Wake-on-WAN.
+        """
+        clean_node = (node_id or "").strip()
+        if not clean_node:
+            raise MeshCentralCommandError("O computador não possui identificador remoto.")
+        port = int(external_port or 0)
+        if port < 40000 or port > 59999:
+            raise MeshCentralCommandError("A porta da rota Wake-on-WAN é inválida.")
+
+        # HNetCfg.NATUPnP is available on supported Windows versions and talks
+        # to the router through the normal Windows UPnP stack. Running through
+        # the Mesh Agent avoids depending on the CoreControl Agent command
+        # queue just to prepare the WAN route.
+        script = (
+            "$ErrorActionPreference='Stop';"
+            "$ProgressPreference='SilentlyContinue';"
+            "try{Set-Service -Name SSDPSRV -StartupType Manual -ErrorAction SilentlyContinue;Start-Service SSDPSRV -ErrorAction SilentlyContinue}catch{};"
+            "try{Set-Service -Name upnphost -StartupType Manual -ErrorAction SilentlyContinue;Start-Service upnphost -ErrorAction SilentlyContinue}catch{};"
+            "$cfg=@(Get-NetIPConfiguration -ErrorAction Stop | Where-Object {$_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up'} | Select-Object -First 1);"
+            "if(-not $cfg){throw 'Nenhuma interface IPv4 ativa com gateway padrão foi encontrada.'};"
+            "$ip=[string]$cfg.IPv4Address.IPAddress;"
+            "$prefix=[int]$cfg.IPv4Address.PrefixLength;"
+            "if([string]::IsNullOrWhiteSpace($ip)){throw 'Não foi possível determinar o IPv4 local.'};"
+            "$adapter=[string]$cfg.NetAdapter.Name;"
+            "try{Set-NetAdapterPowerManagement -Name $adapter -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null}catch{};"
+            "try{Set-NetAdapterPowerManagement -Name $adapter -ArpOffload Enabled -ErrorAction SilentlyContinue | Out-Null}catch{};"
+            "try{$desc=[string]$cfg.NetAdapter.InterfaceDescription;if($desc){& powercfg.exe /deviceenablewake $desc 2>$null | Out-Null}}catch{};"
+            "$nat=New-Object -ComObject HNetCfg.NATUPnP;"
+            "$maps=$nat.StaticPortMappingCollection;"
+            "if($null -eq $maps){throw 'UPnP indisponível ou desativado no roteador.'};"
+            f"$ext={port};$int={port};"
+            "$existing=$null;"
+            "try{$existing=@($maps | Where-Object {$_.ExternalPort -eq $ext -and $_.Protocol -eq 'UDP'}) | Select-Object -First 1}catch{};"
+            "if($existing -and ([string]$existing.InternalClient -ne $ip -or [int]$existing.InternalPort -ne $int)){try{$maps.Remove($ext,'UDP')}catch{};$existing=$null};"
+            "if(-not $existing){$existing=$maps.Add($ext,'UDP',$int,$ip,$true,'CoreControl Wake-on-WAN')};"
+            "if($null -eq $existing){throw 'O roteador não aceitou a regra UPnP de Wake-on-WAN.'};"
+            "$public='';try{$public=[string]$existing.ExternalIPAddress}catch{};"
+            "$obj=[PSCustomObject]@{ok=$true;method='mesh_upnp_unicast';external_ip=$public;external_port=[int]$existing.ExternalPort;internal_port=[int]$existing.InternalPort;internal_ip=[string]$existing.InternalClient;prefix_length=$prefix;adapter=$adapter};"
+            "$obj|ConvertTo-Json -Compress"
+        )
+        output = self._meshctrl_command(
+            "RunCommand",
+            ["--id", clean_node, "--run", script, "--powershell"],
+            timeout=min(max(15, settings.remote_command_timeout_seconds), 30),
+        )
+        value = _json_from_output(output)
+        if not isinstance(value, dict) or not bool(value.get("ok")):
+            raise MeshCentralCommandError("O roteador não devolveu uma rota Wake-on-WAN utilizável.")
+        return value
+
+    def device_wait_for_wan_probe(self, node_id: str, internal_port: int, probe_token: str) -> dict[str, Any]:
+        """Wait briefly on the target PC for a UDP probe sent by the VPS."""
+        clean_node = (node_id or "").strip()
+        token = str(probe_token or "").strip()
+        port = int(internal_port or 0)
+        if not clean_node:
+            raise MeshCentralCommandError("O computador não possui identificador remoto.")
+        if port < 40000 or port > 59999 or len(token) < 12 or len(token) > 160:
+            raise MeshCentralCommandError("Os dados de validação Wake-on-WAN são inválidos.")
+        # Token contains urlsafe characters only, nevertheless encode it as
+        # base64 so no user-controlled text is interpolated into PowerShell.
+        token_b64 = base64.b64encode(token.encode("utf-8")).decode("ascii")
+        rule = f"CoreControl Wake Probe {port}"
+        script = (
+            "$ErrorActionPreference='Stop';"
+            f"$port={port};"
+            f"$expected=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{token_b64}'));"
+            f"$rule='{rule}';"
+            "try{& netsh advfirewall firewall delete rule name=$rule 2>$null | Out-Null}catch{};"
+            "try{& netsh advfirewall firewall add rule name=$rule dir=in action=allow protocol=UDP localport=$port profile=any | Out-Null}catch{};"
+            "$udp=$null;$received=$false;$remoteText='';"
+            "try{"
+            "$udp=New-Object System.Net.Sockets.UdpClient($port);"
+            "$udp.Client.ReceiveTimeout=12000;"
+            "$remote=New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any,0);"
+            "$bytes=$udp.Receive([ref]$remote);"
+            "$text=[Text.Encoding]::UTF8.GetString($bytes);"
+            "if($text -eq $expected){$received=$true;$remoteText=[string]$remote.Address}"
+            "}catch{}finally{if($udp){$udp.Close()};try{& netsh advfirewall firewall delete rule name=$rule 2>$null | Out-Null}catch{}};"
+            "$obj=[PSCustomObject]@{received=$received;remote=$remoteText};$obj|ConvertTo-Json -Compress"
+        )
+        output = self._meshctrl_command(
+            "RunCommand",
+            ["--id", clean_node, "--run", script, "--powershell"],
+            timeout=min(max(18, settings.remote_command_timeout_seconds), 28),
+        )
+        value = _json_from_output(output)
+        if not isinstance(value, dict):
+            raise MeshCentralCommandError("A confirmação Wake-on-WAN retornou resposta inválida.")
+        return value
+
     def device_shutdown_for_wol(self, node_id: str) -> str:
         """Gracefully shut down Windows while re-arming Wake-on-LAN first.
 
@@ -404,7 +502,7 @@ class MeshCentralClient:
             "$ErrorActionPreference='SilentlyContinue';"
             "$adapters=@(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq 'Up'});"
             "foreach($a in $adapters){"
-            "Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null;"
+            "Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null;Set-NetAdapterPowerManagement -Name $a.Name -ArpOffload Enabled -ErrorAction SilentlyContinue | Out-Null;"
             "$desc=[string]$a.InterfaceDescription;"
             "if($desc){& powercfg.exe /deviceenablewake $desc 2>$null | Out-Null}"
             "};"
@@ -430,7 +528,7 @@ class MeshCentralClient:
             "$ErrorActionPreference='SilentlyContinue';"
             "$adapters=@(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq 'Up'});"
             "foreach($a in $adapters){"
-            "Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null;"
+            "Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null;Set-NetAdapterPowerManagement -Name $a.Name -ArpOffload Enabled -ErrorAction SilentlyContinue | Out-Null;"
             "$desc=[string]$a.InterfaceDescription;"
             "if($desc){& powercfg.exe /deviceenablewake $desc 2>$null | Out-Null}"
             "};"
