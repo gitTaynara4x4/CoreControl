@@ -230,38 +230,78 @@
     return Boolean(device?.online);
   };
 
-  CT.requestDevicePower = async function requestDevicePower(device, action) {
+  CT.confirmDevicePowerOff = function confirmDevicePowerOff(device, readiness) {
+    return new Promise((resolve) => {
+      const name = CT.esc(device?.name || 'este computador');
+      const wakeVerified = Boolean(readiness?.wake_verified);
+      const reason = CT.esc(readiness?.reason || 'A rota para ligar novamente ainda não foi confirmada.');
+      const routeText = readiness?.wan_route_verified
+        ? 'Rota externa de Wake-on-LAN confirmada pela VPS.'
+        : readiness?.relay_count
+          ? `Wake Relay verificado${readiness.relay_names?.length ? `: ${CT.esc(readiness.relay_names.join(', '))}` : '.'}`
+          : 'Nenhuma rota externa de religamento foi confirmada ainda.';
+      const warning = wakeVerified
+        ? 'O CoreControl encontrou uma rota de religamento disponível.'
+        : 'O CoreControl vai preparar o Windows para Wake-on-LAN antes de desligar, mas a possibilidade de ligar novamente após o desligamento total também depende da BIOS/UEFI e da rede.';
+
+      CT.openModal(`
+        <div class="danger-modal-head">
+          <div class="danger-modal-icon" aria-hidden="true">!</div>
+          <div>
+            <h2>Desligar computador?</h2>
+            <p>Você está prestes a desligar <strong>${name}</strong> remotamente.</p>
+          </div>
+        </div>
+        <div class="danger-summary">
+          <strong>${wakeVerified ? 'Religamento disponível' : 'Atenção ao religamento'}</strong>
+          <span>${CT.esc(warning)}</span>
+        </div>
+        <div class="callout">
+          <strong style="display:block;margin-bottom:4px">Status da rota</strong>
+          <span>${routeText}</span>${wakeVerified ? '' : `<br><span style="display:block;margin-top:6px">${reason}</span>`}
+        </div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>
+          <button class="btn danger" type="button" id="confirmPowerOff">Desligar computador</button>
+        </div>`);
+
+      let settled = false;
+      const finish = (accepted) => {
+        if (settled) return;
+        settled = true;
+        CT.closeModal();
+        resolve(Boolean(accepted));
+      };
+      CT.$('#cancelPowerOff').onclick = () => finish(false);
+      CT.$('#confirmPowerOff').onclick = () => finish(true);
+    });
+  };
+
+  CT.requestDevicePower = async function requestDevicePower(device, action, options = {}) {
     const normalized = String(action || '').toLowerCase();
     if (!device?.id || !['wake', 'off'].includes(normalized)) throw new Error('Ação de energia inválida.');
-    const readiness = await CT.api(`/devices/${device.id}/power-readiness`);
+    const readiness = await CT.api(`/devices/${device.id}/power-readiness?ts=${Date.now()}`);
     if (normalized === 'off') {
       if (!readiness.off_available) {
         throw new Error('O desligamento remoto exige que este computador esteja vinculado ao MeshCentral.');
       }
-      const relayText = readiness.relay_count
-        ? `\n\nWake Relay verificado: ${readiness.relay_names?.join(', ') || `${readiness.relay_count} computador(es)`}.`
-        : '';
-      const wanText = readiness.wan_route_verified
-        ? '\n\nRota externa de Wake-on-LAN confirmada pela VPS.'
-        : '';
-      const wakeWarning = readiness.wake_verified
-        ? ''
-        : `\n\nATENÇÃO: a rota para ligar este computador novamente ainda não está verificada. O CoreControl vai preparar o Windows para Wake-on-LAN antes de desligar, mas o suporte após desligamento total também depende da BIOS/UEFI e da rede.\n\n${readiness.reason || ''}`;
-      const accepted = window.confirm(`Desligar ${device.name || 'este computador'}?${wakeWarning}${relayText}${wanText}`);
+      const accepted = await CT.confirmDevicePowerOff(device, readiness);
       if (!accepted) return null;
     } else if (!readiness.wake_available) {
       throw new Error(readiness.reason || 'Não existe uma rota disponível para Wake-on-LAN.');
     }
+    if (typeof options.onDispatch === 'function') options.onDispatch(readiness);
     return CT.api(`/devices/${device.id}/power?action=${encodeURIComponent(normalized)}`, { method: 'POST' });
   };
 
   CT.waitForDevicePower = async function waitForDevicePower(deviceId, expectedOn, options = {}) {
-    const attempts = Math.max(1, Number(options.attempts || 30));
-    const delayMs = Math.max(1000, Number(options.delayMs || 3000));
+    const attempts = Math.max(1, Number(options.attempts || 60));
+    const delayMs = Math.max(1000, Number(options.delayMs || 1500));
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
       try {
-        const status = await CT.api(`/devices/${deviceId}/remote-status`);
+        const status = await CT.api(`/devices/${deviceId}/remote-status?ts=${Date.now()}`);
+        if (typeof options.onPoll === 'function') options.onPoll(status, attempt);
         if (Boolean(status.mesh_connected) === Boolean(expectedOn)) return { changed: true, status };
       } catch (_) {
         // Durante inicialização/desligamento o serviço pode oscilar por alguns segundos.
