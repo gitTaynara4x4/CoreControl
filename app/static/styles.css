@@ -1120,3 +1120,25 @@ html[data-theme="dark"] .ops-activity-row:hover,html[data-theme="dark"] .ops-eve
 @media(max-width:1300px){.ops-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.ops-main-grid,.ops-secondary-grid{grid-template-columns:1fr}.ops-device-list{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-device-focus{grid-template-columns:1fr}.ops-focus-label{display:none}.ops-device-foot{align-items:flex-start;flex-direction:column}.ops-device-actions{width:100%}.ops-device-actions .btn{flex:1}.ops-attention-panel{min-height:0}.ops-ok-state{min-height:130px}}
 @media(max-width:980px){.ops-hero{align-items:flex-start;flex-direction:column}.ops-hero-actions{justify-content:flex-start}.ops-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-device-list{grid-template-columns:1fr}.ops-activity-row{grid-template-columns:7px minmax(110px,.8fr) minmax(140px,1fr) 52px 14px}.ops-device-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:620px){.ops-kpis{grid-template-columns:1fr}.ops-hero-actions{width:100%}.ops-hero-actions .btn{flex:1}.ops-device-title-row{align-items:flex-start;flex-direction:column;gap:5px}.ops-device-head{align-items:flex-start}.ops-device-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-device-actions{display:grid;grid-template-columns:1fr 1fr}.ops-device-actions .btn.primary{grid-column:1/-1}.ops-activity-row{grid-template-columns:7px 1fr 50px 14px}.ops-activity-app{grid-column:2/4}.ops-summary-grid{grid-template-columns:1fr 1fr}.ops-section-head{align-items:flex-start;flex-direction:column}.ops-section-count{align-self:flex-start}}
+
+
+/* ===== Controle de energia: feedback de inicialização ===== */
+.power-action-wrap{display:grid;gap:4px;align-items:center;justify-items:stretch}
+.power-pending-button{display:inline-flex!important;align-items:center;justify-content:center;gap:7px;opacity:1!important;cursor:wait!important}
+.power-spinner{width:13px;height:13px;flex:0 0 13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:cc-power-spin .72s linear infinite}
+.status.power-pending-status,.ops-live.power-pending-status{color:#9b6400}
+.status.power-pending-status .dot,.ops-live.power-pending-status i{background:var(--amber)}
+.power-pulse{animation:cc-power-pulse 1.25s ease-in-out infinite}
+.power-action-feedback,.power-card-feedback{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:9px;font-weight:520;line-height:1.25;white-space:nowrap}
+.power-action-feedback{padding-left:2px}
+.power-card-feedback{margin-top:1px;color:#8b6a22}
+.power-wait-dots{display:inline-flex;align-items:center;gap:2px;height:10px}
+.power-wait-dots i{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.28;animation:cc-power-dot 1.2s ease-in-out infinite}
+.power-wait-dots i:nth-child(2){animation-delay:.16s}.power-wait-dots i:nth-child(3){animation-delay:.32s}
+@keyframes cc-power-spin{to{transform:rotate(360deg)}}
+@keyframes cc-power-pulse{0%,100%{opacity:.5;box-shadow:0 0 0 0 rgba(233,154,6,0)}50%{opacity:1;box-shadow:0 0 0 4px rgba(233,154,6,.12)}}
+@keyframes cc-power-dot{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-1.5px)}}
+html[data-theme="dark"] .status.power-pending-status,html[data-theme="dark"] .ops-live.power-pending-status{color:#efcf88}
+html[data-theme="dark"] .power-card-feedback{color:#d6bb7d}
+@media(max-width:700px){.power-action-wrap{width:100%}.power-action-wrap .btn{width:100%}.power-action-feedback{justify-content:center;white-space:normal;text-align:center}}
+@media(prefers-reduced-motion:reduce){.power-spinner,.power-pulse,.power-wait-dots i{animation:none!important}}

@@ -1122,7 +1122,13 @@
           : 'Desligado';
     const deviceOnlineTone = initialPendingAction ? '' : (devicePowerOn ? 'online' : 'offline');
 
-    CT.$('#deviceOnlineStatus').innerHTML = `<i class="dot ${deviceOnlineTone}"></i>${deviceOnlineLabel}`;
+    const deviceOnlineStatusEl = CT.$('#deviceOnlineStatus');
+    if (initialPendingAction) {
+      CT.setPowerPendingStatus(deviceOnlineStatusEl, initialPendingAction);
+    } else {
+      CT.clearPowerPendingStatus(deviceOnlineStatusEl);
+      deviceOnlineStatusEl.innerHTML = `<i class="dot ${deviceOnlineTone}"></i>${deviceOnlineLabel}`;
+    }
     CT.$('#deviceHealthStatus').className = `health ${CT.healthClass(device.health_score)}`;
     CT.$('#deviceHealthStatus').textContent = `Saúde ${device.health_score}/100`;
 
@@ -1260,6 +1266,7 @@
     remoteButton.addEventListener('click', () => CT.openRemoteSession(device.id));
 
     const devicePowerBtn = CT.$('#devicePowerBtn');
+    const devicePowerFeedback = CT.$('#devicePowerFeedback');
     if (['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role)) {
       const powerOn = CT.devicePowerIsOn(device);
       const pendingAction = ['wake', 'off'].includes(powerState.pending_action) ? powerState.pending_action : null;
@@ -1272,8 +1279,8 @@
       if (pendingAction) {
         const pendingWake = pendingAction === 'wake';
         devicePowerBtn.classList.add(pendingWake ? 'primary' : 'danger');
-        devicePowerBtn.textContent = pendingWake ? 'Ligando...' : 'Desligando...';
-        devicePowerBtn.disabled = true;
+        CT.setPowerPendingButton(devicePowerBtn, pendingAction);
+        CT.setPowerPendingFeedback(devicePowerFeedback, pendingAction);
         devicePowerBtn.title = pendingWake
           ? 'O comando de Wake-on-LAN já foi enviado. Aguardando o MeshCentral detectar o computador online.'
           : 'O comando de desligamento já foi enviado. Aguardando o MeshCentral detectar o computador offline.';
@@ -1295,6 +1302,8 @@
           return CT.navigate('device', device.id);
         }, 0);
       } else {
+        CT.clearPowerPendingButton(devicePowerBtn);
+        CT.clearPowerPendingFeedback(devicePowerFeedback);
         devicePowerBtn.classList.add(powerOn ? 'danger' : 'primary');
         devicePowerBtn.textContent = powerOn ? 'Desligar computador' : 'Ligar computador';
         devicePowerBtn.disabled = !powerAvailable;
@@ -1306,15 +1315,16 @@
             : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
           : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
         devicePowerBtn.onclick = async () => {
-          const originalText = devicePowerBtn.textContent;
+          const originalHtml = devicePowerBtn.innerHTML;
           const statusEl = CT.$('#deviceOnlineStatus');
           const originalStatusHtml = statusEl?.innerHTML || '';
+          const originalStatusClass = statusEl?.className || 'status';
           let dispatched = false;
           const showPending = () => {
             dispatched = true;
-            devicePowerBtn.disabled = true;
-            devicePowerBtn.textContent = powerAction === 'wake' ? 'Ligando...' : 'Desligando...';
-            if (statusEl) statusEl.innerHTML = `<i class="dot"></i>${powerAction === 'wake' ? 'Ligando...' : 'Desligando...'}`;
+            CT.setPowerPendingButton(devicePowerBtn, powerAction);
+            CT.setPowerPendingStatus(statusEl, powerAction);
+            CT.setPowerPendingFeedback(devicePowerFeedback, powerAction);
           };
           try {
             // Wake deve dar retorno visual no mesmo clique, antes até da checagem de prontidão responder.
@@ -1326,7 +1336,12 @@
             const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake', { attempts: powerAction === 'wake' ? 200 : 120, delayMs: 1500, retryWake: powerAction === 'wake', retryEveryAttempts: 10, maxWakeRetries: 8 });
             if (watched.changed) {
               const nowOn = powerAction === 'wake';
-              if (statusEl) statusEl.innerHTML = `<i class="dot ${nowOn ? 'online' : 'offline'}"></i>${nowOn ? 'Online' : 'Desligado'}`;
+              if (statusEl) {
+                CT.clearPowerPendingStatus(statusEl);
+                statusEl.innerHTML = `<i class="dot ${nowOn ? 'online' : 'offline'}"></i>${nowOn ? 'Online' : 'Desligado'}`;
+              }
+              CT.clearPowerPendingFeedback(devicePowerFeedback);
+              CT.clearPowerPendingButton(devicePowerBtn);
               devicePowerBtn.classList.remove('primary', 'danger');
               devicePowerBtn.classList.add(nowOn ? 'danger' : 'primary');
               devicePowerBtn.textContent = nowOn ? 'Desligar computador' : 'Ligar computador';
@@ -1339,9 +1354,15 @@
             if (!document.body.contains(devicePowerBtn)) return;
             return CT.navigate('device', device.id);
           } catch (error) {
+            CT.clearPowerPendingButton(devicePowerBtn);
+            CT.clearPowerPendingFeedback(devicePowerFeedback);
             devicePowerBtn.disabled = false;
-            devicePowerBtn.textContent = originalText;
-            if (statusEl) statusEl.innerHTML = originalStatusHtml;
+            devicePowerBtn.innerHTML = originalHtml;
+            if (statusEl) {
+              statusEl.className = originalStatusClass;
+              statusEl.removeAttribute('aria-busy');
+              statusEl.innerHTML = originalStatusHtml;
+            }
             CT.toast(error.message || 'Não foi possível executar a ação de energia.', true);
           }
         };

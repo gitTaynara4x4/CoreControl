@@ -230,6 +230,63 @@
     return Boolean(device?.online);
   };
 
+  CT.powerPendingLabel = function powerPendingLabel(action) {
+    return String(action || '').toLowerCase() === 'wake' ? 'Ligando...' : 'Desligando...';
+  };
+
+  CT.powerPendingFeedbackText = function powerPendingFeedbackText(action) {
+    return String(action || '').toLowerCase() === 'wake'
+      ? 'Aguardando resposta do computador'
+      : 'Aguardando confirmação do desligamento';
+  };
+
+  CT.powerPendingButtonHtml = function powerPendingButtonHtml(action) {
+    return `<span class="power-spinner" aria-hidden="true"></span><span>${CT.powerPendingLabel(action)}</span>`;
+  };
+
+  CT.powerPendingFeedbackHtml = function powerPendingFeedbackHtml(action) {
+    return `<span>${CT.powerPendingFeedbackText(action)}</span><span class="power-wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>`;
+  };
+
+  CT.setPowerPendingButton = function setPowerPendingButton(button, action) {
+    if (!button) return;
+    button.disabled = true;
+    button.classList.add('power-pending-button');
+    button.setAttribute('aria-busy', 'true');
+    button.innerHTML = CT.powerPendingButtonHtml(action);
+  };
+
+  CT.clearPowerPendingButton = function clearPowerPendingButton(button) {
+    if (!button) return;
+    button.classList.remove('power-pending-button');
+    button.removeAttribute('aria-busy');
+  };
+
+  CT.setPowerPendingStatus = function setPowerPendingStatus(statusEl, action) {
+    if (!statusEl) return;
+    statusEl.classList.add('power-pending-status');
+    statusEl.setAttribute('aria-busy', 'true');
+    statusEl.innerHTML = `<i class="dot power-pulse"></i><span>${CT.powerPendingLabel(action)}</span>`;
+  };
+
+  CT.clearPowerPendingStatus = function clearPowerPendingStatus(statusEl) {
+    if (!statusEl) return;
+    statusEl.classList.remove('power-pending-status');
+    statusEl.removeAttribute('aria-busy');
+  };
+
+  CT.setPowerPendingFeedback = function setPowerPendingFeedback(feedbackEl, action) {
+    if (!feedbackEl) return;
+    feedbackEl.classList.remove('hidden');
+    feedbackEl.innerHTML = CT.powerPendingFeedbackHtml(action);
+  };
+
+  CT.clearPowerPendingFeedback = function clearPowerPendingFeedback(feedbackEl) {
+    if (!feedbackEl) return;
+    feedbackEl.classList.add('hidden');
+    feedbackEl.innerHTML = '';
+  };
+
   CT.confirmDevicePowerOff = function confirmDevicePowerOff(device, readiness) {
     return new Promise((resolve) => {
       const name = CT.esc(device?.name || 'este computador');

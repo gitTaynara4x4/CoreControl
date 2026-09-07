@@ -239,7 +239,7 @@
         ? Boolean(powerState.off_available)
         : Boolean(powerState.wake_available));
       const powerAction = powerOn ? 'off' : 'wake';
-      const powerLabel = pendingAction === 'wake' ? 'Ligando...' : pendingAction === 'off' ? 'Desligando...' : powerOn ? 'Desligar computador' : 'Ligar computador';
+      const powerLabel = pendingAction ? CT.powerPendingButtonHtml(pendingAction) : (powerOn ? 'Desligar computador' : 'Ligar computador');
       const powerTitle = pendingAction
         ? (pendingAction === 'wake' ? 'Wake-on-LAN já enviado. Aguardando o computador ficar online.' : 'Desligamento já enviado. Aguardando o computador ficar offline.')
         : powerAvailable
@@ -255,7 +255,7 @@
           <div class="ops-device-head">
             <div class="ops-device-ident">
               <span class="ops-device-icon">${icon('monitor')}</span>
-              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${pendingAction ? '' : (powerOn ? 'online' : 'offline')}"><i></i>${pendingAction === 'wake' ? 'Ligando...' : pendingAction === 'off' ? 'Desligando...' : powerOn ? 'Ligado' : 'Desligado'}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
+              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${pendingAction ? 'power-pending-status' : (powerOn ? 'online' : 'offline')}" ${pendingAction ? 'aria-busy="true"' : ''}><i class="${pendingAction ? 'power-pulse' : ''}"></i>${pendingAction ? CT.powerPendingLabel(pendingAction) : (powerOn ? 'Ligado' : 'Desligado')}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
             </div>
             <div class="ops-health-badge ${stateTone}"><strong>${device.health_score}</strong><span>Saúde</span></div>
           </div>
@@ -268,11 +268,11 @@
             <div><span>${CT.esc(temperature.label)}</span><strong>${CT.esc(temperature.value)}</strong></div>
           </div>
           <div class="ops-device-foot">
-            <div class="ops-device-meta"><span>${profile ? `Perfil: <b>${CT.esc(profile)}</b>` : 'Sem perfil de otimização ativo'}</span><span>Agente ${CT.esc(device.agent_version || '—')} · ${powerOn && device.online ? `atualizado ${ago(device.last_seen)}` : `último contato ${ago(device.last_seen)}`}</span></div>
+            <div class="ops-device-meta"><span>${profile ? `Perfil: <b>${CT.esc(profile)}</b>` : 'Sem perfil de otimização ativo'}</span><span>Agente ${CT.esc(device.agent_version || '—')} · ${powerOn && device.online ? `atualizado ${ago(device.last_seen)}` : `último contato ${ago(device.last_seen)}`}</span>${pendingAction ? `<span class="power-card-feedback">${CT.powerPendingFeedbackHtml(pendingAction)}</span>` : ''}</div>
             <div class="ops-device-actions">
               <button class="btn small" data-ops="device" data-device="${device.id}">Ver atividade</button>
               <button class="btn small" data-ops="remote" data-device="${device.id}" ${remoteReady ? '' : 'disabled'}>Acessar</button>
-              <button class="btn small ${pendingAction === 'off' || (!pendingAction && powerOn) ? 'danger' : 'primary'}" data-ops="power" data-power-action="${powerAction}" data-device="${device.id}" title="${CT.esc(powerTitle)}" ${powerAvailable ? '' : 'disabled'}>${powerLabel}</button>
+              <button class="btn small ${pendingAction === 'off' || (!pendingAction && powerOn) ? 'danger' : 'primary'}${pendingAction ? ' power-pending-button' : ''}" data-ops="power" data-power-action="${powerAction}" data-device="${device.id}" title="${CT.esc(powerTitle)}" ${pendingAction ? 'aria-busy="true"' : ''} ${powerAvailable ? '' : 'disabled'}>${powerLabel}</button>
               <button class="btn small primary" data-ops="optimize" data-device="${device.id}" ${powerOn && device.online ? '' : 'disabled'}>Otimizar</button>
             </div>
           </div>
@@ -351,13 +351,26 @@
           const target = devices.find((item) => Number(item.id) === deviceId);
           if (!target) return;
           const powerAction = button.dataset.powerAction;
-          const originalText = button.textContent;
+          const originalHtml = button.innerHTML;
+          const card = button.closest('[data-device-card]');
+          const liveStatus = card?.querySelector('.ops-live');
+          const originalLiveHtml = liveStatus?.innerHTML || '';
+          const originalLiveClass = liveStatus?.className || 'ops-live';
+          const meta = card?.querySelector('.ops-device-meta');
           try {
             let dispatched = false;
             const showPending = () => {
               dispatched = true;
-              button.disabled = true;
-              button.textContent = powerAction === 'wake' ? 'Ligando...' : 'Desligando...';
+              CT.setPowerPendingButton(button, powerAction);
+              if (liveStatus) {
+                liveStatus.classList.remove('online', 'offline');
+                liveStatus.classList.add('power-pending-status');
+                liveStatus.setAttribute('aria-busy', 'true');
+                liveStatus.innerHTML = `<i class="power-pulse"></i>${CT.powerPendingLabel(powerAction)}`;
+              }
+              if (meta && !meta.querySelector('.power-card-feedback')) {
+                meta.insertAdjacentHTML('beforeend', `<span class="power-card-feedback">${CT.powerPendingFeedbackHtml(powerAction)}</span>`);
+              }
             };
             // Wake deve dar retorno visual imediatamente, sem esperar a primeira resposta da API.
             if (powerAction === 'wake') showPending();
@@ -367,9 +380,17 @@
             CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
             const watched = await CT.waitForDevicePower(deviceId, powerAction === 'wake', { retryWake: powerAction === 'wake', retryEveryAttempts: 10, maxWakeRetries: 8 });
             if (watched.changed) {
+              CT.clearPowerPendingButton(button);
               button.classList.remove('primary', 'danger');
               button.classList.add(powerAction === 'wake' ? 'danger' : 'primary');
               button.textContent = powerAction === 'wake' ? 'Desligar computador' : 'Ligar computador';
+              if (liveStatus) {
+                liveStatus.classList.remove('power-pending-status');
+                liveStatus.removeAttribute('aria-busy');
+                liveStatus.classList.add(powerAction === 'wake' ? 'online' : 'offline');
+                liveStatus.innerHTML = `<i></i>${powerAction === 'wake' ? 'Ligado' : 'Desligado'}`;
+              }
+              meta?.querySelector('.power-card-feedback')?.remove();
               CT.toast(powerAction === 'wake' ? 'Computador online.' : 'Computador desligado.');
             } else {
               CT.toast(powerAction === 'wake'
@@ -378,8 +399,15 @@
             }
             return CT.navigate('overview');
           } catch (error) {
+            CT.clearPowerPendingButton(button);
             button.disabled = false;
-            button.textContent = originalText;
+            button.innerHTML = originalHtml;
+            if (liveStatus) {
+              liveStatus.className = originalLiveClass;
+              liveStatus.removeAttribute('aria-busy');
+              liveStatus.innerHTML = originalLiveHtml;
+            }
+            meta?.querySelector('.power-card-feedback')?.remove();
             return CT.toast(error.message || 'Não foi possível executar a ação de energia.', true);
           }
         }
