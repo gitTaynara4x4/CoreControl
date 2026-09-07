@@ -488,17 +488,18 @@ class MeshCentralClient:
         return value
 
     def device_shutdown_for_wol(self, node_id: str) -> str:
-        """Schedule a real Windows shutdown after re-arming Wake-on-LAN.
+        """Ask Windows to shut down and require an execution acknowledgement.
 
-        The critical difference from the old implementation is that the final
-        shutdown launch is *not* hidden behind ``SilentlyContinue``. We first
-        perform best-effort WOL preparation, then start ``shutdown.exe /s`` as
-        a detached process with a short delay. This lets MeshCtrl receive the
-        command result before the Mesh Agent disappears during shutdown.
+        MeshCtrl ``RunCommand`` without ``--reply`` only confirms that the
+        command was accepted by MeshCentral; it does *not* prove that the
+        remote Windows host executed it.  Power actions must therefore request
+        the remote reply and validate an explicit marker emitted only after
+        ``shutdown.exe`` itself returns success.
         """
         clean_node = (node_id or "").strip()
         if not clean_node:
             raise MeshCentralCommandError("O computador não possui identificador remoto para controle de energia.")
+        marker = "CORECONTROL_SHUTDOWN_CONFIRMED"
         script = (
             "$ErrorActionPreference='Stop';"
             "$ProgressPreference='SilentlyContinue';"
@@ -512,15 +513,21 @@ class MeshCentralClient:
             "$shutdown=Join-Path $env:SystemRoot 'System32\\shutdown.exe';"
             "if(-not (Test-Path $shutdown)){throw 'shutdown.exe não foi encontrado no Windows.'};"
             "try{& $shutdown /a 2>$null | Out-Null}catch{};"
-            "$proc=Start-Process -FilePath $shutdown -ArgumentList @('/s','/f','/t','5') -WindowStyle Hidden -PassThru -ErrorAction Stop;"
-            "if($null -eq $proc){throw 'O Windows não aceitou o agendamento do desligamento.'};"
-            "'CORECONTROL_SHUTDOWN_SCHEDULED'"
+            "& $shutdown /s /f /t 15;"
+            "$exit=[int]$LASTEXITCODE;"
+            "if($exit -ne 0){throw ('shutdown.exe recusou o desligamento. Código: '+$exit)};"
+            f"'{marker}'"
         )
-        return self._meshctrl_command(
+        output = self._meshctrl_command(
             "RunCommand",
-            ["--id", clean_node, "--run", script, "--powershell"],
-            timeout=min(max(15, settings.remote_command_timeout_seconds), 30),
+            ["--id", clean_node, "--run", script, "--powershell", "--reply"],
+            timeout=min(max(20, settings.remote_command_timeout_seconds), 35),
         )
+        if marker not in output:
+            raise MeshCentralCommandError(
+                "O MeshCentral aceitou o comando, mas o Windows não confirmou a execução do desligamento."
+            )
+        return output
 
     def device_hibernate_for_wol(self, node_id: str) -> str:
         """Hibernate Windows after re-arming Wake-on-LAN.
