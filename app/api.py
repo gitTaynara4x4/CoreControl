@@ -377,6 +377,101 @@ def _send_wan_magic_packet(route: dict, mac_text: str) -> None:
         sock.close()
 
 
+POWER_WAKE_PENDING_FOR = timedelta(minutes=5)
+POWER_OFF_PENDING_FOR = timedelta(minutes=3)
+
+
+def device_power_currently_on(device: Device) -> bool:
+    """Return the best server-side power state currently known.
+
+    When MeshCentral is provisioned for the device, use its recently checked
+    connection state because it continues to work while the CoreControl Agent
+    itself is starting. Otherwise fall back to normal Agent heartbeat state.
+    """
+    mesh_ready = bool(
+        settings.remote_enabled
+        and meshcentral_client.provisioning_configured
+        and device.mesh_node_id
+    )
+    checked_at = as_utc(device.remote_checked_at)
+    mesh_recent = bool(
+        checked_at
+        and (utcnow() - checked_at).total_seconds() <= settings.remote_status_stale_seconds
+    )
+    if mesh_ready and checked_at and mesh_recent:
+        return bool(device.remote_online)
+    return device_online(device)
+
+
+def device_power_pending_state(db: Session, device: Device, *, currently_on: bool | None = None) -> dict:
+    """Persist UI transition state using the power audit trail.
+
+    No schema migration is required: a successful power dispatch already
+    creates ``power.wake.sent`` / ``power.off.sent`` in ``audit_logs``.  The
+    most recent dispatch remains "pending" until MeshCentral observes the
+    requested state or the conservative timeout expires. This makes
+    "Ligando..." / "Desligando..." survive F5, another browser and page
+    navigation.
+    """
+    last = db.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.device_id == device.id,
+            AuditLog.action.in_([
+                "power.wake.pending", "power.wake.sent", "power.wake.failed",
+                "power.off.pending", "power.off.sent", "power.off.failed",
+            ]),
+        )
+        .order_by(desc(AuditLog.created_at), desc(AuditLog.id))
+        .limit(1)
+    )
+    empty = {
+        "pending_action": None,
+        "pending_since": None,
+        "pending_expires_at": None,
+        "pending_seconds_remaining": 0,
+    }
+    if not last:
+        return empty
+
+    if last.action.endswith(".failed"):
+        return empty
+    action = "wake" if ".wake." in last.action else "off"
+    sent_at = as_utc(last.created_at)
+    if sent_at is None:
+        return empty
+
+    if currently_on is None:
+        currently_on = device_power_currently_on(device)
+
+    # The requested state has already been observed, so this transition is done.
+    if action == "wake" and currently_on:
+        return empty
+    if action == "off" and not currently_on:
+        return empty
+
+    # If MeshCentral saw this machine after a wake request, the wake did work at
+    # least once. Do not resurrect an old "Ligando..." if the PC was switched
+    # off again manually a moment later.
+    if action == "wake":
+        remote_last_seen = as_utc(device.remote_last_seen)
+        if remote_last_seen and remote_last_seen > sent_at:
+            return empty
+
+    ttl = POWER_WAKE_PENDING_FOR if action == "wake" else POWER_OFF_PENDING_FOR
+    expires_at = sent_at + ttl
+    remaining = int(max(0, (expires_at - utcnow()).total_seconds()))
+    if remaining <= 0:
+        return empty
+
+    return {
+        "pending_action": action,
+        "pending_since": iso(sent_at),
+        "pending_expires_at": iso(expires_at),
+        "pending_seconds_remaining": remaining,
+    }
+
+
 def device_power_readiness(db: Session, device: Device) -> dict:
     target_info = device_wol_info(db, device)
     relays = find_wake_relays(db, device)
@@ -430,6 +525,8 @@ def device_power_readiness(db: Session, device: Device) -> dict:
             "Magic Packet depois que ele ficar totalmente desligado."
         )
 
+    pending = device_power_pending_state(db, device, currently_on=device_power_currently_on(device))
+
     return {
         "mac_known": bool(target_info.get("mac_address")),
         "network_cidr": target_info.get("network_cidr") or None,
@@ -464,6 +561,7 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "safe_to_power_off": safe_to_power_off,
         "requires_verified_wake": settings.power_require_verified_wake,
         "reason": reason,
+        **pending,
     }
 
 
@@ -1719,7 +1817,19 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
             if requested == "off":
                 raise HTTPException(status_code=503, detail=f"MeshCentral indisponível: {exc}") from exc
 
-    currently_on = bool(device.remote_online) if mesh_ready else device_online(device)
+    currently_on = device_power_currently_on(device)
+    existing_pending = device_power_pending_state(db, device, currently_on=currently_on)
+    if existing_pending.get("pending_action") == requested:
+        return {
+            "ok": True,
+            "device_id": device.id,
+            "device_name": device.name,
+            "action": requested,
+            "status": "pending",
+            **existing_pending,
+            "message": "Já existe uma tentativa de ligar em andamento." if requested == "wake" else "O desligamento já está em andamento.",
+        }
+
     if requested == "off" and not currently_on:
         raise HTTPException(status_code=409, detail="O computador já aparece desligado/offline.")
     if requested == "wake" and currently_on:
@@ -1730,76 +1840,120 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     methods: list[str] = []
     relay_ids: list[int] = []
 
-    if requested == "off":
-        if not mesh_ready:
-            raise HTTPException(
-                status_code=503,
-                detail="O desligamento remoto exige o vínculo MeshCentral deste computador.",
-            )
-        # Não bloqueie o desligamento só porque a rota de Wake ainda não foi
-        # verificada. O frontend mostra o aviso ao operador. Para Windows,
-        # prefira um shutdown normal após rearmar Wake-on-LAN; isso mantém a
-        # placa de rede em um estado muito mais compatível com wake após S5.
-        shutdown_error: MeshCentralCommandError | None = None
-        if "windows" in str(device.os_name or "").lower():
-            try:
-                meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
-                methods.append("meshcentral_windows_wol_shutdown")
-            except MeshCentralCommandError as exc:
-                shutdown_error = exc
-
-        if not methods:
-            try:
-                meshcentral_client.device_power(device.mesh_node_id, "off")
-                methods.append("meshcentral_off")
-            except MeshCentralCommandError as exc:
-                detail = shutdown_error or exc
-                raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {detail}") from exc
-    else:
-        target_info = device_wol_info(db, device)
-        mac_address = target_info.get("mac_address") or ""
-        if mac_address and wan_route.get("verified"):
-            try:
-                _send_wan_magic_packet(wan_route, mac_address)
-                methods.append("corecontrol_wan_upnp")
-            except (OSError, ValueError):
-                # Ainda tentamos relays/MeshCentral abaixo.
-                pass
-        relays = find_wake_relays(db, device) if mac_address else []
-        for relay in relays[:3]:
-            queue_agent_command(
-                db,
-                relay,
-                "power.wake_peer",
+    # Grave o estado pendente ANTES de despachar o comando. Assim, mesmo que
+    # o operador pressione F5 imediatamente após clicar, outro request já
+    # consegue reconstruir "Ligando..." / "Desligando..." pelo banco.
+    db.add(
+        AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action=f"power.{requested}.pending",
+            details=json.dumps(
                 {
-                    "mac_address": mac_address,
-                    "target_device_id": device.id,
-                    "target_name": device.name,
+                    "hostname": device.hostname,
+                    "mesh_node_id": device.mesh_node_id,
+                    "requested_action": requested,
+                    "phase": "dispatching",
                 },
-                created_by=user.id,
-                deduplicate=False,
-            )
-            relay_ids.append(relay.id)
-        if relay_ids:
-            methods.append("corecontrol_lan_relay")
+                ensure_ascii=False,
+            ),
+        )
+    )
+    db.commit()
 
-        if mesh_ready:
-            try:
-                meshcentral_client.device_power(device.mesh_node_id, "wake")
-                methods.append("meshcentral_wake")
-            except MeshCentralCommandError:
-                # Uma rota WAN/relay CoreControl continua válida mesmo se o fallback MeshCentral falhar.
-                if not methods:
-                    raise HTTPException(status_code=503, detail="Não foi possível enviar o Wake-on-LAN pelo MeshCentral.")
+    try:
+        if requested == "off":
+            if not mesh_ready:
+                raise HTTPException(
+                    status_code=503,
+                    detail="O desligamento remoto exige o vínculo MeshCentral deste computador.",
+                )
+            # Não bloqueie o desligamento só porque a rota de Wake ainda não foi
+            # verificada. O frontend mostra o aviso ao operador. Para Windows,
+            # prefira um shutdown normal após rearmar Wake-on-LAN; isso mantém a
+            # placa de rede em um estado muito mais compatível com wake após S5.
+            shutdown_error: MeshCentralCommandError | None = None
+            if "windows" in str(device.os_name or "").lower():
+                try:
+                    meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
+                    methods.append("meshcentral_windows_wol_shutdown")
+                except MeshCentralCommandError as exc:
+                    shutdown_error = exc
 
-        if not methods:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Não existe uma rota disponível para Wake-on-LAN. "
-                    + readiness["reason"]
+            if not methods:
+                try:
+                    meshcentral_client.device_power(device.mesh_node_id, "off")
+                    methods.append("meshcentral_off")
+                except MeshCentralCommandError as exc:
+                    detail = shutdown_error or exc
+                    raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {detail}") from exc
+        else:
+            target_info = device_wol_info(db, device)
+            mac_address = target_info.get("mac_address") or ""
+            if mac_address and wan_route.get("verified"):
+                try:
+                    _send_wan_magic_packet(wan_route, mac_address)
+                    methods.append("corecontrol_wan_upnp")
+                except (OSError, ValueError):
+                    # Ainda tentamos relays/MeshCentral abaixo.
+                    pass
+            relays = find_wake_relays(db, device) if mac_address else []
+            for relay in relays[:3]:
+                queue_agent_command(
+                    db,
+                    relay,
+                    "power.wake_peer",
+                    {
+                        "mac_address": mac_address,
+                        "target_device_id": device.id,
+                        "target_name": device.name,
+                    },
+                    created_by=user.id,
+                    deduplicate=False,
+                )
+                relay_ids.append(relay.id)
+            if relay_ids:
+                methods.append("corecontrol_lan_relay")
+
+            if mesh_ready:
+                try:
+                    meshcentral_client.device_power(device.mesh_node_id, "wake")
+                    methods.append("meshcentral_wake")
+                except MeshCentralCommandError:
+                    # Uma rota WAN/relay CoreControl continua válida mesmo se o fallback MeshCentral falhar.
+                    if not methods:
+                        raise HTTPException(status_code=503, detail="Não foi possível enviar o Wake-on-LAN pelo MeshCentral.")
+
+            if not methods:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Não existe uma rota disponível para Wake-on-LAN. "
+                        + readiness["reason"]
+                    ),
+                )
+    except Exception as exc:
+        # Uma tentativa que falhou no despacho não pode ficar presa como
+        # "Ligando..." depois de um F5. O evento failed encerra o pending.
+        db.add(
+            AuditLog(
+                company_id=device.company_id,
+                actor_user_id=user.id,
+                device_id=device.id,
+                action=f"power.{requested}.failed",
+                details=json.dumps(
+                    {
+                        "hostname": device.hostname,
+                        "requested_action": requested,
+                        "error": str(getattr(exc, "detail", exc)),
+                    },
+                    ensure_ascii=False,
                 ),
             )
+        )
+        db.commit()
+        raise
 
     action_name = "power.wake.sent" if requested == "wake" else "power.off.sent"
     db.add(
@@ -1822,15 +1976,17 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         )
     )
     db.commit()
+    pending = device_power_pending_state(db, device, currently_on=currently_on)
 
     return {
         "ok": True,
         "device_id": device.id,
         "device_name": device.name,
         "action": requested,
-        "status": "sent",
+        "status": "pending" if pending.get("pending_action") else "sent",
         "methods": methods,
         "wake_verified": readiness["wake_verified"],
+        **pending,
         "message": (
             "Wake-on-LAN enviado pela rede local e pelo fallback disponível. O CoreControl acompanhará até o computador voltar online."
             if requested == "wake" and relay_ids

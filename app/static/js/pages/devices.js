@@ -1112,9 +1112,17 @@
     CT.$('#pageTitle').textContent = device.name;
     const telemetry = device.telemetry || {};
     const devicePowerOn = CT.devicePowerIsOn(device);
-    const deviceOnlineLabel = devicePowerOn ? (device.online ? 'Online' : 'Ligado · Agent sem comunicação') : 'Desligado';
+    const initialPendingAction = ['wake', 'off'].includes(device?.power?.pending_action) ? device.power.pending_action : null;
+    const deviceOnlineLabel = initialPendingAction === 'wake'
+      ? 'Ligando...'
+      : initialPendingAction === 'off'
+        ? 'Desligando...'
+        : devicePowerOn
+          ? (device.online ? 'Online' : 'Ligado · Agent sem comunicação')
+          : 'Desligado';
+    const deviceOnlineTone = initialPendingAction ? '' : (devicePowerOn ? 'online' : 'offline');
 
-    CT.$('#deviceOnlineStatus').innerHTML = `<i class="dot ${devicePowerOn ? 'online' : 'offline'}"></i>${deviceOnlineLabel}`;
+    CT.$('#deviceOnlineStatus').innerHTML = `<i class="dot ${deviceOnlineTone}"></i>${deviceOnlineLabel}`;
     CT.$('#deviceHealthStatus').className = `health ${CT.healthClass(device.health_score)}`;
     CT.$('#deviceHealthStatus').textContent = `Saúde ${device.health_score}/100`;
 
@@ -1254,60 +1262,90 @@
     const devicePowerBtn = CT.$('#devicePowerBtn');
     if (['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role)) {
       const powerOn = CT.devicePowerIsOn(device);
+      const pendingAction = ['wake', 'off'].includes(powerState.pending_action) ? powerState.pending_action : null;
       const powerAction = powerOn ? 'off' : 'wake';
       const powerAvailable = powerOn
         ? Boolean(powerState.off_available)
         : Boolean(powerState.wake_available);
       devicePowerBtn.classList.remove('hidden', 'primary', 'danger');
-      devicePowerBtn.classList.add(powerOn ? 'danger' : 'primary');
-      devicePowerBtn.textContent = powerOn ? 'Desligar computador' : 'Ligar computador';
-      devicePowerBtn.disabled = !powerAvailable;
-      devicePowerBtn.title = powerAvailable
-        ? (powerOn
-          ? (powerState.wake_verified
-            ? (powerState.wan_route_verified ? 'Desligar pelo MeshCentral. Rota externa de Wake-on-LAN confirmada.' : `Desligar pelo MeshCentral. Wake Relay verificado${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
-            : 'Desligar pelo MeshCentral. Atenção: a rota para ligar este computador novamente ainda não foi verificada.')
-          : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
-        : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
-      devicePowerBtn.onclick = async () => {
-        const originalText = devicePowerBtn.textContent;
-        const statusEl = CT.$('#deviceOnlineStatus');
-        const originalStatusHtml = statusEl?.innerHTML || '';
-        let dispatched = false;
-        const showPending = () => {
-          dispatched = true;
-          devicePowerBtn.disabled = true;
-          devicePowerBtn.textContent = powerAction === 'wake' ? 'Ligando...' : 'Desligando...';
-          if (statusEl) statusEl.innerHTML = `<i class="dot"></i>${powerAction === 'wake' ? 'Ligando...' : 'Desligando...'}`;
-        };
-        try {
-          // Wake deve dar retorno visual no mesmo clique, antes até da checagem de prontidão responder.
-          if (powerAction === 'wake') showPending();
-          const response = await CT.requestDevicePower(device, powerAction, { onDispatch: () => { if (!dispatched) showPending(); } });
-          if (!response) return;
-          if (!dispatched) showPending();
-          CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
-          const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake');
+
+      if (pendingAction) {
+        const pendingWake = pendingAction === 'wake';
+        devicePowerBtn.classList.add(pendingWake ? 'primary' : 'danger');
+        devicePowerBtn.textContent = pendingWake ? 'Ligando...' : 'Desligando...';
+        devicePowerBtn.disabled = true;
+        devicePowerBtn.title = pendingWake
+          ? 'O comando de Wake-on-LAN já foi enviado. Aguardando o MeshCentral detectar o computador online.'
+          : 'O comando de desligamento já foi enviado. Aguardando o MeshCentral detectar o computador offline.';
+
+        // O estado pendente vem do backend (audit_logs), portanto sobrevive a F5.
+        // Ao reabrir a página, retomamos a observação até chegar a resposta real.
+        const remainingSeconds = Math.max(1, Number(powerState.pending_seconds_remaining || (pendingWake ? 300 : 180)));
+        const attempts = Math.max(1, Math.ceil((remainingSeconds * 1000) / 1500));
+        window.setTimeout(async () => {
+          const watched = await CT.waitForDevicePower(device.id, pendingWake, { attempts, delayMs: 1500 });
+          if (!document.body.contains(devicePowerBtn)) return;
           if (watched.changed) {
-            const nowOn = powerAction === 'wake';
-            if (statusEl) statusEl.innerHTML = `<i class="dot ${nowOn ? 'online' : 'offline'}"></i>${nowOn ? 'Online' : 'Desligado'}`;
-            devicePowerBtn.classList.remove('primary', 'danger');
-            devicePowerBtn.classList.add(nowOn ? 'danger' : 'primary');
-            devicePowerBtn.textContent = nowOn ? 'Desligar computador' : 'Ligar computador';
-            CT.toast(nowOn ? 'Computador online.' : 'Computador desligado.');
+            CT.toast(pendingWake ? 'Computador online.' : 'Computador desligado.');
           } else {
-            CT.toast(powerAction === 'wake'
-              ? 'O Wake-on-LAN foi enviado, mas o computador ainda não ficou online. Verifique se o WOL está habilitado na BIOS/UEFI e na placa de rede.'
-              : 'O comando foi enviado, mas o CoreControl ainda não confirmou que o computador ficou offline.', true);
+            CT.toast(pendingWake
+              ? 'A tentativa de ligar expirou sem o MeshCentral detectar o computador online.'
+              : 'O CoreControl não confirmou o desligamento dentro do tempo esperado.', true);
           }
           return CT.navigate('device', device.id);
-        } catch (error) {
-          devicePowerBtn.disabled = false;
-          devicePowerBtn.textContent = originalText;
-          if (statusEl) statusEl.innerHTML = originalStatusHtml;
-          CT.toast(error.message || 'Não foi possível executar a ação de energia.', true);
-        }
-      };
+        }, 0);
+      } else {
+        devicePowerBtn.classList.add(powerOn ? 'danger' : 'primary');
+        devicePowerBtn.textContent = powerOn ? 'Desligar computador' : 'Ligar computador';
+        devicePowerBtn.disabled = !powerAvailable;
+        devicePowerBtn.title = powerAvailable
+          ? (powerOn
+            ? (powerState.wake_verified
+              ? (powerState.wan_route_verified ? 'Desligar pelo MeshCentral. Rota externa de Wake-on-LAN confirmada.' : `Desligar pelo MeshCentral. Wake Relay verificado${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
+              : 'Desligar pelo MeshCentral. Atenção: a rota para ligar este computador novamente ainda não foi verificada.')
+            : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
+          : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
+        devicePowerBtn.onclick = async () => {
+          const originalText = devicePowerBtn.textContent;
+          const statusEl = CT.$('#deviceOnlineStatus');
+          const originalStatusHtml = statusEl?.innerHTML || '';
+          let dispatched = false;
+          const showPending = () => {
+            dispatched = true;
+            devicePowerBtn.disabled = true;
+            devicePowerBtn.textContent = powerAction === 'wake' ? 'Ligando...' : 'Desligando...';
+            if (statusEl) statusEl.innerHTML = `<i class="dot"></i>${powerAction === 'wake' ? 'Ligando...' : 'Desligando...'}`;
+          };
+          try {
+            // Wake deve dar retorno visual no mesmo clique, antes até da checagem de prontidão responder.
+            if (powerAction === 'wake') showPending();
+            const response = await CT.requestDevicePower(device, powerAction, { onDispatch: () => { if (!dispatched) showPending(); } });
+            if (!response) return;
+            if (!dispatched) showPending();
+            CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
+            const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake', { attempts: powerAction === 'wake' ? 200 : 120, delayMs: 1500 });
+            if (watched.changed) {
+              const nowOn = powerAction === 'wake';
+              if (statusEl) statusEl.innerHTML = `<i class="dot ${nowOn ? 'online' : 'offline'}"></i>${nowOn ? 'Online' : 'Desligado'}`;
+              devicePowerBtn.classList.remove('primary', 'danger');
+              devicePowerBtn.classList.add(nowOn ? 'danger' : 'primary');
+              devicePowerBtn.textContent = nowOn ? 'Desligar computador' : 'Ligar computador';
+              CT.toast(nowOn ? 'Computador online.' : 'Computador desligado.');
+            } else {
+              CT.toast(powerAction === 'wake'
+                ? 'A tentativa de ligar expirou sem o MeshCentral detectar o computador online.'
+                : 'O CoreControl não confirmou o desligamento dentro do tempo esperado.', true);
+            }
+            if (!document.body.contains(devicePowerBtn)) return;
+            return CT.navigate('device', device.id);
+          } catch (error) {
+            devicePowerBtn.disabled = false;
+            devicePowerBtn.textContent = originalText;
+            if (statusEl) statusEl.innerHTML = originalStatusHtml;
+            CT.toast(error.message || 'Não foi possível executar a ação de energia.', true);
+          }
+        };
+      }
     }
 
     CT.$('#backDevices').onclick = () => CT.navigate('devices');

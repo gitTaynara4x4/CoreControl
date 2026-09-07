@@ -234,25 +234,28 @@
       const profile = cleanProfile(device.profile);
       const remoteReady = Boolean(device.remote?.available);
       const powerState = device.power || {};
-      const powerAvailable = powerOn
+      const pendingAction = ['wake', 'off'].includes(powerState.pending_action) ? powerState.pending_action : null;
+      const powerAvailable = !pendingAction && (powerOn
         ? Boolean(powerState.off_available)
-        : Boolean(powerState.wake_available);
+        : Boolean(powerState.wake_available));
       const powerAction = powerOn ? 'off' : 'wake';
-      const powerLabel = powerOn ? 'Desligar computador' : 'Ligar computador';
-      const powerTitle = powerAvailable
-        ? (powerOn
-          ? (powerState.wake_verified
-            ? `Desligar pelo MeshCentral${powerState.relay_names?.length ? `. Wake Relay verificado: ${powerState.relay_names.join(', ')}` : '.'}`
-            : 'Desligar pelo MeshCentral. Atenção: a rota para ligar novamente ainda não foi verificada.')
-          : powerState.wake_verified ? 'Ligar usando uma rota Wake-on-LAN verificada.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
-        : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
+      const powerLabel = pendingAction === 'wake' ? 'Ligando...' : pendingAction === 'off' ? 'Desligando...' : powerOn ? 'Desligar computador' : 'Ligar computador';
+      const powerTitle = pendingAction
+        ? (pendingAction === 'wake' ? 'Wake-on-LAN já enviado. Aguardando o computador ficar online.' : 'Desligamento já enviado. Aguardando o computador ficar offline.')
+        : powerAvailable
+          ? (powerOn
+            ? (powerState.wake_verified
+              ? `Desligar pelo MeshCentral${powerState.relay_names?.length ? `. Wake Relay verificado: ${powerState.relay_names.join(', ')}` : '.'}`
+              : 'Desligar pelo MeshCentral. Atenção: a rota para ligar novamente ainda não foi verificada.')
+            : powerState.wake_verified ? 'Ligar usando uma rota Wake-on-LAN verificada.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
+          : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
       const stateTone = powerOn ? (device.health_score >= 80 ? 'good' : 'warn') : 'bad';
       return `
         <article class="ops-device-card" data-device-card="${device.id}">
           <div class="ops-device-head">
             <div class="ops-device-ident">
               <span class="ops-device-icon">${icon('monitor')}</span>
-              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${powerOn ? 'online' : 'offline'}"><i></i>${powerOn ? 'Ligado' : 'Desligado'}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
+              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${pendingAction ? '' : (powerOn ? 'online' : 'offline')}"><i></i>${pendingAction === 'wake' ? 'Ligando...' : pendingAction === 'off' ? 'Desligando...' : powerOn ? 'Ligado' : 'Desligado'}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
             </div>
             <div class="ops-health-badge ${stateTone}"><strong>${device.health_score}</strong><span>Saúde</span></div>
           </div>
@@ -269,7 +272,7 @@
             <div class="ops-device-actions">
               <button class="btn small" data-ops="device" data-device="${device.id}">Ver atividade</button>
               <button class="btn small" data-ops="remote" data-device="${device.id}" ${remoteReady ? '' : 'disabled'}>Acessar</button>
-              <button class="btn small ${powerOn ? 'danger' : 'primary'}" data-ops="power" data-power-action="${powerAction}" data-device="${device.id}" title="${CT.esc(powerTitle)}" ${powerAvailable ? '' : 'disabled'}>${powerLabel}</button>
+              <button class="btn small ${pendingAction === 'off' || (!pendingAction && powerOn) ? 'danger' : 'primary'}" data-ops="power" data-power-action="${powerAction}" data-device="${device.id}" title="${CT.esc(powerTitle)}" ${powerAvailable ? '' : 'disabled'}>${powerLabel}</button>
               <button class="btn small primary" data-ops="optimize" data-device="${device.id}" ${powerOn && device.online ? '' : 'disabled'}>Otimizar</button>
             </div>
           </div>
