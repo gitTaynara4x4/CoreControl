@@ -372,12 +372,25 @@
     const retryWake = Boolean(expectedOn && options.retryWake);
     const retryEveryAttempts = Math.max(3, Number(options.retryEveryAttempts || 10));
     const maxWakeRetries = Math.max(0, Number(options.maxWakeRetries ?? 8));
+    // Limite por relógio real, não só por quantidade de tentativas. Antes, se
+    // cada chamada ao MeshCentral demorasse muitos segundos, "120 tentativas"
+    // podiam virar mais de cinco minutos na tela.
+    const defaultElapsedMs = expectedOn ? 300000 : 90000;
+    const maxElapsedMs = Math.max(15000, Number(options.maxElapsedMs || defaultElapsedMs));
+    const deadline = Date.now() + maxElapsedMs;
     let wakeRetries = 0;
+    let lastStatus = null;
 
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    for (let attempt = 0; attempt < attempts && Date.now() < deadline; attempt += 1) {
+      if (attempt > 0) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await new Promise((resolve) => window.setTimeout(resolve, Math.min(delayMs, remaining)));
+      }
+      if (Date.now() >= deadline) break;
       try {
         const status = await CT.api(`/devices/${deviceId}/remote-status?ts=${Date.now()}`);
+        lastStatus = status;
         if (typeof options.onPoll === 'function') options.onPoll(status, attempt);
         if (Boolean(status.mesh_connected) === Boolean(expectedOn)) return { changed: true, status };
       } catch (_) {
@@ -387,7 +400,7 @@
       // Wake-on-LAN é idempotente. Um único pacote pode se perder no roteador,
       // no broadcast ou enquanto a NIC troca de estado. Reenvie em intervalos
       // controlados, inclusive quando esta espera foi retomada depois de um F5.
-      if (retryWake && attempt > 0 && attempt % retryEveryAttempts === 0 && wakeRetries < maxWakeRetries) {
+      if (retryWake && attempt > 0 && attempt % retryEveryAttempts === 0 && wakeRetries < maxWakeRetries && Date.now() < deadline) {
         wakeRetries += 1;
         try {
           await CT.api(`/devices/${deviceId}/power?action=wake&ts=${Date.now()}`, { method: 'POST' });
@@ -397,7 +410,7 @@
         }
       }
     }
-    return { changed: false, status: null };
+    return { changed: false, status: lastStatus };
   };
 
   CT.openRemoteSession = async function openRemoteSession(deviceId) {

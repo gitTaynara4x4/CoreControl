@@ -614,7 +614,13 @@ class MeshCentralClient:
             cached = self._device_cache.get(mesh_id)
             if not force and cached and (now - cached[0]) <= settings.remote_status_cache_seconds:
                 return list(cached[1])
-        output = self._meshctrl_command("ListDevices", ["--id", mesh_id, "--json"])
+        # Consultas de estado são usadas no polling de ligar/desligar. Não faz
+        # sentido uma única leitura prender a interface pelo timeout geral de
+        # comandos (45 s por padrão). Em leitura forçada falhamos rápido e a UI
+        # tenta novamente; operações administrativas continuam usando o timeout
+        # normal.
+        status_timeout = min(settings.remote_command_timeout_seconds, 10) if force else None
+        output = self._meshctrl_command("ListDevices", ["--id", mesh_id, "--json"], timeout=status_timeout)
         value = _json_from_output(output)
         if not isinstance(value, list):
             raise MeshCentralCommandError("A lista de computadores do MeshCentral é inválida.")
@@ -636,7 +642,13 @@ class MeshCentralClient:
                     name=str(item.get("name") or ""),
                     real_name=str(item.get("rname") or ""),
                     hostname=str(item.get("host") or item.get("hostname") or ""),
-                    connected=conn > 0,
+                    # ``conn`` é um bitmask do MeshCentral. O bit 0 (valor
+                    # 1) representa a conexão do Mesh Agent. Outros bits podem
+                    # continuar ativos (ex.: Intel AMT/CIRA) mesmo quando o
+                    # Windows já desligou. Usar ``conn > 0`` fazia o CoreControl
+                    # enxergar o PC como ligado por vários minutos após o
+                    # desligamento.
+                    connected=bool(conn & 1),
                     raw=item,
                 )
             )

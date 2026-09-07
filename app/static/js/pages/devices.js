@@ -1289,14 +1289,21 @@
         const remainingSeconds = Math.max(1, Number(powerState.pending_seconds_remaining || (pendingWake ? 300 : 180)));
         const attempts = Math.max(1, Math.ceil((remainingSeconds * 1000) / 1500));
         window.setTimeout(async () => {
-          const watched = await CT.waitForDevicePower(device.id, pendingWake, { attempts, delayMs: 1500, retryWake: pendingWake, retryEveryAttempts: 10, maxWakeRetries: 8 });
+          const watched = await CT.waitForDevicePower(device.id, pendingWake, {
+            attempts,
+            delayMs: 1500,
+            retryWake: pendingWake,
+            retryEveryAttempts: 10,
+            maxWakeRetries: 8,
+            maxElapsedMs: pendingWake ? Math.min(remainingSeconds * 1000, 300000) : Math.min(remainingSeconds * 1000, 90000),
+          });
           if (!document.body.contains(devicePowerBtn)) return;
           if (watched.changed) {
             CT.toast(pendingWake ? 'Computador online.' : 'Computador desligado.');
           } else {
             CT.toast(pendingWake
               ? 'A tentativa de ligar expirou sem o MeshCentral detectar o computador online.'
-              : 'O CoreControl não confirmou o desligamento dentro do tempo esperado.', true);
+              : 'O comando foi enviado, mas a confirmação do MeshCentral está demorando. O CoreControl continuará verificando.', true);
           }
           return CT.navigate('device', device.id);
         }, 0);
@@ -1332,7 +1339,14 @@
             if (!response) return;
             if (!dispatched) showPending();
             CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
-            const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake', { attempts: powerAction === 'wake' ? 200 : 120, delayMs: 1500, retryWake: powerAction === 'wake', retryEveryAttempts: 10, maxWakeRetries: 8 });
+            const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake', {
+              attempts: powerAction === 'wake' ? 200 : 120,
+              delayMs: 1500,
+              retryWake: powerAction === 'wake',
+              retryEveryAttempts: 10,
+              maxWakeRetries: 8,
+              maxElapsedMs: powerAction === 'wake' ? 300000 : 90000,
+            });
             if (watched.changed) {
               const nowOn = powerAction === 'wake';
               if (statusEl) {
@@ -1348,7 +1362,7 @@
             } else {
               CT.toast(powerAction === 'wake'
                 ? 'A tentativa de ligar expirou sem o MeshCentral detectar o computador online.'
-                : 'O CoreControl não confirmou o desligamento dentro do tempo esperado.', true);
+                : 'O comando foi enviado, mas a confirmação do MeshCentral está demorando. O CoreControl continuará verificando.', true);
             }
             if (!document.body.contains(devicePowerBtn)) return;
             return CT.navigate('device', device.id);
