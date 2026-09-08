@@ -229,11 +229,12 @@
       const t = device.telemetry || {};
       const activity = t.activity || {};
       const powerOn = CT.devicePowerIsOn(device);
-      const currentApp = powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
-      const currentWindow = powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
+      const managedOff = Boolean(device.power?.managed_off_active);
+      const currentApp = managedOff ? 'Desligado pelo CoreControl' : powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
+      const currentWindow = managedOff ? 'Canal remoto preservado para religamento imediato.' : powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
       const temperature = tempInfo(t);
       const profile = cleanProfile(device.profile);
-      const remoteReady = Boolean(device.remote?.available);
+      const remoteReady = Boolean(device.remote?.available) && !Boolean(device.power?.managed_off_active);
       const powerState = device.power || {};
       const pendingAction = ['wake', 'off'].includes(powerState.pending_action) ? powerState.pending_action : null;
       const shutdownRouteVerified = Boolean(powerState.safe_to_power_off);
@@ -245,11 +246,13 @@
       const powerTitle = pendingAction
         ? (pendingAction === 'wake' ? 'Wake-on-LAN já enviado. Aguardando o computador ficar online.' : 'Desligamento já enviado. Aguardando o computador ficar offline.')
         : powerAvailable
-          ? (powerOn
-            ? (shutdownRouteVerified
-              ? `Desligar pelo MeshCentral${powerState.relay_names?.length ? `. Wake Relay verificado: ${powerState.relay_names.join(', ')}` : '. Rota de religamento verificada.'}`
-              : 'O CoreControl preparará e confirmará automaticamente a rota de religamento antes de desligar.')
-            : powerState.wake_verified ? 'Ligar usando uma rota Wake-on-LAN verificada.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
+          ? (powerState.managed_mode_available
+            ? (powerOn ? 'Desligar pelo CoreControl sem depender do roteador.' : 'Ligar pelo serviço CoreControl que permaneceu acessível.')
+            : (powerOn
+              ? (shutdownRouteVerified
+                ? `Desligar pelo MeshCentral${powerState.relay_names?.length ? `. Wake Relay verificado: ${powerState.relay_names.join(', ')}` : '. Rota de religamento verificada.'}`
+                : 'O CoreControl preparará e confirmará automaticamente a rota de religamento antes de desligar.')
+              : powerState.wake_verified ? 'Ligar usando uma rota Wake-on-LAN verificada.' : 'Tentar Wake-on-LAN pelo MeshCentral.'))
           : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
       const healthAvailable = CT.healthAvailable(device);
       const stateTone = healthAvailable ? (device.health_score >= 80 ? 'good' : 'warn') : 'unavailable';

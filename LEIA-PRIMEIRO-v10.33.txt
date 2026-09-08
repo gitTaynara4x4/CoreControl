@@ -1,0 +1,30 @@
+CoreControl v10.33 — CoreControl Off (software-only)
+
+OBJETIVO
+- Cliente instala o CoreControl/CoreTuner normalmente.
+- Nenhuma configuração de roteador, UPnP, CGNAT, BIOS ou hardware extra é necessária para o modo padrão.
+- O botão Desligar não usa S5/desligamento elétrico em Windows comum. Ele entra em CoreControl Off.
+- O Windows e os serviços de gerenciamento permanecem ativos em segundo plano para que o botão Ligar seja determinístico.
+
+COMPORTAMENTO
+1. Desligar computador
+   - inicia um helper SYSTEM que impede sleep automático;
+   - desconecta a sessão interativa do Windows;
+   - mantém MeshCentral/CoreControl vivos;
+   - marca o PC como Desligado no painel;
+   - bloqueia o acesso remoto enquanto estiver nesse estado.
+
+2. Ligar computador
+   - remove o estado CoreControl Off;
+   - encerra o helper de energia;
+   - o PC volta a aparecer Ligado no painel;
+   - não usa Wake-on-LAN, roteador, IP público ou outro PC.
+
+IMPORTANTE
+- Isto NÃO é desligamento elétrico/S5. O computador permanece energizado e o Windows continua rodando em modo gerenciado.
+- Não existe forma puramente de software de garantir religamento sob demanda após S5 em 100% dos PCs e redes sem hardware/firmware out-of-band.
+- Se faltar energia, internet ou o serviço MeshCentral for removido/parado, nenhum software remoto pode garantir o comando.
+
+DEPLOY
+Substitua somente os arquivos deste ZIP na VPS e reinicie o serviço CoreControl.
+Não é necessário reinstalar o Agent no PC da Luiza para esta versão, pois o modo usa o MeshCentral já instalado.

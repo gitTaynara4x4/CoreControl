@@ -1180,18 +1180,22 @@
     ].join('');
 
     const powerState = device.power || {};
-    const wolStatus = !powerState.capability_checked
-      ? 'Aguardando diagnóstico do Agent'
-      : powerState.pc_wol_prepared
-        ? 'Preparado no Windows'
-        : 'Ainda não preparado';
-    const wakeRouteStatus = powerState.wan_route_verified
-      ? 'Confirmada'
-      : powerState.wake_verified
-        ? `Confirmada${powerState.relay_names?.length ? ` · ${powerState.relay_names.join(', ')}` : ''}`
-        : ['testing', 'verifying'].includes(powerState.wan_route_status)
-          ? 'Configurando...'
-          : 'Não configurada';
+    const wolStatus = powerState.managed_mode_available
+      ? 'Opcional · CoreControl Off não depende de WOL'
+      : !powerState.capability_checked
+        ? 'Aguardando diagnóstico do Agent'
+        : powerState.pc_wol_prepared
+          ? 'Preparado no Windows'
+          : 'Ainda não preparado';
+    const wakeRouteStatus = powerState.managed_mode_available
+      ? 'Não necessária no modo CoreControl Off'
+      : powerState.wan_route_verified
+        ? 'Confirmada'
+        : powerState.wake_verified
+          ? `Confirmada${powerState.relay_names?.length ? ` · ${powerState.relay_names.join(', ')}` : ''}`
+          : ['testing', 'verifying'].includes(powerState.wan_route_status)
+            ? 'Configurando...'
+            : 'Não configurada';
 
 
     CT.$('#deviceProtection').innerHTML = [
@@ -1212,7 +1216,10 @@
     const wakeRouteButton = CT.$('#wakeRouteTestBtn');
     const canManagePower = ['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role);
     const routeBusy = ['testing', 'verifying'].includes(powerState.wan_route_status);
-    if (wakeRouteButton && canManagePower) {
+    if (wakeRouteButton && canManagePower && powerState.managed_mode_available) {
+      wakeRouteButton.classList.add('hidden');
+      wakeRouteButton.onclick = null;
+    } else if (wakeRouteButton && canManagePower) {
       wakeRouteButton.classList.remove('hidden');
       wakeRouteButton.textContent = routeBusy
         ? 'Testando rota...'
@@ -1261,7 +1268,7 @@
         : 'Instale novamente pelo CoreControl Setup autorizando o acesso remoto.';
 
     const remoteButton = CT.$('#remoteAccessBtn');
-    remoteButton.disabled = !device.remote?.available;
+    remoteButton.disabled = !device.remote?.available || Boolean(powerState.managed_off_active);
     remoteButton.addEventListener('click', () => CT.openRemoteSession(device.id));
 
     const devicePowerBtn = CT.$('#devicePowerBtn');
@@ -1315,11 +1322,15 @@
         devicePowerBtn.textContent = powerOn ? 'Desligar computador' : 'Ligar computador';
         devicePowerBtn.disabled = !powerAvailable;
         devicePowerBtn.title = powerAvailable
-          ? (powerOn
-            ? (shutdownRouteVerified
-              ? (powerState.wan_route_verified ? 'Desligar pelo MeshCentral. Rota externa de Wake-on-LAN confirmada.' : `Desligar pelo MeshCentral. Wake Relay verificado${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
-              : 'O CoreControl preparará e confirmará automaticamente uma rota Wake-on-WAN antes de desligar.')
-            : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
+          ? (powerState.managed_mode_available
+            ? (powerOn
+              ? 'Desligar pelo CoreControl sem depender de Wake-on-LAN ou configuração do roteador.'
+              : 'Ligar pelo CoreControl usando o serviço remoto que permaneceu ativo.')
+            : (powerOn
+              ? (shutdownRouteVerified
+                ? (powerState.wan_route_verified ? 'Desligar pelo MeshCentral. Rota externa de Wake-on-LAN confirmada.' : `Desligar pelo MeshCentral. Wake Relay verificado${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
+                : 'O CoreControl preparará e confirmará automaticamente uma rota Wake-on-WAN antes de desligar.')
+              : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.'))
           : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
         devicePowerBtn.onclick = async () => {
           const originalHtml = devicePowerBtn.innerHTML;

@@ -780,6 +780,39 @@ POWER_WAKE_PENDING_FOR = timedelta(minutes=5)
 POWER_OFF_PENDING_FOR = timedelta(minutes=3)
 
 
+def device_managed_off_state(db: Session, device: Device) -> dict:
+    """Return the software-only CoreControl Off state for this device.
+
+    The marker lives in the audit trail, so no schema migration is required.
+    In this mode Windows and the Mesh/CoreControl services remain running; the
+    user session is disconnected and the machine is kept reachable so a later
+    remote "Ligar" never depends on Wake-on-LAN, router settings or another
+    PC on the LAN.
+    """
+    last = db.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.device_id == device.id,
+            AuditLog.action.in_([
+                "power.managed_off.entered",
+                "power.managed_off.exited",
+            ]),
+        )
+        .order_by(desc(AuditLog.created_at), desc(AuditLog.id))
+        .limit(1)
+    )
+    active = bool(last and last.action == "power.managed_off.entered")
+    return {
+        "active": active,
+        "since": iso(as_utc(last.created_at)) if active and last else None,
+    }
+
+
+def device_effectively_online(db: Session, device: Device) -> bool:
+    """Operator-facing state: managed-off machines appear desligado."""
+    return bool(device_online(device) and not device_managed_off_state(db, device)["active"])
+
+
 def device_power_currently_on(device: Device) -> bool:
     """Return the best server-side power state currently known.
 
@@ -836,6 +869,14 @@ def device_power_pending_state(db: Session, device: Device, *, currently_on: boo
     if last.action.endswith(".failed"):
         return empty
     action = "wake" if ".wake." in last.action else "off"
+
+    # CoreControl Off é um estado lógico: o PC permanece fisicamente online
+    # para garantir religamento por software. Assim que o marcador de managed
+    # off foi gravado, a transição de desligamento já terminou mesmo que o
+    # MeshCentral continue conectado.
+    managed_off = device_managed_off_state(db, device)["active"]
+    if action == "off" and managed_off:
+        return empty
     sent_at = as_utc(last.created_at)
     if sent_at is None:
         return empty
@@ -890,16 +931,24 @@ def device_power_readiness(db: Session, device: Device) -> dict:
     amt_detected = bool(target_info.get("intel_amt_detected"))
     wake_verified = bool(relays or wan_route.get("verified"))
     wan_method = str(wan_route.get("method") or "").strip()
-    # Broadcast verificado ou relay local permitem desligamento total (S5).
-    # A rota UPnP unicast continua útil para um único PC, mas somente junto do
-    # modo seguro S4/hibernação, onde a NIC pode manter ARP offload e receber o
-    # Magic Packet sem depender de outro computador dentro da rede.
-    full_shutdown_safe = bool(relays or (wan_route.get("verified") and wan_method == "upnp_broadcast"))
-    wake_available = bool(wake_verified)
-    off_available = bool(mesh_fallback)
-    safe_to_power_off = bool(off_available and (wake_verified or not settings.power_require_verified_wake))
+    windows_device = "windows" in str(device.os_name or "").lower()
+    managed_off = device_managed_off_state(db, device)
+    managed_mode_available = bool(windows_device and mesh_fallback)
 
-    if not target_info.get("mac_address"):
+    # Wake-on-LAN continua disponível como recurso adicional para máquinas que
+    # realmente podem desligar em S5. Porém o modo padrão software-only não
+    # depende disso: o PC permanece alcançável e o operador vê estado desligado.
+    full_shutdown_safe = bool(relays or (wan_route.get("verified") and wan_method == "upnp_broadcast"))
+    wake_available = bool(managed_off["active"] and managed_mode_available) or bool(wake_verified)
+    off_available = bool(managed_mode_available or mesh_fallback)
+    safe_to_power_off = bool(managed_mode_available or (off_available and (wake_verified or not settings.power_require_verified_wake)))
+
+    if managed_mode_available:
+        reason = (
+            "Modo CoreControl Off disponível. Este PC pode ser colocado em estado desligado pelo painel "
+            "sem depender de Wake-on-LAN, roteador, IP público ou outro computador na rede."
+        )
+    elif not target_info.get("mac_address"):
         reason = "O Agent ainda não informou o endereço MAC deste computador."
     elif not target_info.get("capability_checked"):
         reason = "Aguardando o Agent 0.9.7 concluir o diagnóstico automático de Wake-on-LAN."
@@ -972,7 +1021,11 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "wake_available": wake_available,
         "wake_verified": wake_verified,
         "full_shutdown_safe": full_shutdown_safe,
-        "power_off_mode": "shutdown" if full_shutdown_safe else ("hibernate" if wake_verified else "blocked"),
+        "managed_mode_available": managed_mode_available,
+        "managed_off_active": bool(managed_off["active"]),
+        "managed_off_since": managed_off.get("since"),
+        "software_only_power": managed_mode_available,
+        "power_off_mode": "managed" if managed_mode_available else ("shutdown" if full_shutdown_safe else ("hibernate" if wake_verified else "blocked")),
         "off_available": off_available,
         "safe_to_power_off": safe_to_power_off,
         "requires_verified_wake": settings.power_require_verified_wake,
@@ -1043,7 +1096,9 @@ def serialize_sample(sample: Telemetry | None) -> dict | None:
 
 
 def serialize_device(db: Session, device: Device, include_sample: bool = True) -> dict:
-    online = device_online(device)
+    actual_online = device_online(device)
+    managed_off = device_managed_off_state(db, device)
+    online = bool(actual_online and not managed_off["active"])
     sample = latest_telemetry(db, device.id) if include_sample else None
     open_alerts = db.scalar(
         select(func.count(Alert.id)).where(Alert.device_id == device.id, Alert.status.in_(["open", "acknowledged"]))
@@ -1068,6 +1123,8 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "first_seen": iso(device.first_seen),
         "last_seen": iso(device.last_seen),
         "online": online,
+        "actual_online": actual_online,
+        "managed_off": bool(managed_off["active"]),
         "health_score": health_score(sample, online),
         "alerts_open": int(open_alerts),
         "telemetry": serialize_sample(sample),
@@ -1485,7 +1542,7 @@ def dashboard_summary(user: CurrentUser, db: Db):
     if not is_global_admin(user):
         companies_stmt = companies_stmt.where(Company.id == user.company_id)
     companies = list(db.scalars(companies_stmt.order_by(Company.name)).all())
-    online = sum(1 for device in devices if device_online(device))
+    online = sum(1 for device in devices if device_effectively_online(db, device))
     alert_stmt = select(func.count(Alert.id)).where(Alert.status.in_(["open", "acknowledged"]))
     if not is_global_admin(user):
         alert_stmt = alert_stmt.where(Alert.company_id == user.company_id)
@@ -1512,7 +1569,7 @@ def list_companies(user: CurrentUser, db: Db):
         if not is_global_admin(user):
             devices_stmt = devices_stmt.where(Device.active.is_(True))
         devices = list(db.scalars(devices_stmt).all())
-        online = sum(1 for d in devices if d.active and device_online(d))
+        online = sum(1 for d in devices if d.active and device_effectively_online(db, d))
         alerts = db.scalar(
             select(func.count(Alert.id)).where(
                 Alert.company_id == company.id, Alert.status.in_(["open", "acknowledged"])
@@ -2060,6 +2117,8 @@ def get_remote_status(device_id: int, user: CurrentUser, db: Db):
     except MeshCentralCommandError as exc:
         sync_error = str(exc)
     state = remote_state(device, latest_telemetry(db, device.id))
+    managed_off = device_managed_off_state(db, device)
+    actual_on = device_power_currently_on(device)
     return {
         "ok": True,
         "device_id": device.id,
@@ -2069,6 +2128,9 @@ def get_remote_status(device_id: int, user: CurrentUser, db: Db):
         "service_running": state["running"],
         "available": state["available"],
         "checked_at": state["checked_at"],
+        "managed_off_active": bool(managed_off["active"]),
+        "power_on": bool(actual_on and not managed_off["active"]),
+        "actual_power_reachable": bool(actual_on),
         "warning": sync_error,
     }
 
@@ -2296,8 +2358,10 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                 raise HTTPException(status_code=503, detail=f"MeshCentral indisponível: {exc}") from exc
 
     currently_on = device_power_currently_on(device)
+    managed_state = device_managed_off_state(db, device)
+    managed_off_active = bool(managed_state["active"])
     existing_pending = device_power_pending_state(db, device, currently_on=currently_on)
-    is_retry = bool(requested == "wake" and existing_pending.get("pending_action") == "wake")
+    is_retry = bool(requested == "wake" and existing_pending.get("pending_action") == "wake" and not managed_off_active)
 
     # Desligamento não deve ser disparado duas vezes. Wake é diferente: Magic
     # Packet é idempotente e pode precisar de novas tentativas até a placa acordar.
@@ -2312,9 +2376,21 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
             "message": "O desligamento já está em andamento.",
         }
 
+    if requested == "off" and managed_off_active:
+        return {
+            "ok": True,
+            "device_id": device.id,
+            "device_name": device.name,
+            "action": requested,
+            "status": "off",
+            "methods": ["corecontrol_managed_off"],
+            "wake_verified": True,
+            "managed_off_active": True,
+            "message": "O computador já está desligado pelo CoreControl.",
+        }
     if requested == "off" and not currently_on:
         raise HTTPException(status_code=409, detail="O computador já aparece desligado/offline.")
-    if requested == "wake" and currently_on:
+    if requested == "wake" and currently_on and not managed_off_active:
         return {
             "ok": True,
             "device_id": device.id,
@@ -2323,6 +2399,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
             "status": "online",
             "methods": [],
             "wake_verified": True,
+            "managed_off_active": False,
             "message": "O computador já está online.",
         }
 
@@ -2338,6 +2415,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         requested == "off"
         and "windows" in str(device.os_name or "").lower()
         and readiness.get("pc_wol_prepared")
+        and not readiness.get("managed_mode_available")
         and not readiness.get("full_shutdown_safe")
         and mesh_ready
     ):
@@ -2419,9 +2497,40 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                 )
 
             if "windows" in str(device.os_name or "").lower():
-                if readiness.get("full_shutdown_safe"):
-                    # Broadcast Wake-on-WAN (ou relay local) foi comprovado. Aqui
-                    # é seguro usar desligamento total/S5.
+                if readiness.get("managed_mode_available"):
+                    # Modo padrão do produto para instalação zero-config: não
+                    # desliga eletricamente o Windows. Mantém apenas os serviços
+                    # de gerenciamento vivos e desconecta a sessão do usuário.
+                    # Assim o botão Ligar funciona de forma determinística sem
+                    # roteador, WOL, CGNAT, BIOS ou outro computador na LAN.
+                    try:
+                        meshcentral_client.device_enter_managed_off(device.mesh_node_id)
+                        methods.append("corecontrol_managed_off")
+                        db.add(
+                            AuditLog(
+                                company_id=device.company_id,
+                                actor_user_id=user.id,
+                                device_id=device.id,
+                                action="power.managed_off.entered",
+                                details=json.dumps(
+                                    {
+                                        "hostname": device.hostname,
+                                        "mesh_node_id": device.mesh_node_id,
+                                        "mode": "software_only",
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            )
+                        )
+                        db.commit()
+                    except MeshCentralCommandError as exc:
+                        raise HTTPException(
+                            status_code=503,
+                            detail=f"Não foi possível colocar o computador em CoreControl Off: {exc}",
+                        ) from exc
+                elif readiness.get("full_shutdown_safe"):
+                    # Caminho legado opcional para ambientes onde S5 realmente
+                    # foi comprovado por uma rota de wake fora do Windows.
                     shutdown_error: MeshCentralCommandError | None = None
                     try:
                         meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
@@ -2437,10 +2546,6 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                             detail = shutdown_error or exc
                             raise HTTPException(status_code=503, detail=f"Não foi possível desligar o Windows: {detail}") from exc
                 else:
-                    # Rota unicast verificada: não dependa de ARP vencido em S5.
-                    # Hibernate/S4 deixa a NIC preparada (Magic Packet + ARP
-                    # offload) e permite ao único PC acordar diretamente pela
-                    # rota da VPS, sem outro Agent dentro da rede.
                     try:
                         meshcentral_client.device_hibernate_for_wol(device.mesh_node_id)
                         methods.append("meshcentral_windows_wol_hibernate")
@@ -2456,71 +2561,104 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                 except MeshCentralCommandError as exc:
                     raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {exc}") from exc
         else:
-            target_info = device_wol_info(db, device)
-            mac_address = target_info.get("mac_address") or ""
-
-            # Mantém exatamente as rotas antigas de Wake. A diferença da v10.19
-            # é que uma tentativa pendente não bloqueia novo Magic Packet.
-            if mac_address and wan_route.get("verified"):
+            if managed_off_active:
+                if not mesh_ready:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="O CoreControl Off perdeu o vínculo remoto deste computador.",
+                    )
                 try:
-                    _send_wan_magic_packet(wan_route, mac_address)
-                    methods.append("corecontrol_wan_upnp")
-                except (OSError, ValueError):
-                    pass
+                    meshcentral_client.device_exit_managed_off(device.mesh_node_id)
+                    methods.append("corecontrol_managed_on")
+                    db.add(
+                        AuditLog(
+                            company_id=device.company_id,
+                            actor_user_id=user.id,
+                            device_id=device.id,
+                            action="power.managed_off.exited",
+                            details=json.dumps(
+                                {
+                                    "hostname": device.hostname,
+                                    "mesh_node_id": device.mesh_node_id,
+                                    "mode": "software_only",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        )
+                    )
+                    db.commit()
+                except MeshCentralCommandError as exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Não foi possível ligar o computador pelo CoreControl Off: {exc}",
+                    ) from exc
+            else:
+                target_info = device_wol_info(db, device)
+                mac_address = target_info.get("mac_address") or ""
 
-            relays = find_wake_relays(db, device) if mac_address else []
-            for relay in relays[:3]:
-                queue_agent_command(
-                    db,
-                    relay,
-                    "power.wake_peer",
-                    {
-                        "mac_address": mac_address,
-                        "target_device_id": device.id,
-                        "target_name": device.name,
-                    },
-                    created_by=user.id,
-                    deduplicate=False,
-                )
-                relay_ids.append(relay.id)
-            if relay_ids:
-                methods.append("corecontrol_lan_relay")
-
-            # v10.27: não dependa apenas do CoreControl Agent do relay. Se outro
-            # Mesh Agent estiver online na mesma LAN, execute o Magic Packet
-            # diretamente nele. Isso cobre PCs antigos cujo Agent ainda não
-            # iniciou sessão e redes onde DevicePower --wake não entrega o
-            # broadcast de forma confiável.
-            mesh_relay_ids: list[int] = []
-            if mac_address:
-                for relay in find_mesh_wake_relays(db, device)[:3]:
+                # Mantém as rotas antigas apenas como fallback para um PC que
+                # esteja fisicamente offline e não tenha entrado em managed off.
+                # é que uma tentativa pendente não bloqueia novo Magic Packet.
+                if mac_address and wan_route.get("verified"):
                     try:
-                        meshcentral_client.device_wake_via_peer(relay.mesh_node_id, mac_address)
-                        mesh_relay_ids.append(relay.id)
+                        _send_wan_magic_packet(wan_route, mac_address)
+                        methods.append("corecontrol_wan_upnp")
+                    except (OSError, ValueError):
+                        pass
+
+                relays = find_wake_relays(db, device) if mac_address else []
+                for relay in relays[:3]:
+                    queue_agent_command(
+                        db,
+                        relay,
+                        "power.wake_peer",
+                        {
+                            "mac_address": mac_address,
+                            "target_device_id": device.id,
+                            "target_name": device.name,
+                        },
+                        created_by=user.id,
+                        deduplicate=False,
+                    )
+                    relay_ids.append(relay.id)
+                if relay_ids:
+                    methods.append("corecontrol_lan_relay")
+
+                # v10.27: não dependa apenas do CoreControl Agent do relay. Se outro
+                # Mesh Agent estiver online na mesma LAN, execute o Magic Packet
+                # diretamente nele. Isso cobre PCs antigos cujo Agent ainda não
+                # iniciou sessão e redes onde DevicePower --wake não entrega o
+                # broadcast de forma confiável.
+                mesh_relay_ids: list[int] = []
+                if mac_address:
+                    for relay in find_mesh_wake_relays(db, device)[:3]:
+                        try:
+                            meshcentral_client.device_wake_via_peer(relay.mesh_node_id, mac_address)
+                            mesh_relay_ids.append(relay.id)
+                        except MeshCentralCommandError:
+                            continue
+                    if mesh_relay_ids:
+                        methods.append("meshcentral_lan_relay")
+                        for relay_id in mesh_relay_ids:
+                            if relay_id not in relay_ids:
+                                relay_ids.append(relay_id)
+
+                if mesh_ready:
+                    try:
+                        meshcentral_client.device_power(device.mesh_node_id, "wake")
+                        methods.append("meshcentral_wake")
                     except MeshCentralCommandError:
-                        continue
-                if mesh_relay_ids:
-                    methods.append("meshcentral_lan_relay")
-                    for relay_id in mesh_relay_ids:
-                        if relay_id not in relay_ids:
-                            relay_ids.append(relay_id)
+                        if not methods:
+                            raise HTTPException(status_code=503, detail="Não foi possível enviar o Wake-on-LAN pelo MeshCentral.")
 
-            if mesh_ready:
-                try:
-                    meshcentral_client.device_power(device.mesh_node_id, "wake")
-                    methods.append("meshcentral_wake")
-                except MeshCentralCommandError:
-                    if not methods:
-                        raise HTTPException(status_code=503, detail="Não foi possível enviar o Wake-on-LAN pelo MeshCentral.")
-
-            if not methods:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "Não existe uma rota disponível para Wake-on-LAN. "
-                        + readiness["reason"]
-                    ),
-                )
+                if not methods:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Não existe uma rota disponível para Wake-on-LAN. "
+                            + readiness["reason"]
+                        ),
+                    )
     except Exception as exc:
         # Falha de uma RETENTATIVA não encerra a tentativa original; o polling
         # pode continuar e tentar outra rota. Só o primeiro despacho falho limpa
@@ -2572,7 +2710,11 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     pending = device_power_pending_state(db, device, currently_on=currently_on)
 
     if requested == "off":
-        if "meshcentral_windows_wol_hibernate" in methods:
+        if "corecontrol_managed_off" in methods:
+            message = (
+                "Computador desligado pelo CoreControl. O serviço remoto permanece ativo em segundo plano para garantir que o botão Ligar funcione sem configuração de rede."
+            )
+        elif "meshcentral_windows_wol_hibernate" in methods:
             message = (
                 "Modo seguro de energia enviado. O computador ficará aparente como desligado, mas continuará preparado "
                 "para ser ligado pela rota Wake-on-WAN sem depender de outro PC na rede."
@@ -2582,6 +2724,8 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                 "Comando para desligar enviado. A rota Wake-on-WAN para religamento está verificada e o CoreControl acompanhará "
                 "até o computador ficar offline."
             )
+    elif "corecontrol_managed_on" in methods:
+        message = "Computador ligado pelo CoreControl. A máquina continua acessível sem depender de Wake-on-LAN ou do roteador."
     elif is_retry:
         message = "Novo Wake-on-LAN enviado. Continuando a aguardar o computador voltar online."
     elif relay_ids:
@@ -2599,6 +2743,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         "wake_verified": readiness["wake_verified"],
         "full_shutdown_safe": readiness.get("full_shutdown_safe"),
         "power_off_mode": readiness.get("power_off_mode"),
+        "managed_off_active": "corecontrol_managed_off" in methods,
         **pending,
         "message": message,
     }

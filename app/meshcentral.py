@@ -551,6 +551,109 @@ class MeshCentralClient:
             )
         return output
 
+    def device_enter_managed_off(self, node_id: str) -> str:
+        """Enter CoreControl Off without powering down Windows.
+
+        This is the software-only, router-independent power mode.  Windows and
+        the management services stay alive, a dedicated SYSTEM process prevents
+        automatic sleep, and interactive user sessions are disconnected.  The
+        machine therefore remains reachable from the VPS for a deterministic
+        later "Ligar" command even when it is the only PC on the LAN.
+        """
+        clean_node = (node_id or "").strip()
+        if not clean_node:
+            raise MeshCentralCommandError("O computador não possui identificador remoto para CoreControl Off.")
+        marker = "CORECONTROL_MANAGED_OFF_CONFIRMED"
+        # The keeper script uses SetThreadExecutionState from its own dedicated
+        # process.  This avoids changing the customer's Windows power-plan
+        # settings while still preventing an idle transition to sleep/S4/S5.
+        script = (
+            "$ErrorActionPreference='Stop';"
+            "$ProgressPreference='SilentlyContinue';"
+            "$dir=Join-Path $env:ProgramData 'CoreControl';"
+            "New-Item -ItemType Directory -Path $dir -Force | Out-Null;"
+            "$keeper=Join-Path $dir 'managed-off-keeper.ps1';"
+            "$body=@'\n"
+            "Add-Type -TypeDefinition @\"\n"
+            "using System;\n"
+            "using System.Runtime.InteropServices;\n"
+            "public static class CoreControlPowerState {\n"
+            "  [DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint esFlags);\n"
+            "}\n"
+            "public static class CoreControlManagedSession {\n"
+            "  [DllImport(\"Wtsapi32.dll\", SetLastError=true)] public static extern bool WTSDisconnectSession(IntPtr hServer, int sessionId, bool bWait);\n"
+            "}\n"
+            "\"@\n"
+            "$ES_CONTINUOUS=0x80000000; $ES_SYSTEM_REQUIRED=0x00000001;\n"
+            "try {\n"
+            "  while($true){\n"
+            "    [CoreControlPowerState]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) | Out-Null;\n"
+            "    $sessions=@(Get-Process explorer -IncludeUserName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SessionId -Unique | Where-Object {$_ -gt 0});\n"
+            "    foreach($sid in $sessions){try{[CoreControlManagedSession]::WTSDisconnectSession([IntPtr]::Zero,[int]$sid,$false) | Out-Null}catch{}};\n"
+            "    Start-Sleep -Seconds 3;\n"
+            "  }\n"
+            "} finally {\n"
+            "  [CoreControlPowerState]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null;\n"
+            "}\n"
+            "'@;"
+            "Set-Content -Path $keeper -Value $body -Encoding UTF8 -Force;"
+            # Do not spawn duplicates if the operator clicks twice.
+            "$escaped=[Regex]::Escape($keeper);"
+            "$existing=@(Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match $escaped});"
+            "if(-not $existing){"
+            "  Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$keeper) | Out-Null;"
+            "};"
+            # Disconnect every Explorer-backed interactive session. This is the
+            # service-safe equivalent of locking the user's console session and
+            # does not require a password or an interactive Mesh command.
+            "$sessions=@(Get-Process explorer -IncludeUserName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SessionId -Unique | Where-Object {$_ -gt 0});"
+            "if($sessions.Count -gt 0){"
+            "$wts=@'\nusing System;\nusing System.Runtime.InteropServices;\npublic static class CoreControlWts {\n[DllImport(\"Wtsapi32.dll\", SetLastError=true)] public static extern bool WTSDisconnectSession(IntPtr hServer, int sessionId, bool bWait);\n}\n'@;"
+            "Add-Type -TypeDefinition $wts -ErrorAction SilentlyContinue;"
+            "foreach($sid in $sessions){try{[CoreControlWts]::WTSDisconnectSession([IntPtr]::Zero,[int]$sid,$false) | Out-Null}catch{}};"
+            "};"
+            f"'{marker}'"
+        )
+        output = self._meshctrl_command(
+            "RunCommand",
+            ["--id", clean_node, "--run", script, "--powershell", "--reply"],
+            timeout=min(max(20, settings.remote_command_timeout_seconds), 35),
+        )
+        if marker not in output:
+            raise MeshCentralCommandError(
+                "O MeshCentral aceitou o CoreControl Off, mas o Windows não confirmou a preparação do modo gerenciado."
+            )
+        return output
+
+    def device_exit_managed_off(self, node_id: str) -> str:
+        """Leave CoreControl Off while keeping the machine online."""
+        clean_node = (node_id or "").strip()
+        if not clean_node:
+            raise MeshCentralCommandError("O computador não possui identificador remoto para sair do CoreControl Off.")
+        marker = "CORECONTROL_MANAGED_ON_CONFIRMED"
+        script = (
+            "$ErrorActionPreference='SilentlyContinue';"
+            "$keeper=Join-Path (Join-Path $env:ProgramData 'CoreControl') 'managed-off-keeper.ps1';"
+            "$escaped=[Regex]::Escape($keeper);"
+            "$procs=@(Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match $escaped});"
+            "foreach($p in $procs){try{Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue}catch{}};"
+            "Remove-Item -Path $keeper -Force -ErrorAction SilentlyContinue;"
+            # Reset any execution-state request left by the helper process.
+            "$code='using System; using System.Runtime.InteropServices; public static class CCPowerReset { [DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint e); }';"
+            "try{Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue;[CCPowerReset]::SetThreadExecutionState(0x80000000) | Out-Null}catch{};"
+            f"'{marker}'"
+        )
+        output = self._meshctrl_command(
+            "RunCommand",
+            ["--id", clean_node, "--run", script, "--powershell", "--reply"],
+            timeout=min(max(15, settings.remote_command_timeout_seconds), 30),
+        )
+        if marker not in output:
+            raise MeshCentralCommandError(
+                "O Windows não confirmou a saída do CoreControl Off."
+            )
+        return output
+
     def device_hibernate_for_wol(self, node_id: str) -> str:
         """Hibernate Windows after re-arming Wake-on-LAN.
 

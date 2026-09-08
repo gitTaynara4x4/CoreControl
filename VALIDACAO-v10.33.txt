@@ -1,0 +1,12 @@
+CoreControl v10.33 — validação
+
+PASSOU:
+- python -m py_compile app/api.py app/meshcentral.py
+- node --check app/static/js/ui.js
+- node --check app/static/js/pages/devices.js
+- node --check app/static/js/pages/overview.js
+- pytest -q tests/test_power_control.py tests/test_managed_power.py
+  Resultado: 17 passed
+
+OBSERVAÇÃO SOBRE SUÍTE COMPLETA
+A árvore recebida contém testes históricos/versionados de funcionalidades anteriores que já falham na base v10.31 por expectativas de versões antigas de assets/Agent/MeshCentral. Esses testes não foram alterados nem usados para declarar a validação desta correção.
