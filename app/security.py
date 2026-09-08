@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from __future__ import annotation
 import base64
 import hashlib
 import hmac
