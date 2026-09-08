@@ -448,6 +448,13 @@ class MeshCentralClient:
             "if(-not $existing){try{$existing=$maps.Add($ext,'UDP',$int,$target,$true,$description)}catch{throw ('O roteador não aceitou a rota Wake-on-WAN para '+$target+'.')}};"
             "if($null -eq $existing){throw 'O roteador não aceitou a regra UPnP de Wake-on-WAN.'};"
             "$public='';try{$public=[string]$existing.ExternalIPAddress}catch{};"
+            # Alguns roteadores criam a regra corretamente, mas o COM do
+            # Windows devolve ExternalIPAddress vazio/0.0.0.0. Descubra o IP
+            # visto pela internet e deixe a VPS provar a rota de verdade antes
+            # de confiar nela. Em CGNAT o probe externo simplesmente falhará.
+            "if([string]::IsNullOrWhiteSpace($public) -or $public -eq '0.0.0.0'){"
+            "foreach($uri in @('https://api.ipify.org','https://checkip.amazonaws.com')){try{$candidate=[string](Invoke-RestMethod -UseBasicParsing -Uri $uri -TimeoutSec 5);$candidate=$candidate.Trim();if($candidate){$public=$candidate;break}}catch{}}"
+            "};"
             "$obj=[PSCustomObject]@{ok=$true;method=$method;external_ip=$public;external_port=[int]$existing.ExternalPort;internal_port=[int]$existing.InternalPort;internal_ip=[string]$existing.InternalClient;broadcast_ip=$broadcast;prefix_length=$prefix;adapter=$adapter};"
             "$obj|ConvertTo-Json -Compress"
         )

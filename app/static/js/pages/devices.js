@@ -1180,7 +1180,6 @@
     ].join('');
 
     const powerState = device.power || {};
-    const powerSafeToOff = Boolean(powerState.safe_to_power_off);
     const wolStatus = !powerState.capability_checked
       ? 'Aguardando diagnóstico do Agent'
       : powerState.pc_wol_prepared
@@ -1271,6 +1270,7 @@
       const powerOn = CT.devicePowerIsOn(device);
       const pendingAction = ['wake', 'off'].includes(powerState.pending_action) ? powerState.pending_action : null;
       const powerAction = powerOn ? 'off' : 'wake';
+      const shutdownRouteVerified = Boolean(powerState.safe_to_power_off);
       const powerAvailable = powerOn
         ? Boolean(powerState.off_available)
         : Boolean(powerState.wake_available);
@@ -1316,15 +1316,11 @@
         devicePowerBtn.disabled = !powerAvailable;
         devicePowerBtn.title = powerAvailable
           ? (powerOn
-            ? (powerSafeToOff
+            ? (shutdownRouteVerified
               ? (powerState.wan_route_verified ? 'Desligar pelo MeshCentral. Rota externa de Wake-on-LAN confirmada.' : `Desligar pelo MeshCentral. Wake Relay verificado${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
-              : 'Ao confirmar, o CoreControl tentará preparar e validar Wake-on-WAN antes de desligar.')
+              : 'O CoreControl preparará e confirmará automaticamente uma rota Wake-on-WAN antes de desligar.')
             : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
-          : (powerOn
-            ? (powerState.off_available
-              ? (powerSafeToOff ? (powerState.reason || 'Rota segura para religamento confirmada.') : 'Ao confirmar, o CoreControl tentará preparar a rota Wake-on-WAN antes de desligar.')
-              : 'O desligamento remoto exige o vínculo MeshCentral deste computador.')
-            : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
+          : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
         devicePowerBtn.onclick = async () => {
           const originalHtml = devicePowerBtn.innerHTML;
           const statusEl = CT.$('#deviceOnlineStatus');

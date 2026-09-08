@@ -709,6 +709,73 @@ def _try_mesh_wan_route(
     return None, (clean_errors[-1] if clean_errors else "Não foi possível preparar uma rota externa de Wake-on-LAN.")
 
 
+def _try_agent_wan_route_sync(
+    db: Session,
+    device: Device,
+    *,
+    created_by: int | None,
+    target_info: dict | None = None,
+    timeout_seconds: float = 34.0,
+) -> tuple[dict | None, str | None]:
+    """Try the Agent's native UPnP/SSDP route probe and wait for VPS proof.
+
+    This is intentionally a second, independent implementation of route
+    preparation.  Some routers work through the Agent's direct SSDP/SOAP
+    discovery but not through Windows HNetCfg.NATUPnP (or vice-versa).  The
+    target PC itself prepares the mapping while it is still online; no second
+    computer inside the customer's LAN is required.
+    """
+    info = target_info or device_wol_info(db, device)
+    mac_address = str(info.get("mac_address") or "").strip()
+    network_cidr = str(info.get("network_cidr") or "").strip()
+    if not normalize_mac(mac_address) or not network_cidr:
+        return None, "O Agent ainda não informou MAC e sub-rede suficientes para preparar a rota externa."
+    if not device_online(device):
+        return None, "O CoreControl Agent precisa estar online por alguns segundos para preparar a rota alternativa."
+
+    token = secrets.token_urlsafe(24)
+    external_port = _wake_route_port(mac_address)
+    command, _created = queue_agent_command(
+        db,
+        device,
+        "power.route_probe",
+        {
+            "mac_address": mac_address,
+            "network_cidr": network_cidr,
+            "probe_token": token,
+            "external_port": external_port,
+        },
+        created_by=created_by,
+        # O token precisa ser único. Um teste anterior pendente nunca deve
+        # impedir o preflight do desligamento atual.
+        deduplicate=False,
+    )
+    db.commit()
+
+    deadline = time.monotonic() + max(8.0, float(timeout_seconds))
+    last_message = "Aguardando o Agent preparar a rota alternativa pelo roteador."
+    while time.monotonic() < deadline:
+        time.sleep(0.75)
+        db.expire_all()
+        current = db.get(AgentCommand, command.id)
+        route = latest_wan_wake_route(db, device)
+        if route.get("verified"):
+            return route, None
+
+        if current and current.status == "failed":
+            # Não exponha stack/erro cru do Agent na UI. latest_wan_wake_route
+            # já transforma o resultado em texto seguro para o operador.
+            return None, str(route.get("message") or "O roteador não aceitou a rota alternativa de Wake-on-WAN.")
+
+        route_status = str(route.get("status") or "").strip()
+        if route_status == "failed" and current and current.status == "succeeded":
+            return None, str(route.get("message") or "A VPS não conseguiu confirmar a rota alternativa de Wake-on-WAN.")
+        if route.get("message"):
+            last_message = str(route["message"])
+
+    return None, f"{last_message} O teste automático excedeu o tempo de confirmação."
+
+
 POWER_WAKE_PENDING_FOR = timedelta(minutes=5)
 POWER_OFF_PENDING_FOR = timedelta(minutes=3)
 
@@ -2163,39 +2230,45 @@ def test_device_wake_route(device_id: int, user: CurrentUser, db: Db):
             "message": route_message,
         }
 
-    # Fallback legado: mantém o teste do CoreControl Agent para roteadores que
-    # aceitam mapeamento para broadcast. Nada é removido do fluxo antigo.
-    mac_address = target_info.get("mac_address") or ""
-    network_cidr = target_info.get("network_cidr") or ""
-    if not mac_address or not network_cidr:
-        raise HTTPException(
-            status_code=409,
-            detail=route_error or "O Agent ainda não informou MAC e sub-rede suficientes para o teste.",
-        )
-
-    token = secrets.token_urlsafe(24)
-    external_port = _wake_route_port(mac_address)
-    command, created = queue_agent_command(
+    # Segunda implementação automática: usa o próprio CoreControl Agent da
+    # máquina alvo para descobrir o roteador via SSDP/SOAP e pede à VPS que
+    # confirme a rota de fora para dentro. Continua sem depender de outro PC.
+    agent_route, agent_route_error = _try_agent_wan_route_sync(
         db,
         device,
-        "power.route_probe",
-        {
-            "mac_address": mac_address,
-            "network_cidr": network_cidr,
-            "probe_token": token,
-            "external_port": external_port,
-        },
         created_by=user.id,
-        deduplicate=True,
+        target_info=target_info,
     )
-    db.commit()
-    return {
-        "ok": True,
-        "created": created,
-        "command_id": command.id,
-        "status": command.status,
-        "message": "Teste iniciado. O CoreControl está tentando uma rota alternativa pelo roteador.",
-    }
+    if agent_route:
+        db.add(
+            AuditLog(
+                company_id=device.company_id,
+                actor_user_id=user.id,
+                device_id=device.id,
+                action="power.route_verified",
+                details=json.dumps(
+                    {
+                        "method": agent_route.get("method"),
+                        "external_port": agent_route.get("external_port"),
+                        "verified_at": agent_route.get("verified_at"),
+                        "preparer": "corecontrol_agent",
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        db.commit()
+        return {
+            "ok": True,
+            "created": True,
+            "status": "verified",
+            "verified": True,
+            "method": agent_route.get("method"),
+            "message": "Rota Wake-on-WAN confirmada pela VPS usando o próprio PC. Não depende de outro computador na rede.",
+        }
+
+    detail = agent_route_error or route_error or "Não foi possível confirmar uma rota externa de Wake-on-WAN."
+    raise HTTPException(status_code=409, detail=detail)
 
 
 @router.post("/devices/{device_id}/power")
@@ -2260,6 +2333,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     # melhorar a rota Wake-on-WAN enquanto a máquina AINDA está ligada. Mesmo
     # quando já existe unicast verificado, tentamos promover para broadcast,
     # pois broadcast confirmado é seguro para desligamento total/S5.
+    route_preflight_error: str | None = None
     if (
         requested == "off"
         and "windows" in str(device.os_name or "").lower()
@@ -2267,16 +2341,34 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         and not readiness.get("full_shutdown_safe")
         and mesh_ready
     ):
-        auto_route, _auto_route_error = _try_mesh_wan_route(
+        preflight_info = device_wol_info(db, device)
+        auto_route, mesh_route_error = _try_mesh_wan_route(
             db,
             device,
             created_by=user.id,
-            target_info=device_wol_info(db, device),
+            target_info=preflight_info,
         )
+
+        # HNetCfg.NATUPnP não funciona em todos os roteadores/Windows. Se ele
+        # falhar, tente automaticamente a implementação SSDP/SOAP do Agent da
+        # PRÓPRIA máquina antes de bloquear o desligamento. Nenhum relay ou
+        # segundo computador dentro da LAN é necessário.
+        if not auto_route:
+            auto_route, agent_route_error = _try_agent_wan_route_sync(
+                db,
+                device,
+                created_by=user.id,
+                target_info=preflight_info,
+            )
+            route_preflight_error = agent_route_error or mesh_route_error
+
         if auto_route:
             db.commit()
             readiness = device_power_readiness(db, device)
             wan_route = latest_wan_wake_route(db, device)
+            route_preflight_error = None
+        elif not route_preflight_error:
+            route_preflight_error = mesh_route_error
 
     methods: list[str] = []
     relay_ids: list[int] = []
@@ -2315,11 +2407,14 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
             # CoreControl não saiba trazê-lo de volta. Se a política exige rota
             # verificada, bloqueie antes de enviar qualquer comando de energia.
             if settings.power_require_verified_wake and not readiness.get("safe_to_power_off"):
+                detail_reason = route_preflight_error or str(
+                    readiness.get("reason") or "Não foi possível confirmar a rota Wake-on-WAN enquanto o computador estava ligado."
+                )
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        "Desligamento bloqueado por segurança: ainda não existe uma rota de religamento verificada. "
-                        + str(readiness.get("reason") or "Teste a rota Wake-on-WAN enquanto o computador estiver ligado.")
+                        "Desligamento bloqueado por segurança após tentar automaticamente as rotas disponíveis. "
+                        + detail_reason
                     ),
                 )
 
