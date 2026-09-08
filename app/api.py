@@ -397,12 +397,7 @@ def latest_wan_wake_route(db: Session, device: Device) -> dict:
     # domésticos, mas depende do lease/NAT/ARP do equipamento. Revalide com mais
     # frequência do que a rota broadcast antiga.
     valid_for = timedelta(hours=24) if method == "mesh_upnp_unicast" else WAKE_ROUTE_VALID_FOR
-    if not finished_at or utcnow() - finished_at > valid_for:
-        return {
-            "verified": False,
-            "status": "expired",
-            "message": "A última rota confirmada expirou. Teste novamente antes de desligar o PC.",
-        }
+    route_expired = bool(not finished_at or utcnow() - finished_at > valid_for)
 
     external_ip = str(result.get("external_ip") or "").strip()
     try:
@@ -414,10 +409,27 @@ def latest_wan_wake_route(db: Session, device: Device) -> dict:
     if not external_ip_ok or not (40000 <= external_port <= 59999):
         return {"verified": False, "status": "failed", "message": "A rota confirmada devolveu endereço externo inválido."}
 
+    # Se o PC já está offline, não desative o único caminho de Wake só porque
+    # venceu a janela de revalidação. A rota continua sendo tentável e não pode
+    # ser revalidada até a máquina acordar. Quando o PC estiver online, aí sim
+    # exigimos uma nova prova antes do próximo desligamento.
+    if route_expired and device_power_currently_on(device):
+        return {
+            "verified": False,
+            "status": "expired",
+            "message": "A última rota confirmada expirou. O CoreControl renovará a rota antes do próximo desligamento.",
+        }
+
+    stale_offline = bool(route_expired)
     return {
         "verified": True,
-        "status": "verified",
-        "message": "Rota externa confirmada pela VPS.",
+        "status": "verified_stale" if stale_offline else "verified",
+        "message": (
+            "Usando a última rota Wake-on-WAN confirmada para tentar religar o computador offline."
+            if stale_offline
+            else "Rota externa confirmada pela VPS."
+        ),
+        "stale": stale_offline,
         "method": method,
         "external_ip": external_ip,
         "external_port": external_port,
@@ -577,11 +589,12 @@ def _try_mesh_wan_route(
 ) -> tuple[dict | None, str | None]:
     """Configure and prove a single-PC Wake-on-WAN route through Mesh Agent.
 
-    The route maps a UDP port to the host's real IPv4 address. This is much
-    more compatible with consumer UPnP implementations than attempting to
-    create a mapping whose internal client is the subnet broadcast address.
-    It is trusted only after a token emitted by the CoreControl VPS reaches a
-    temporary listener on the target Windows host.
+    The preferred route is UDP -> LAN broadcast. Once verified from the VPS,
+    that route can wake a fully shut-down PC without relying on another machine
+    inside the customer's network and without relying on a stale router ARP
+    entry. Consumer routers that reject broadcast UPnP mappings fall back to a
+    direct unicast mapping; that fallback is kept only for the S4/hibernate
+    power-off path where the NIC can preserve ARP offload.
     """
     if not (
         settings.remote_enabled
@@ -598,72 +611,102 @@ def _try_mesh_wan_route(
         return None, "O endereço MAC ainda não está disponível para preparar a rota externa."
 
     external_port = _wake_route_port(mac_address)
-    try:
-        prepared = meshcentral_client.device_prepare_wan_wake_route(device.mesh_node_id, external_port)
-    except MeshCentralCommandError as exc:
-        return None, str(exc)
+    broadcast_ip = _network_broadcast(str(info.get("network_cidr") or "").strip())
+    candidates: list[tuple[str, str | None]] = []
+    if broadcast_ip:
+        candidates.append(("upnp_broadcast", broadcast_ip))
+    candidates.append(("mesh_upnp_unicast", None))
 
-    external_ip = _route_public_ipv4(prepared.get("external_ip"))
-    if not external_ip:
-        return None, "O roteador não possui um IPv4 público diretamente alcançável (possível CGNAT)."
-    try:
-        mapped_external_port = int(prepared.get("external_port") or 0)
-        internal_port = int(prepared.get("internal_port") or 0)
-    except (TypeError, ValueError):
-        return None, "O roteador devolveu portas inválidas para a rota externa."
-    if not (40000 <= mapped_external_port <= 59999 and 40000 <= internal_port <= 59999):
-        return None, "O roteador devolveu portas inválidas para a rota externa."
-
-    token = secrets.token_urlsafe(24)
-    listener_result: dict[str, object] = {}
-
-    def wait_for_probe() -> None:
+    errors: list[str] = []
+    for expected_method, candidate_broadcast in candidates:
         try:
-            listener_result["value"] = meshcentral_client.device_wait_for_wan_probe(
+            prepared = meshcentral_client.device_prepare_wan_wake_route(
                 device.mesh_node_id,
-                internal_port,
-                token,
+                external_port,
+                broadcast_ip=candidate_broadcast,
             )
-        except Exception as exc:  # MeshCentral errors remain internal; UI gets clean text.
-            listener_result["error"] = str(exc)
+        except MeshCentralCommandError as exc:
+            errors.append(str(exc))
+            continue
 
-    thread = threading.Thread(target=wait_for_probe, name=f"corecontrol-wan-probe-{device.id}", daemon=True)
-    thread.start()
+        external_ip = _route_public_ipv4(prepared.get("external_ip"))
+        if not external_ip:
+            errors.append("O roteador não possui um IPv4 público diretamente alcançável (possível CGNAT).")
+            continue
+        try:
+            mapped_external_port = int(prepared.get("external_port") or 0)
+            internal_port = int(prepared.get("internal_port") or 0)
+        except (TypeError, ValueError):
+            errors.append("O roteador devolveu portas inválidas para a rota externa.")
+            continue
+        if not (40000 <= mapped_external_port <= 59999 and 40000 <= internal_port <= 59999):
+            errors.append("O roteador devolveu portas inválidas para a rota externa.")
+            continue
 
-    # RunCommand needs a moment to create the UDP listener. Repeating the probe
-    # is harmless and avoids a race where the first datagram arrives too early.
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.settimeout(1.0)
-        for _ in range(10):
-            time.sleep(0.65)
+        token = secrets.token_urlsafe(24)
+        listener_result: dict[str, object] = {}
+
+        def wait_for_probe() -> None:
             try:
-                sock.sendto(token.encode("utf-8"), (external_ip, mapped_external_port))
-            except OSError:
-                pass
-            if not thread.is_alive():
-                break
-    finally:
-        sock.close()
+                listener_result["value"] = meshcentral_client.device_wait_for_wan_probe(
+                    device.mesh_node_id,
+                    internal_port,
+                    token,
+                )
+            except Exception as exc:  # detalhes ficam apenas no servidor
+                listener_result["error"] = str(exc)
 
-    thread.join(timeout=8.0)
-    value = listener_result.get("value")
-    if thread.is_alive() or not isinstance(value, dict) or not bool(value.get("received")):
-        return None, "A VPS não conseguiu confirmar que a rota externa chega até este computador."
+        thread = threading.Thread(target=wait_for_probe, name=f"corecontrol-wan-probe-{device.id}", daemon=True)
+        thread.start()
 
-    route = _record_verified_wan_route(
-        db,
-        device,
-        created_by=created_by,
-        token=token,
-        method="mesh_upnp_unicast",
-        external_ip=external_ip,
-        external_port=mapped_external_port,
-        internal_port=internal_port,
-        internal_ip=str(prepared.get("internal_ip") or "").strip() or None,
-        network_cidr=str(info.get("network_cidr") or "").strip() or None,
-    )
-    return route, None
+        # RunCommand precisa de um instante para abrir o listener. O teste é
+        # repetido para eliminar a corrida entre a VPS e o Windows remoto.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.settimeout(1.0)
+            for _ in range(10):
+                time.sleep(0.65)
+                try:
+                    sock.sendto(token.encode("utf-8"), (external_ip, mapped_external_port))
+                except OSError:
+                    pass
+                if not thread.is_alive():
+                    break
+        finally:
+            sock.close()
+
+        thread.join(timeout=8.0)
+        value = listener_result.get("value")
+        if thread.is_alive() or not isinstance(value, dict) or not bool(value.get("received")):
+            if expected_method == "upnp_broadcast":
+                errors.append("O roteador criou a rota broadcast, mas o pacote externo não chegou pela LAN.")
+            else:
+                errors.append("A VPS não conseguiu confirmar que a rota externa chega até este computador.")
+            continue
+
+        prepared_method = str(prepared.get("method") or expected_method).strip() or expected_method
+        # Nunca transforme uma rota unicast em garantia de S5 por engano.
+        if candidate_broadcast:
+            prepared_method = "upnp_broadcast"
+        else:
+            prepared_method = "mesh_upnp_unicast"
+
+        route = _record_verified_wan_route(
+            db,
+            device,
+            created_by=created_by,
+            token=token,
+            method=prepared_method,
+            external_ip=external_ip,
+            external_port=mapped_external_port,
+            internal_port=internal_port,
+            internal_ip=str(prepared.get("internal_ip") or "").strip() or None,
+            network_cidr=str(info.get("network_cidr") or "").strip() or None,
+        )
+        return route, None
+
+    clean_errors = [item.strip() for item in errors if str(item).strip()]
+    return None, (clean_errors[-1] if clean_errors else "Não foi possível preparar uma rota externa de Wake-on-LAN.")
 
 
 POWER_WAKE_PENDING_FOR = timedelta(minutes=5)
@@ -780,11 +823,12 @@ def device_power_readiness(db: Session, device: Device) -> dict:
     amt_detected = bool(target_info.get("intel_amt_detected"))
     wake_verified = bool(relays or wan_route.get("verified"))
     wan_method = str(wan_route.get("method") or "").strip()
-    # A rota UPnP unicast é excelente para o cenário de um único PC, porém
-    # preservamos hibernação/S4 em vez de S5 para manter ARP offload/NIC wake.
-    # Broadcast verificado ou relay local continuam aptos ao desligamento total.
+    # Broadcast verificado ou relay local permitem desligamento total (S5).
+    # A rota UPnP unicast continua útil para um único PC, mas somente junto do
+    # modo seguro S4/hibernação, onde a NIC pode manter ARP offload e receber o
+    # Magic Packet sem depender de outro computador dentro da rede.
     full_shutdown_safe = bool(relays or (wan_route.get("verified") and wan_method == "upnp_broadcast"))
-    wake_available = bool(wake_verified or mesh_fallback)
+    wake_available = bool(wake_verified)
     off_available = bool(mesh_fallback)
     safe_to_power_off = bool(off_available and (wake_verified or not settings.power_require_verified_wake))
 
@@ -798,9 +842,15 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         reason = "PC preparado e existe uma rota Wake-on-LAN verificada dentro da rede local."
     elif wan_route.get("verified"):
         if wan_method == "mesh_upnp_unicast":
-            reason = "PC preparado e a VPS confirmou uma rota externa direta pelo roteador para este computador."
+            reason = (
+                "PC preparado e a VPS confirmou uma rota externa direta pelo roteador. "
+                "Para não depender de outro PC na rede, o CoreControl usará modo seguro/hibernação ao desligar."
+            )
         else:
-            reason = "PC preparado e a VPS confirmou uma rota externa UPnP até a rede local."
+            reason = (
+                "PC preparado e a VPS confirmou Wake-on-WAN por broadcast. "
+                "Este computador pode ser desligado totalmente e ligado novamente sem depender de outro PC na rede."
+            )
     elif amt_detected:
         reason = (
             "O PC parece possuir Intel AMT/vPro e está preparado para WOL, mas o CoreControl ainda não confirmou o gerenciamento "
@@ -855,6 +905,7 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "wake_available": wake_available,
         "wake_verified": wake_verified,
         "full_shutdown_safe": full_shutdown_safe,
+        "power_off_mode": "shutdown" if full_shutdown_safe else ("hibernate" if wake_verified else "blocked"),
         "off_available": off_available,
         "safe_to_power_off": safe_to_power_off,
         "requires_verified_wake": settings.power_require_verified_wake,
@@ -2097,13 +2148,19 @@ def test_device_wake_route(device_id: int, user: CurrentUser, db: Db):
             )
         )
         db.commit()
+        route_method = str(route.get("method") or "").strip()
+        route_message = (
+            "Wake-on-WAN por broadcast confirmado. Este computador pode ser desligado totalmente e ligado novamente sem depender de outro PC na rede."
+            if route_method == "upnp_broadcast"
+            else "Rota Wake-on-WAN direta confirmada. O CoreControl usará modo seguro ao desligar para que este PC possa ser ligado novamente sem depender de outro computador na rede."
+        )
         return {
             "ok": True,
             "created": True,
             "status": "verified",
             "verified": True,
-            "method": route.get("method"),
-            "message": "Rota de ligamento confirmada. Este computador pode receber o Wake-on-LAN pela internet sem depender de outro PC na rede.",
+            "method": route_method,
+            "message": route_message,
         }
 
     # Fallback legado: mantém o teste do CoreControl Agent para roteadores que
@@ -2199,14 +2256,15 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     readiness = device_power_readiness(db, device)
     wan_route = latest_wan_wake_route(db, device)
 
-    # v10.28: no primeiro desligamento de um PC que está sozinho na rede, tente
-    # preparar a rota externa enquanto a máquina AINDA está ligada. Isso evita
-    # descobrir somente depois que não existe nenhum relay local disponível.
+    # Antes de desligar um PC que pode estar sozinho na rede, tente criar ou
+    # melhorar a rota Wake-on-WAN enquanto a máquina AINDA está ligada. Mesmo
+    # quando já existe unicast verificado, tentamos promover para broadcast,
+    # pois broadcast confirmado é seguro para desligamento total/S5.
     if (
         requested == "off"
         and "windows" in str(device.os_name or "").lower()
         and readiness.get("pc_wol_prepared")
-        and not readiness.get("wake_verified")
+        and not readiness.get("full_shutdown_safe")
         and mesh_ready
     ):
         auto_route, _auto_route_error = _try_mesh_wan_route(
@@ -2253,33 +2311,49 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     detail="O desligamento remoto exige o vínculo MeshCentral deste computador.",
                 )
 
-            # v10.29: o botão se chama "Desligar computador", então ele precisa
-            # executar um desligamento REAL do Windows. Versões anteriores
-            # trocavam silenciosamente essa ação por hibernação quando a rota de
-            # Wake ainda não estava verificada. Se a hibernação falhasse, o
-            # MeshCtrl ainda podia considerar o RunCommand despachado e a tela
-            # ficava presa em "Desligando..." enquanto o PC continuava ligado.
-            #
-            # Agora Windows sempre recebe shutdown /s após rearmar WOL. A rota
-            # de religamento continua sendo diagnosticada/avisada separadamente
-            # e não muda a semântica do botão de desligar.
-            if "windows" in str(device.os_name or "").lower():
-                shutdown_error: MeshCentralCommandError | None = None
-                try:
-                    meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
-                    methods.append("meshcentral_windows_wol_shutdown")
-                except MeshCentralCommandError as exc:
-                    shutdown_error = exc
+            # Nunca coloque o único PC da rede em um estado do qual o próprio
+            # CoreControl não saiba trazê-lo de volta. Se a política exige rota
+            # verificada, bloqueie antes de enviar qualquer comando de energia.
+            if settings.power_require_verified_wake and not readiness.get("safe_to_power_off"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Desligamento bloqueado por segurança: ainda não existe uma rota de religamento verificada. "
+                        + str(readiness.get("reason") or "Teste a rota Wake-on-WAN enquanto o computador estiver ligado.")
+                    ),
+                )
 
-                # Se nem o comando limpo pôde ser despachado, recorra ao
-                # DevicePower do MeshCentral em vez de informar sucesso falso.
-                if not methods:
+            if "windows" in str(device.os_name or "").lower():
+                if readiness.get("full_shutdown_safe"):
+                    # Broadcast Wake-on-WAN (ou relay local) foi comprovado. Aqui
+                    # é seguro usar desligamento total/S5.
+                    shutdown_error: MeshCentralCommandError | None = None
                     try:
-                        meshcentral_client.device_power(device.mesh_node_id, "off")
-                        methods.append("meshcentral_off_fallback")
+                        meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
+                        methods.append("meshcentral_windows_wol_shutdown")
                     except MeshCentralCommandError as exc:
-                        detail = shutdown_error or exc
-                        raise HTTPException(status_code=503, detail=f"Não foi possível desligar o Windows: {detail}") from exc
+                        shutdown_error = exc
+
+                    if not methods:
+                        try:
+                            meshcentral_client.device_power(device.mesh_node_id, "off")
+                            methods.append("meshcentral_off_fallback")
+                        except MeshCentralCommandError as exc:
+                            detail = shutdown_error or exc
+                            raise HTTPException(status_code=503, detail=f"Não foi possível desligar o Windows: {detail}") from exc
+                else:
+                    # Rota unicast verificada: não dependa de ARP vencido em S5.
+                    # Hibernate/S4 deixa a NIC preparada (Magic Packet + ARP
+                    # offload) e permite ao único PC acordar diretamente pela
+                    # rota da VPS, sem outro Agent dentro da rede.
+                    try:
+                        meshcentral_client.device_hibernate_for_wol(device.mesh_node_id)
+                        methods.append("meshcentral_windows_wol_hibernate")
+                    except MeshCentralCommandError as exc:
+                        raise HTTPException(
+                            status_code=503,
+                            detail=f"Não foi possível colocar o Windows no modo seguro para religamento: {exc}",
+                        ) from exc
             else:
                 try:
                     meshcentral_client.device_power(device.mesh_node_id, "off")
@@ -2391,6 +2465,8 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     "methods": methods,
                     "relay_device_ids": relay_ids,
                     "wake_verified": readiness["wake_verified"],
+                    "full_shutdown_safe": readiness.get("full_shutdown_safe"),
+                    "power_off_mode": readiness.get("power_off_mode"),
                     "retry": is_retry,
                 },
                 ensure_ascii=False,
@@ -2401,11 +2477,16 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     pending = device_power_pending_state(db, device, currently_on=currently_on)
 
     if requested == "off":
-        message = (
-            "Comando para desligar enviado. O CoreControl acompanhará até o computador ficar offline."
-            if readiness.get("wake_verified")
-            else "Comando para desligar enviado. A rota de religamento ainda não está verificada; o CoreControl continuará acompanhando até o computador ficar offline."
-        )
+        if "meshcentral_windows_wol_hibernate" in methods:
+            message = (
+                "Modo seguro de energia enviado. O computador ficará aparente como desligado, mas continuará preparado "
+                "para ser ligado pela rota Wake-on-WAN sem depender de outro PC na rede."
+            )
+        else:
+            message = (
+                "Comando para desligar enviado. A rota Wake-on-WAN para religamento está verificada e o CoreControl acompanhará "
+                "até o computador ficar offline."
+            )
     elif is_retry:
         message = "Novo Wake-on-LAN enviado. Continuando a aguardar o computador voltar online."
     elif relay_ids:
@@ -2421,6 +2502,8 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         "status": "pending" if pending.get("pending_action") else "sent",
         "methods": methods,
         "wake_verified": readiness["wake_verified"],
+        "full_shutdown_safe": readiness.get("full_shutdown_safe"),
+        "power_off_mode": readiness.get("power_off_mode"),
         **pending,
         "message": message,
     }

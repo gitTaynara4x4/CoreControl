@@ -235,6 +235,7 @@
       const profile = cleanProfile(device.profile);
       const remoteReady = Boolean(device.remote?.available);
       const powerState = device.power || {};
+      const powerSafeToOff = Boolean(powerState.safe_to_power_off);
       const pendingAction = ['wake', 'off'].includes(powerState.pending_action) ? powerState.pending_action : null;
       const powerAvailable = !pendingAction && (powerOn
         ? Boolean(powerState.off_available)
@@ -245,11 +246,15 @@
         ? (pendingAction === 'wake' ? 'Wake-on-LAN já enviado. Aguardando o computador ficar online.' : 'Desligamento já enviado. Aguardando o computador ficar offline.')
         : powerAvailable
           ? (powerOn
-            ? (powerState.wake_verified
+            ? (powerSafeToOff
               ? `Desligar pelo MeshCentral${powerState.relay_names?.length ? `. Wake Relay verificado: ${powerState.relay_names.join(', ')}` : '.'}`
-              : 'Desligar pelo MeshCentral. Atenção: a rota para ligar novamente ainda não foi verificada.')
+              : 'Ao confirmar, o CoreControl tentará preparar e validar Wake-on-WAN antes de desligar.')
             : powerState.wake_verified ? 'Ligar usando uma rota Wake-on-LAN verificada.' : 'Tentar Wake-on-LAN pelo MeshCentral.')
-          : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
+          : (powerOn
+            ? (powerState.off_available
+              ? (powerSafeToOff ? (powerState.reason || 'Rota segura para religamento confirmada.') : 'Ao confirmar, o CoreControl tentará preparar a rota Wake-on-WAN antes de desligar.')
+              : 'O desligamento remoto exige o vínculo MeshCentral deste computador.')
+            : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
       const healthAvailable = CT.healthAvailable(device);
       const stateTone = healthAvailable ? (device.health_score >= 80 ? 'good' : 'warn') : 'unavailable';
       return `

@@ -389,14 +389,21 @@ class MeshCentralClient:
             timeout=min(max(12, settings.remote_command_timeout_seconds), 25),
         )
 
-    def device_prepare_wan_wake_route(self, node_id: str, external_port: int) -> dict[str, Any]:
-        """Create/refresh a UPnP UDP mapping to this Windows host.
+    def device_prepare_wan_wake_route(
+        self,
+        node_id: str,
+        external_port: int,
+        *,
+        broadcast_ip: str | None = None,
+    ) -> dict[str, Any]:
+        """Create/refresh a UPnP UDP mapping for single-PC Wake-on-WAN.
 
-        This route is intentionally *unicast* to the machine's current IPv4
-        address instead of attempting to map directly to the subnet broadcast
-        address. A large number of consumer routers reject UPnP mappings whose
-        internal client is a broadcast address. The route is later verified
-        from the CoreControl server before it is trusted for Wake-on-WAN.
+        When ``broadcast_ip`` is supplied, CoreControl first asks the router to
+        forward the public UDP port directly to the LAN broadcast address. That
+        route does not depend on another PC being online and does not require an
+        ARP entry for the sleeping/off target. If the router rejects directed
+        broadcast mappings, the caller can retry without ``broadcast_ip`` and
+        use the unicast/S4-safe fallback instead.
         """
         clean_node = (node_id or "").strip()
         if not clean_node:
@@ -405,10 +412,12 @@ class MeshCentralClient:
         if port < 40000 or port > 59999:
             raise MeshCentralCommandError("A porta da rota Wake-on-WAN é inválida.")
 
-        # HNetCfg.NATUPnP is available on supported Windows versions and talks
-        # to the router through the normal Windows UPnP stack. Running through
-        # the Mesh Agent avoids depending on the CoreControl Agent command
-        # queue just to prepare the WAN route.
+        broadcast_text = str(broadcast_ip or "").strip()
+        broadcast_b64 = base64.b64encode(broadcast_text.encode("utf-8")).decode("ascii")
+
+        # HNetCfg.NATUPnP talks to the customer's router through the normal
+        # Windows UPnP stack. Running it via Mesh Agent means route preparation
+        # still works even if the CoreControl Agent command queue is unhealthy.
         script = (
             "$ErrorActionPreference='Stop';"
             "$ProgressPreference='SilentlyContinue';"
@@ -419,6 +428,12 @@ class MeshCentralClient:
             "$ip=[string]$cfg.IPv4Address.IPAddress;"
             "$prefix=[int]$cfg.IPv4Address.PrefixLength;"
             "if([string]::IsNullOrWhiteSpace($ip)){throw 'Não foi possível determinar o IPv4 local.'};"
+            f"$broadcast=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{broadcast_b64}')).Trim();"
+            "$target=$ip;$method='mesh_upnp_unicast';$description='CoreControl Wake-on-WAN';"
+            "if(-not [string]::IsNullOrWhiteSpace($broadcast)){"
+            "try{$parsed=[System.Net.IPAddress]::Parse($broadcast);if($parsed.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork){throw 'broadcast inválido'}}catch{throw 'O endereço de broadcast calculado para Wake-on-WAN é inválido.'};"
+            "$target=$broadcast;$method='upnp_broadcast';$description='CoreControl Wake-on-WAN Broadcast'"
+            "};"
             "$adapter=[string]$cfg.NetAdapter.Name;"
             "try{Set-NetAdapterPowerManagement -Name $adapter -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null}catch{};"
             "try{Set-NetAdapterPowerManagement -Name $adapter -ArpOffload Enabled -ErrorAction SilentlyContinue | Out-Null}catch{};"
@@ -429,11 +444,11 @@ class MeshCentralClient:
             f"$ext={port};$int={port};"
             "$existing=$null;"
             "try{$existing=@($maps | Where-Object {$_.ExternalPort -eq $ext -and $_.Protocol -eq 'UDP'}) | Select-Object -First 1}catch{};"
-            "if($existing -and ([string]$existing.InternalClient -ne $ip -or [int]$existing.InternalPort -ne $int)){try{$maps.Remove($ext,'UDP')}catch{};$existing=$null};"
-            "if(-not $existing){$existing=$maps.Add($ext,'UDP',$int,$ip,$true,'CoreControl Wake-on-WAN')};"
+            "if($existing -and ([string]$existing.InternalClient -ne $target -or [int]$existing.InternalPort -ne $int)){try{$maps.Remove($ext,'UDP')}catch{};$existing=$null};"
+            "if(-not $existing){try{$existing=$maps.Add($ext,'UDP',$int,$target,$true,$description)}catch{throw ('O roteador não aceitou a rota Wake-on-WAN para '+$target+'.')}};"
             "if($null -eq $existing){throw 'O roteador não aceitou a regra UPnP de Wake-on-WAN.'};"
             "$public='';try{$public=[string]$existing.ExternalIPAddress}catch{};"
-            "$obj=[PSCustomObject]@{ok=$true;method='mesh_upnp_unicast';external_ip=$public;external_port=[int]$existing.ExternalPort;internal_port=[int]$existing.InternalPort;internal_ip=[string]$existing.InternalClient;prefix_length=$prefix;adapter=$adapter};"
+            "$obj=[PSCustomObject]@{ok=$true;method=$method;external_ip=$public;external_port=[int]$existing.ExternalPort;internal_port=[int]$existing.InternalPort;internal_ip=[string]$existing.InternalClient;broadcast_ip=$broadcast;prefix_length=$prefix;adapter=$adapter};"
             "$obj|ConvertTo-Json -Compress"
         )
         output = self._meshctrl_command(

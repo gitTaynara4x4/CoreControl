@@ -306,15 +306,23 @@
     return new Promise((resolve) => {
       const name = CT.esc(device?.name || 'este computador');
       const wakeVerified = Boolean(readiness?.wake_verified);
+      const fullShutdownSafe = Boolean(readiness?.full_shutdown_safe);
+      const preflightNeeded = Boolean(readiness?.preflight_needed);
       const reason = CT.esc(readiness?.reason || 'A rota para ligar novamente ainda não foi confirmada.');
       const routeText = readiness?.wan_route_verified
-        ? 'Rota externa de Wake-on-LAN confirmada pela VPS.'
+        ? (fullShutdownSafe
+          ? 'Wake-on-WAN por broadcast confirmado pela VPS. Não depende de outro computador na rede.'
+          : 'Rota Wake-on-WAN direta confirmada pela VPS. O CoreControl preservará a placa em modo seguro para religamento.')
         : readiness?.relay_count
           ? `Wake Relay verificado${readiness.relay_names?.length ? `: ${CT.esc(readiness.relay_names.join(', '))}` : '.'}`
           : 'Nenhuma rota externa de religamento foi confirmada ainda.';
-      const warning = wakeVerified
-        ? 'O CoreControl encontrou uma rota de religamento verificada e fará o desligamento normal.'
-        : 'A rota de religamento ainda não foi confirmada. Para não repetir o bloqueio do computador offline, o CoreControl usará hibernação preparada para Wake-on-LAN em vez de desligamento total.';
+      const warning = fullShutdownSafe
+        ? 'A rota suporta desligamento total. Depois, o CoreControl poderá ligar este PC novamente.'
+        : wakeVerified
+          ? 'Este roteador não confirmou broadcast para S5. O CoreControl usará hibernação preparada para Wake-on-LAN, sem depender de outro PC na rede.'
+          : preflightNeeded
+            ? 'Antes de desligar, o CoreControl tentará preparar e validar automaticamente uma rota Wake-on-WAN. Se não conseguir, o desligamento será bloqueado.'
+            : 'O desligamento ficará bloqueado até existir uma rota de religamento verificada.';
 
       CT.openModal(`
         <div class="danger-modal-head">
@@ -325,7 +333,7 @@
           </div>
         </div>
         <div class="danger-summary">
-          <strong>${wakeVerified ? 'Religamento disponível' : 'Atenção ao religamento'}</strong>
+          <strong>${wakeVerified ? 'Religamento disponível' : 'Religamento não confirmado'}</strong>
           <span>${CT.esc(warning)}</span>
         </div>
         <div class="callout">
@@ -334,7 +342,7 @@
         </div>
         <div class="modal-actions">
           <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>
-          <button class="btn danger" type="button" id="confirmPowerOff">${wakeVerified ? 'Desligar computador' : 'Desligar em modo seguro'}</button>
+          <button class="btn danger" type="button" id="confirmPowerOff">${fullShutdownSafe ? 'Desligar computador' : wakeVerified ? 'Desligar com religamento seguro' : 'Preparar rota e desligar'}</button>
         </div>`);
 
       let settled = false;
@@ -357,6 +365,11 @@
       if (!readiness.off_available) {
         throw new Error('O desligamento remoto exige que este computador esteja vinculado ao MeshCentral.');
       }
+      // O backend ainda faz um preflight automático antes do desligamento.
+      // Assim, o primeiro clique já pode preparar a rota sem exigir que o
+      // usuário descubra/aperte manualmente o botão de teste. Se o preflight
+      // falhar, a API bloqueia o desligamento antes de mudar o estado do PC.
+      readiness.preflight_needed = !Boolean(readiness.safe_to_power_off);
       const accepted = await CT.confirmDevicePowerOff(device, readiness);
       if (!accepted) return null;
     } else if (!readiness.wake_available) {
