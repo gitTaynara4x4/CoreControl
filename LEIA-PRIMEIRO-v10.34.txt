@@ -1,0 +1,17 @@
+CoreControl v10.34 — CORREÇÃO CORECONTROL OFF
+
+Problema corrigido:
+- O backend ainda podia cair no fluxo Wake-on-WAN/roteador quando os_name estava vazio ou atrasado.
+- Isso gerava o aviso "Desligamento bloqueado... rota pelo roteador" mesmo no modo software-only.
+
+Comportamento novo:
+- Se o computador possui vínculo remoto MeshCentral, CoreControl Off é a rota padrão.
+- Não testa roteador, UPnP, CGNAT ou Wake-on-WAN antes de desligar pelo painel.
+- O campo os_name não decide mais se o modo software-only pode ser usado.
+- O comando é confirmado pelo próprio Windows antes de registrar o estado como desligado.
+
+Arquivos para VPS:
+- app/api.py
+- app/static/index.html
+
+Não há alteração do Agent nesta correção.

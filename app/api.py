@@ -933,7 +933,14 @@ def device_power_readiness(db: Session, device: Device) -> dict:
     wan_method = str(wan_route.get("method") or "").strip()
     windows_device = "windows" in str(device.os_name or "").lower()
     managed_off = device_managed_off_state(db, device)
-    managed_mode_available = bool(windows_device and mesh_fallback)
+
+    # v10.34: CoreControl Off não pode depender do texto de os_name. Em alguns
+    # cadastros o Agent já está online e o MeshCentral está vinculado, mas o
+    # campo de sistema operacional chega vazio/atrasado. Isso fazia o backend
+    # cair indevidamente no fluxo Wake-on-WAN/roteador. O vínculo remoto é a
+    # capacidade necessária para o modo software-only; o próprio comando
+    # confirma no Windows se a preparação foi executada.
+    managed_mode_available = bool(mesh_fallback)
 
     # Wake-on-LAN continua disponível como recurso adicional para máquinas que
     # realmente podem desligar em S5. Porém o modo padrão software-only não
@@ -1025,6 +1032,7 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "managed_off_active": bool(managed_off["active"]),
         "managed_off_since": managed_off.get("since"),
         "software_only_power": managed_mode_available,
+        "power_engine_version": "10.34",
         "power_off_mode": "managed" if managed_mode_available else ("shutdown" if full_shutdown_safe else ("hibernate" if wake_verified else "blocked")),
         "off_available": off_available,
         "safe_to_power_off": safe_to_power_off,
@@ -2484,7 +2492,11 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
             # Nunca coloque o único PC da rede em um estado do qual o próprio
             # CoreControl não saiba trazê-lo de volta. Se a política exige rota
             # verificada, bloqueie antes de enviar qualquer comando de energia.
-            if settings.power_require_verified_wake and not readiness.get("safe_to_power_off"):
+            if (
+                settings.power_require_verified_wake
+                and not readiness.get("managed_mode_available")
+                and not readiness.get("safe_to_power_off")
+            ):
                 detail_reason = route_preflight_error or str(
                     readiness.get("reason") or "Não foi possível confirmar a rota Wake-on-WAN enquanto o computador estava ligado."
                 )
@@ -2496,41 +2508,40 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     ),
                 )
 
-            if "windows" in str(device.os_name or "").lower():
-                if readiness.get("managed_mode_available"):
-                    # Modo padrão do produto para instalação zero-config: não
-                    # desliga eletricamente o Windows. Mantém apenas os serviços
-                    # de gerenciamento vivos e desconecta a sessão do usuário.
-                    # Assim o botão Ligar funciona de forma determinística sem
-                    # roteador, WOL, CGNAT, BIOS ou outro computador na LAN.
-                    try:
-                        meshcentral_client.device_enter_managed_off(device.mesh_node_id)
-                        methods.append("corecontrol_managed_off")
-                        db.add(
-                            AuditLog(
-                                company_id=device.company_id,
-                                actor_user_id=user.id,
-                                device_id=device.id,
-                                action="power.managed_off.entered",
-                                details=json.dumps(
-                                    {
-                                        "hostname": device.hostname,
-                                        "mesh_node_id": device.mesh_node_id,
-                                        "mode": "software_only",
-                                    },
-                                    ensure_ascii=False,
-                                ),
-                            )
+            # v10.34: CoreControl Off é SEMPRE a primeira opção quando existe
+            # vínculo remoto. Não consulte os_name e não teste roteador/WOL.
+            # Isso evita cair no fluxo legado só porque a telemetria do SO ainda
+            # não foi persistida.
+            if readiness.get("managed_mode_available"):
+                try:
+                    meshcentral_client.device_enter_managed_off(device.mesh_node_id)
+                    methods.append("corecontrol_managed_off")
+                    db.add(
+                        AuditLog(
+                            company_id=device.company_id,
+                            actor_user_id=user.id,
+                            device_id=device.id,
+                            action="power.managed_off.entered",
+                            details=json.dumps(
+                                {
+                                    "hostname": device.hostname,
+                                    "mesh_node_id": device.mesh_node_id,
+                                    "mode": "software_only",
+                                    "engine": "10.34",
+                                },
+                                ensure_ascii=False,
+                            ),
                         )
-                        db.commit()
-                    except MeshCentralCommandError as exc:
-                        raise HTTPException(
-                            status_code=503,
-                            detail=f"Não foi possível colocar o computador em CoreControl Off: {exc}",
-                        ) from exc
-                elif readiness.get("full_shutdown_safe"):
-                    # Caminho legado opcional para ambientes onde S5 realmente
-                    # foi comprovado por uma rota de wake fora do Windows.
+                    )
+                    db.commit()
+                except MeshCentralCommandError as exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Não foi possível colocar o computador em CoreControl Off: {exc}",
+                    ) from exc
+            elif windows_device:
+                # Fallback legado, utilizado somente se não houver CoreControl Off.
+                if readiness.get("full_shutdown_safe"):
                     shutdown_error: MeshCentralCommandError | None = None
                     try:
                         meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)

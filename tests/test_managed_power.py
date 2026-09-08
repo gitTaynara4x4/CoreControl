@@ -44,7 +44,7 @@ def test_managed_on_stops_keeper_without_wol(monkeypatch):
     assert "Wake-on-LAN" not in script
 
 
-def test_api_prioritizes_software_only_managed_power_for_windows():
+def test_api_prioritizes_software_only_managed_power_without_os_name_dependency():
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
     assert 'action="power.managed_off.entered"' in api
     assert 'action="power.managed_off.exited"' in api
@@ -52,7 +52,10 @@ def test_api_prioritizes_software_only_managed_power_for_windows():
     assert 'meshcentral_client.device_exit_managed_off' in api
     assert '"managed_mode_available": managed_mode_available' in api
     assert '"power_off_mode": "managed" if managed_mode_available' in api
+    assert 'managed_mode_available = bool(mesh_fallback)' in api
+    assert 'if readiness.get("managed_mode_available"):' in api
     assert 'and not readiness.get("managed_mode_available")' in api
+    assert 'engine": "10.34"' in api
 
 
 def test_frontend_treats_managed_off_as_desligado_and_hides_router_setup():

@@ -1,0 +1,7 @@
+CoreControl v10.34 - validação
+
+- py_compile app/api.py + app/meshcentral.py: OK
+- testes de energia/managed power: 17/17 OK
+- testes MeshCentral adicionais: 9/11 passaram; 2 falhas já existentes no baseline e não relacionadas a energia (URL coretuner e consent do grupo).
+- alteração do Agent: nenhuma
+- objetivo: CoreControl Off não depende de os_name nem de Wake-on-WAN/roteador quando MeshCentral está vinculado.
