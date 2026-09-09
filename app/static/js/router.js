@@ -51,7 +51,7 @@
     if (contextParam && context != null) url.searchParams.set(contextParam, String(context));
 
     // Subestados pertencem somente ao módulo que os criou.
-    if (!['updates', 'scripts', 'network', 'reports'].includes(page)) url.searchParams.delete('tab');
+    if (!['updates', 'scripts', 'network', 'reports', 'settings'].includes(page)) url.searchParams.delete('tab');
 
     const state = { corecontrol: true, page, context };
     if (mode === 'replace') window.history.replaceState(state, '', url);

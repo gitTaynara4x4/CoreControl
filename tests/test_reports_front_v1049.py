@@ -21,7 +21,7 @@ def test_reports_keeps_tab_on_refresh():
     assert "searchParams.get('tab')" in REPORTS_JS
     assert "searchParams.set('tab', tab)" in REPORTS_JS
     assert "'reports'" in ROUTER_JS
-    assert "['updates', 'scripts', 'network', 'reports']" in ROUTER_JS
+    assert "['updates', 'scripts', 'network', 'reports', 'settings']" in ROUTER_JS
 
 
 def test_reports_center_has_search_and_categories():
@@ -42,4 +42,4 @@ def test_reports_styles_and_cache_busting_are_present():
     assert '/* ===== Relatórios v10.49 ===== */' in STYLES
     assert '.reports-category-grid' in STYLES
     assert '.reports-export-layout' in STYLES
-    assert '20260909-reports-ui-v10-49' in INDEX_HTML
+    assert '/static/js/pages/reports.js?v=20260909-reports-ui-v10-49' in INDEX_HTML

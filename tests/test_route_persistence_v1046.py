@@ -38,4 +38,4 @@ def test_cache_busting_for_route_files():
     index = read('app/static/index.html')
     assert '/static/js/auth.js?v=20260909-route-persistence-v10-46' in index
     assert '/static/app.js?v=20260909-route-persistence-v10-46' in index
-    assert '/static/js/router.js?v=20260909-reports-ui-v10-49' in index
+    assert '/static/js/router.js?v=20260909-settings-ui-v10-50' in index
