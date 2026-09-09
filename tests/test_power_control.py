@@ -205,7 +205,18 @@ def test_new_clients_attempt_wake_route_before_shutdown():
 
 def test_setup_reports_the_bundled_agent_version_instead_of_setup_version():
     setup = (ROOT / "desktop/setup/src/main.go").read_text(encoding="utf-8")
-    assert 'const appVersion = "0.4.18"' in setup
+    assert 'const appVersion = "0.4.19"' in setup
     assert 'const bundledAgentVersion = "0.9.11"' in setup
     assert '"agent_version": bundledAgentVersion' in setup
     assert '"agent_version": appVersion' not in setup
+
+
+def test_release_installer_defaults_to_production_server():
+    setup = (ROOT / "desktop/setup/src/main.go").read_text(encoding="utf-8")
+    desktop = (ROOT / "desktop/app/src/main.go").read_text(encoding="utf-8")
+    build = (ROOT / "desktop/Build_Windows.ps1").read_text(encoding="utf-8")
+    production = "https://apps-corecontrol.9ywrah.easypanel.host"
+    assert f'var defaultServerURL = "{production}"' in setup
+    assert f'var defaultServerURL = "{production}"' in desktop
+    assert f"else {{ '{production}' }}" in build
+    assert 'var defaultServerURL = "http://127.0.0.1:8002"' not in setup

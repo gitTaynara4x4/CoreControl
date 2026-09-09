@@ -23,10 +23,10 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.18"
+const appVersion = "0.4.19"
 const bundledAgentVersion = "0.9.11"
 
-var defaultServerURL = "http://127.0.0.1:8002"
+var defaultServerURL = "https://apps-corecontrol.9ywrah.easypanel.host"
 
 const (
 	WS_OVERLAPPEDWINDOW = 0x00CF0000

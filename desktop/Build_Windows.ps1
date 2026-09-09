@@ -5,7 +5,7 @@ $appSource = Join-Path $PSScriptRoot 'app\src'
 $setupSource = Join-Path $PSScriptRoot 'setup\src'
 $iconPatchSource = Join-Path $PSScriptRoot 'tools\iconpatch'
 $downloadDir = Join-Path $root 'app\downloads'
-$publicUrl = if ($env:CORETUNER_PUBLIC_URL) { $env:CORETUNER_PUBLIC_URL } else { 'http://127.0.0.1:8002' }
+$publicUrl = if ($env:CORETUNER_PUBLIC_URL) { $env:CORETUNER_PUBLIC_URL } else { 'https://apps-corecontrol.9ywrah.easypanel.host' }
 $iconSource = Join-Path $PSScriptRoot 'assets\corecontrol.ico'
 $setupLogoSource = Join-Path $PSScriptRoot 'assets\corecontrol-logo.bmp'
 if (-not (Test-Path $iconSource)) {

@@ -13,7 +13,7 @@ import (
 
 const appVersion = "0.4.14"
 
-var defaultServerURL = "http://127.0.0.1:8002"
+var defaultServerURL = "https://apps-corecontrol.9ywrah.easypanel.host"
 
 const (
 	WS_OVERLAPPEDWINDOW = 0x00CF0000
