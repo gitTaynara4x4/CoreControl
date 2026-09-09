@@ -172,3 +172,30 @@ def test_reinstall_does_not_overwrite_runtime_agent_version_with_setup_version()
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
     assert "O instalador possui uma versão própria" in api
     assert "Preserve a versão real do Agent" in api
+
+def test_native_agent_heartbeat_has_priority_over_mesh_power_state():
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+    ui = (ROOT / "app/static/js/ui.js").read_text(encoding="utf-8")
+
+    fn = api[api.index("def device_power_currently_on"):api.index("def device_power_pending_state")]
+    assert "if device_online(device):" in fn
+    assert "return True" in fn
+    assert fn.index("if device_online(device):") < fn.index("if mesh_ready and checked_at and mesh_recent:")
+    assert "if (device?.actual_online || device?.online) return true;" in ui
+
+
+def test_managed_power_response_uses_the_same_method_names_that_are_dispatched():
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+    assert 'methods.append("corecontrol_agent_managed_off")' in api
+    assert 'if "corecontrol_agent_managed_off" in methods:' in api
+    assert '"managed_off_active": "corecontrol_agent_managed_off" in methods' in api
+    assert 'methods.append("corecontrol_agent_managed_on")' in api
+    assert 'elif "corecontrol_agent_managed_on" in methods:' in api
+
+
+def test_setup_reports_the_bundled_agent_version_instead_of_setup_version():
+    setup = (ROOT / "desktop/setup/src/main.go").read_text(encoding="utf-8")
+    assert 'const appVersion = "0.4.17"' in setup
+    assert 'const bundledAgentVersion = "0.9.10"' in setup
+    assert '"agent_version": bundledAgentVersion' in setup
+    assert '"agent_version": appVersion' not in setup

@@ -858,12 +858,16 @@ def device_effectively_online(db: Session, device: Device) -> bool:
 
 
 def device_power_currently_on(device: Device) -> bool:
-    """Return the best server-side power state currently known.
+    """Return the best server-side physical/reachable power state known.
 
-    When MeshCentral is provisioned for the device, use its recently checked
-    connection state because it continues to work while the CoreControl Agent
-    itself is starting. Otherwise fall back to normal Agent heartbeat state.
+    The authenticated CoreControl Agent heartbeat is the primary source of
+    truth. MeshCentral is only a fallback when the native Agent heartbeat is
+    stale/offline. A broken or recently reinstalled Mesh Agent must never make
+    a healthy CoreControl Agent look like a powered-off computer.
     """
+    if device_online(device):
+        return True
+
     mesh_ready = bool(
         settings.remote_enabled
         and meshcentral_client.provisioning_configured
@@ -876,7 +880,7 @@ def device_power_currently_on(device: Device) -> bool:
     )
     if mesh_ready and checked_at and mesh_recent:
         return bool(device.remote_online)
-    return device_online(device)
+    return False
 
 
 def device_power_pending_state(db: Session, device: Device, *, currently_on: bool | None = None) -> dict:
@@ -2780,7 +2784,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     pending = device_power_pending_state(db, device, currently_on=currently_on)
 
     if requested == "off":
-        if "corecontrol_managed_off" in methods:
+        if "corecontrol_agent_managed_off" in methods:
             message = (
                 "Computador desligado pelo CoreControl. O serviço remoto permanece ativo em segundo plano para garantir que o botão Ligar funcione sem configuração de rede."
             )
@@ -2794,7 +2798,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                 "Comando para desligar enviado. A rota Wake-on-WAN para religamento está verificada e o CoreControl acompanhará "
                 "até o computador ficar offline."
             )
-    elif "corecontrol_managed_on" in methods:
+    elif "corecontrol_agent_managed_on" in methods:
         message = "Computador ligado pelo CoreControl. A máquina continua acessível sem depender de Wake-on-LAN ou do roteador."
     elif is_retry:
         message = "Novo Wake-on-LAN enviado. Continuando a aguardar o computador voltar online."
@@ -2813,7 +2817,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         "wake_verified": readiness["wake_verified"],
         "full_shutdown_safe": readiness.get("full_shutdown_safe"),
         "power_off_mode": readiness.get("power_off_mode"),
-        "managed_off_active": "corecontrol_managed_off" in methods,
+        "managed_off_active": "corecontrol_agent_managed_off" in methods,
         **pending,
         "message": message,
     }

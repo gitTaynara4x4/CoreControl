@@ -23,7 +23,8 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.16"
+const appVersion = "0.4.17"
+const bundledAgentVersion = "0.9.10"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 
@@ -1026,7 +1027,7 @@ func (a *App) installCurrent() {
 		"company_id": companyID, "device_uid": machine.DeviceUID, "name": name, "hostname": machine.Hostname,
 		"sector": strings.TrimSpace(getText(a.controls[idSector])), "location": strings.TrimSpace(getText(a.controls[idLocation])),
 		"manufacturer": machine.Manufacturer, "model": machine.Model, "serial_number": machine.SerialNumber,
-		"os_name": machine.OSName, "os_version": machine.OSVersion, "agent_version": appVersion,
+		"os_name": machine.OSName, "os_version": machine.OSVersion, "agent_version": bundledAgentVersion,
 	}
 	installRemote := message(
 		"Acesso remoto CoreControl",
@@ -1120,7 +1121,7 @@ func (a *App) installCurrentEnrollment() {
 		"serial_number":    machine.SerialNumber,
 		"os_name":          machine.OSName,
 		"os_version":       machine.OSVersion,
-		"agent_version":    appVersion,
+		"agent_version":    bundledAgentVersion,
 	}
 
 	setText(a.status, "Vinculando este computador à empresa...")

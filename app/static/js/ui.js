@@ -241,9 +241,15 @@
 
   CT.devicePowerIsOn = function devicePowerIsOn(device) {
     if (device?.power?.managed_off_active || device?.managed_off) return false;
+
+    // O heartbeat do CoreControl Agent é a fonte principal. MeshCentral é
+    // somente fallback: um Mesh Agent offline/desvinculado não pode transformar
+    // um PC com Agent nativo online em "Desligado" no painel.
+    if (device?.actual_online || device?.online) return true;
+
     const remote = device?.remote || {};
     if (remote.enabled && remote.mesh_node_id && remote.checked_at) return Boolean(remote.mesh_connected);
-    return Boolean(device?.online);
+    return false;
   };
 
   CT.powerPendingLabel = function powerPendingLabel(action) {
