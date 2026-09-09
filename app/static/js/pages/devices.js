@@ -1113,16 +1113,24 @@
     const telemetry = device.telemetry || {};
     const devicePowerOn = CT.devicePowerIsOn(device);
     const economyActive = CT.deviceEconomyModeActive(device);
-    const deviceOnlineLabel = economyActive
-      ? 'Modo econômico'
-      : devicePowerOn
-        ? (device.online ? 'Online' : 'Ligado · Agent sem comunicação')
-        : 'Desligado';
-    const deviceOnlineTone = economyActive ? 'economy' : (devicePowerOn ? 'online' : 'offline');
+    const shutdownState = CT.deviceShutdownState(device);
+    const shuttingDown = shutdownState === 'shutting_down';
+    const shutdownNotConfirmed = device.shutdown_confirmation === 'not_confirmed';
+    const deviceOnlineLabel = shuttingDown
+      ? 'Desligando...'
+      : economyActive
+        ? 'Modo econômico'
+        : shutdownNotConfirmed && device.online
+          ? 'Online · desligamento não confirmado'
+          : devicePowerOn
+            ? (device.online ? 'Online' : 'Ligado · Agent sem comunicação')
+            : 'Desligado';
+    const deviceOnlineTone = shuttingDown ? 'warning' : economyActive ? 'economy' : (devicePowerOn ? 'online' : 'offline');
 
     const deviceOnlineStatusEl = CT.$('#deviceOnlineStatus');
     CT.clearPowerPendingStatus(deviceOnlineStatusEl);
     deviceOnlineStatusEl.innerHTML = `<i class="dot ${deviceOnlineTone}"></i>${deviceOnlineLabel}`;
+    if (shuttingDown) CT.setPowerPendingStatus(deviceOnlineStatusEl, 'shutdown');
     const healthStatusEl = CT.$('#deviceHealthStatus');
     const healthAvailable = CT.healthAvailable(device);
     healthStatusEl.className = healthAvailable ? `health ${CT.healthClass(device.health_score)}` : 'health unavailable';
@@ -1216,7 +1224,7 @@
       devicePowerBtn.classList.remove('hidden', 'danger');
       devicePowerBtn.classList.toggle('primary', economyMode);
       devicePowerBtn.textContent = economyMode ? 'Ativar computador' : 'Modo econômico';
-      devicePowerBtn.disabled = !powerAvailable;
+      devicePowerBtn.disabled = !powerAvailable || shuttingDown;
       devicePowerBtn.title = powerAvailable
         ? (economyMode
             ? 'Restaurar o monitor e o plano de energia normal.'
@@ -1243,7 +1251,7 @@
 
       if (deviceShutdownBtn) {
         deviceShutdownBtn.classList.remove('hidden');
-        deviceShutdownBtn.disabled = !Boolean(powerState.shutdown_available) || economyMode;
+        deviceShutdownBtn.disabled = !Boolean(powerState.shutdown_available) || economyMode || shuttingDown;
         deviceShutdownBtn.title = economyMode
           ? 'Ative o computador antes de desligá-lo completamente.'
           : powerState.shutdown_available
@@ -1255,9 +1263,11 @@
             const response = await CT.requestDevicePower(device, 'shutdown');
             if (!response) return;
             CT.setPowerPendingButton(deviceShutdownBtn, 'shutdown');
-            CT.toast(response.message || 'Desligamento completo enviado.');
+            CT.setPowerPendingStatus(deviceOnlineStatusEl, 'shutdown');
+            CT.setPowerPendingFeedback(devicePowerFeedback, 'shutdown');
+            CT.toast(response.message || 'Desligamento iniciado. Aguardando confirmação do Agent.');
             const watched = await CT.waitForDevicePower(device.id, false, { attempts: 60, delayMs: 1500, maxElapsedMs: 90000 });
-            CT.toast(watched.changed ? 'Computador desligado completamente.' : 'O comando foi enviado, mas o desligamento ainda não foi confirmado.', !watched.changed);
+            CT.toast(watched.changed ? 'Desligamento confirmado: o computador está offline.' : 'Não foi possível confirmar o desligamento; verifique o estado atual.', !watched.changed);
             return CT.navigate('device', device.id);
           } catch (error) {
             CT.clearPowerPendingButton(deviceShutdownBtn);

@@ -49,9 +49,12 @@
   CT.deviceTable = function deviceTable(devices) {
     return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa / setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Remoto</th><th>Alertas</th></tr></thead><tbody>${devices.map((device) => {
       const economy = CT.deviceEconomyModeActive?.(device);
-      const status = economy
-        ? '<span class="status"><i class="dot economy"></i>Modo econômico</span>'
-        : `<span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span>`;
+      const shuttingDown = CT.deviceShutdownState?.(device) === 'shutting_down';
+      const status = shuttingDown
+        ? '<span class="status"><i class="dot warning"></i>Desligando...</span>'
+        : economy
+          ? '<span class="status"><i class="dot economy"></i>Modo econômico</span>'
+          : `<span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span>`;
       return `<tr data-device="${device.id}" class="${device.active === false ? 'entity-inactive' : ''}" style="cursor:pointer"><td><strong>${CT.esc(device.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.hostname)}</small></td><td><strong class="table-company-name">${CT.esc(device.company_name || `Empresa #${device.company_id}`)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.sector || 'Setor não informado')}</small></td><td>${device.active === false ? '<span class="pill critical">Desativado</span>' : status}</td><td>${CT.healthMarkup(device)}</td><td>${CT.fmtNum(device.telemetry?.cpu_percent)}%</td><td>${CT.fmtNum(device.telemetry?.memory_percent)}%</td><td>${CT.fmtNum(device.telemetry?.disk_percent)}%</td><td>${CT.remoteLabel(device)}</td><td>${device.alerts_open ? `<span class="pill critical">${device.alerts_open}</span>` : '—'}</td></tr>`;
     }).join('')}</tbody></table></div>`;
   };
@@ -245,7 +248,17 @@
     return CT.api(`/devices/${deviceId}/remote-session`, { method: 'POST' });
   };
 
+  CT.deviceShutdownState = function deviceShutdownState(device) {
+    return String(device?.power_state || device?.shutdown_state || '').toLowerCase();
+  };
+
+  CT.deviceShutdownConfirmed = function deviceShutdownConfirmed(device) {
+    return CT.deviceShutdownState(device) === 'offline' && device?.shutdown_confirmation === 'confirmed';
+  };
+
   CT.devicePowerIsOn = function devicePowerIsOn(device) {
+    // A confirmação pós-shutdown tem prioridade sobre estados remotos/cacheados.
+    if (CT.deviceShutdownConfirmed(device)) return false;
     // Modo econômico NÃO é desligamento. O Windows e o Agent continuam vivos,
     // então o painel deve continuar tratando a máquina como fisicamente ligada.
     if (device?.actual_online || device?.online) return true;
@@ -412,7 +425,10 @@
         const status = await CT.api(`/devices/${deviceId}/remote-status?ts=${Date.now()}`);
         lastStatus = status;
         if (typeof options.onPoll === 'function') options.onPoll(status, attempt);
-        const observedPowerOn = typeof status.power_on === 'boolean' ? status.power_on : Boolean(status.mesh_connected);
+        const shutdownConfirmed = status.shutdown_confirmation === 'confirmed' && status.power_state === 'offline';
+        const observedPowerOn = shutdownConfirmed
+          ? false
+          : (typeof status.power_on === 'boolean' ? status.power_on : Boolean(status.mesh_connected));
         if (Boolean(observedPowerOn) === Boolean(expectedOn)) return { changed: true, status };
       } catch (_) {
         // Durante inicialização/desligamento o serviço pode oscilar por alguns segundos.

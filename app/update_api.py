@@ -456,7 +456,21 @@ def agent_next_command(
 ):
     device = _agent_device(db, authorization, device_uid)
     now = utcnow()
-    presence_touched = _touch_agent_presence(device, now)
+    recent_shutdown = db.scalar(
+        select(AgentCommand)
+        .where(
+            AgentCommand.device_id == device.id,
+            AgentCommand.command_type == "power.shutdown",
+            AgentCommand.status == "succeeded",
+            AgentCommand.finished_at >= now - timedelta(minutes=2),
+        )
+        .order_by(desc(AgentCommand.finished_at), desc(AgentCommand.id))
+        .limit(1)
+    )
+    # After a shutdown ACK we need a much tighter liveness signal so the UI can
+    # distinguish "Windows is still alive" from "shutdown confirmed" in
+    # seconds, not the generic 3-minute telemetry timeout.
+    presence_touched = _touch_agent_presence(device, now, minimum_seconds=4 if recent_shutdown else 20)
     stale_before = now - timedelta(hours=2)
     stale = list(
         db.scalars(

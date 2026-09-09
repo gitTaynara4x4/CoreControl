@@ -851,6 +851,116 @@ def _run_agent_command_sync(
 
 POWER_WAKE_PENDING_FOR = timedelta(minutes=5)
 POWER_OFF_PENDING_FOR = timedelta(minutes=3)
+# Full shutdown confirmation is intentionally much faster than the generic
+# 3-minute offline timeout.  The native Agent polls every few seconds; after a
+# successful shutdown ACK, absence of that authenticated heartbeat is the best
+# software-only proof that Windows really went down.
+FULL_SHUTDOWN_TRANSITION_SECONDS = 18
+FULL_SHUTDOWN_HEARTBEAT_STALE_SECONDS = 12
+FULL_SHUTDOWN_FAILURE_SECONDS = 35
+
+
+def device_shutdown_lifecycle(db: Session, device: Device) -> dict:
+    """Return the post-shutdown state without needing a schema migration.
+
+    A successful ``power.shutdown`` AgentCommand is the dispatch ACK.  While the
+    Windows Agent is still alive it keeps polling the authenticated command
+    endpoint, which refreshes ``last_seen`` aggressively for a short period
+    after shutdown.  Once those heartbeats disappear we can confirm the machine
+    as operationally off instead of waiting the normal telemetry grace period.
+    """
+    command = db.scalar(
+        select(AgentCommand)
+        .where(
+            AgentCommand.device_id == device.id,
+            AgentCommand.command_type == "power.shutdown",
+        )
+        .order_by(desc(AgentCommand.created_at), desc(AgentCommand.id))
+        .limit(1)
+    )
+    normal = {
+        "state": "online" if device_online(device) else "offline",
+        "confirmation": None,
+        "requested_at": None,
+        "confirmed_at": None,
+        "message": None,
+    }
+    if not command or command.status == "failed":
+        return normal
+    if command.status in {"queued", "running"}:
+        return {
+            **normal,
+            "state": "shutting_down",
+            "confirmation": "waiting",
+            "requested_at": iso(as_utc(command.created_at)),
+            "message": "Desligamento enviado ao CoreControl Agent.",
+        }
+    if command.status != "succeeded":
+        return normal
+
+    ack_at = as_utc(command.finished_at) or as_utc(command.claimed_at) or as_utc(command.created_at)
+    if ack_at is None:
+        return normal
+    now = utcnow()
+    elapsed = max(0.0, (now - ack_at).total_seconds())
+    last_seen = as_utc(device.last_seen)
+    heartbeat_age = (now - last_seen).total_seconds() if last_seen else None
+    heartbeat_after_ack = bool(last_seen and last_seen > ack_at)
+
+    # A later heartbeat long after the transition is a new live session (manual
+    # power-on, reboot, or a shutdown that did not happen). Do not let an old
+    # shutdown command permanently force the machine offline.
+    if heartbeat_after_ack and elapsed >= FULL_SHUTDOWN_FAILURE_SECONDS and device_online(device):
+        return {
+            **normal,
+            "state": "online",
+            "confirmation": "not_confirmed",
+            "requested_at": iso(ack_at),
+            "message": "O Agent voltou a comunicar; o computador está ligado.",
+        }
+
+    if elapsed < FULL_SHUTDOWN_TRANSITION_SECONDS:
+        return {
+            **normal,
+            "state": "shutting_down",
+            "confirmation": "waiting",
+            "requested_at": iso(ack_at),
+            "message": "Windows está encerrando. Aguardando o Agent parar de responder.",
+        }
+
+    # During this short confirmation window the Agent command poller touches
+    # last_seen about every 5 seconds.  If the last authenticated contact has
+    # gone stale, Windows/Agent are no longer reachable and shutdown is
+    # confirmed operationally.
+    if heartbeat_age is None or heartbeat_age > FULL_SHUTDOWN_HEARTBEAT_STALE_SECONDS:
+        confirmed_at = last_seen + timedelta(seconds=FULL_SHUTDOWN_HEARTBEAT_STALE_SECONDS) if last_seen else ack_at + timedelta(seconds=FULL_SHUTDOWN_TRANSITION_SECONDS)
+        return {
+            **normal,
+            "state": "offline",
+            "confirmation": "confirmed",
+            "requested_at": iso(ack_at),
+            "confirmed_at": iso(confirmed_at),
+            "message": "Desligamento confirmado: o CoreControl Agent parou de responder após o comando.",
+        }
+
+    # Fresh authenticated heartbeats mean Windows is still alive. Keep a short
+    # transition state before declaring that shutdown could not be confirmed.
+    if elapsed < FULL_SHUTDOWN_FAILURE_SECONDS:
+        return {
+            **normal,
+            "state": "shutting_down",
+            "confirmation": "waiting",
+            "requested_at": iso(ack_at),
+            "message": "O Windows ainda está encerrando; o Agent continua respondendo.",
+        }
+
+    return {
+        **normal,
+        "state": "online",
+        "confirmation": "not_confirmed",
+        "requested_at": iso(ack_at),
+        "message": "O desligamento não foi confirmado porque o Agent continua online.",
+    }
 
 
 def device_managed_off_state(db: Session, device: Device) -> dict:
@@ -881,8 +991,16 @@ def device_managed_off_state(db: Session, device: Device) -> dict:
     }
 
 
-def device_effectively_online(db: Session, device: Device) -> bool:
-    """Economy Mode is still online; never present it as a powered-off PC."""
+def device_effectively_online(db: Session, device: Device, *, shutdown_state: dict | None = None) -> bool:
+    """Return customer-facing online state with fast shutdown confirmation.
+
+    Economy Mode remains online. A fully shut down PC becomes offline as soon
+    as the post-shutdown Agent heartbeat disappears, without waiting the normal
+    telemetry timeout.
+    """
+    shutdown = shutdown_state or device_shutdown_lifecycle(db, device)
+    if shutdown.get("state") == "offline" and shutdown.get("confirmation") == "confirmed":
+        return False
     return bool(device_online(device))
 
 
@@ -996,12 +1114,14 @@ def device_power_pending_state(db: Session, device: Device, *, currently_on: boo
     }
 
 
-def device_power_readiness(db: Session, device: Device) -> dict:
+def device_power_readiness(db: Session, device: Device, *, shutdown_state: dict | None = None) -> dict:
     target_info = device_wol_info(db, device)
     gateways = find_power_gateways(db, device)
     windows_device = "windows" in str(device.os_name or "").lower()
     economy = device_managed_off_state(db, device)
-    native_agent_online = bool(device_online(device))
+    shutdown = shutdown_state or device_shutdown_lifecycle(db, device)
+    shutting_down = shutdown.get("state") == "shutting_down"
+    native_agent_online = bool(device_effectively_online(db, device, shutdown_state=shutdown))
 
     # The software-only flow uses commands already supported since Agent 0.9.10.
     # Agent 0.9.14 improves the mode by saving/restoring the Windows power plan,
@@ -1013,11 +1133,13 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         windows_device and native_agent_online and _version_at_least(device.agent_version, (0, 9, 11))
     )
 
-    economy_available = bool(economy_agent_available and not economy["active"])
-    activate_available = bool(economy_agent_available and economy["active"])
-    shutdown_available = bool(shutdown_agent_available and not economy["active"])
+    economy_available = bool(economy_agent_available and not economy["active"] and not shutting_down)
+    activate_available = bool(economy_agent_available and economy["active"] and not shutting_down)
+    shutdown_available = bool(shutdown_agent_available and not economy["active"] and not shutting_down)
 
-    if economy["active"]:
+    if shutting_down:
+        reason = "Desligamento em andamento. Aguarde a confirmação do estado do computador."
+    elif economy["active"]:
         reason = "Modo econômico ativo. O Agent continua conectado; use Ativar computador para voltar ao modo normal."
     elif not windows_device:
         reason = "O Modo econômico remoto está disponível para computadores Windows."
@@ -1077,7 +1199,7 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "activate_available": activate_available,
         "shutdown_available": shutdown_available,
         "software_only_power": True,
-        "power_engine_version": "10.42",
+        "power_engine_version": "10.43",
         "power_off_mode": "economy",
         "off_available": economy_available,
         "safe_to_power_off": economy_available,
@@ -1149,7 +1271,8 @@ def serialize_sample(sample: Telemetry | None) -> dict | None:
 
 
 def serialize_device(db: Session, device: Device, include_sample: bool = True) -> dict:
-    actual_online = device_online(device)
+    shutdown = device_shutdown_lifecycle(db, device)
+    actual_online = device_effectively_online(db, device, shutdown_state=shutdown)
     managed_off = device_managed_off_state(db, device)
     online = bool(actual_online)
     sample = latest_telemetry(db, device.id) if include_sample else None
@@ -1180,11 +1303,16 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "actual_online": actual_online,
         "managed_off": bool(managed_off["active"]),
         "economy_mode": bool(managed_off["active"]),
+        "power_state": shutdown.get("state"),
+        "shutdown_confirmation": shutdown.get("confirmation"),
+        "shutdown_requested_at": shutdown.get("requested_at"),
+        "shutdown_confirmed_at": shutdown.get("confirmed_at"),
+        "shutdown_message": shutdown.get("message"),
         "health_score": health_score(sample, online),
         "alerts_open": int(open_alerts),
         "telemetry": serialize_sample(sample),
         "remote": remote_state(device, sample),
-        "power": device_power_readiness(db, device),
+        "power": device_power_readiness(db, device, shutdown_state=shutdown),
     }
 
 
@@ -2288,14 +2416,21 @@ def get_remote_status(device_id: int, user: CurrentUser, db: Db):
     if not device or not device.active:
         raise HTTPException(status_code=404, detail="Computador não encontrado")
     assert_device_access(user, device)
+    shutdown = device_shutdown_lifecycle(db, device)
     sync_error = None
-    try:
-        refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
-    except MeshCentralCommandError as exc:
-        sync_error = str(exc)
+    # During a full-shutdown transition the authenticated CoreControl Agent is
+    # the confirmation source. Polling MeshCentral here only adds latency and
+    # can keep returning a stale connected flag after Windows already stopped.
+    if shutdown.get("state") not in {"shutting_down", "offline"}:
+        try:
+            refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
+        except MeshCentralCommandError as exc:
+            sync_error = str(exc)
     state = remote_state(device, latest_telemetry(db, device.id))
     managed_off = device_managed_off_state(db, device)
     actual_on = device_power_currently_on(device)
+    if shutdown.get("state") == "offline" and shutdown.get("confirmation") == "confirmed":
+        actual_on = False
     return {
         "ok": True,
         "device_id": device.id,
@@ -2309,6 +2444,11 @@ def get_remote_status(device_id: int, user: CurrentUser, db: Db):
         "economy_mode_active": bool(managed_off["active"]),
         "power_on": bool(actual_on),
         "actual_power_reachable": bool(actual_on),
+        "power_state": shutdown.get("state"),
+        "shutdown_confirmation": shutdown.get("confirmation"),
+        "shutdown_requested_at": shutdown.get("requested_at"),
+        "shutdown_confirmed_at": shutdown.get("confirmed_at"),
+        "shutdown_message": shutdown.get("message"),
         "warning": sync_error,
     }
 
@@ -2527,9 +2667,12 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     if requested not in {"economy", "activate", "shutdown"}:
         raise HTTPException(status_code=400, detail="Ação de energia inválida")
 
+    shutdown = device_shutdown_lifecycle(db, device)
+    if shutdown.get("state") == "shutting_down":
+        raise HTTPException(status_code=409, detail="Desligamento em andamento. Aguarde a confirmação antes de enviar outro comando de energia.")
     economy = device_managed_off_state(db, device)
     economy_active = bool(economy["active"])
-    readiness = device_power_readiness(db, device)
+    readiness = device_power_readiness(db, device, shutdown_state=shutdown)
 
     if requested == "economy":
         if economy_active:
@@ -2624,14 +2767,14 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         db.add(AuditLog(
             company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
             action="power.shutdown.failed",
-            details=json.dumps({"hostname": device.hostname, "engine": "10.42", "error": str(getattr(exc, "detail", exc))}, ensure_ascii=False),
+            details=json.dumps({"hostname": device.hostname, "engine": "10.43", "error": str(getattr(exc, "detail", exc))}, ensure_ascii=False),
         ))
         db.commit()
         raise
     db.add(AuditLog(
         company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
         action="power.shutdown.sent",
-        details=json.dumps({"hostname": device.hostname, "engine": "10.42", "remote_power_on_guaranteed": False}, ensure_ascii=False),
+        details=json.dumps({"hostname": device.hostname, "engine": "10.43", "remote_power_on_guaranteed": False}, ensure_ascii=False),
     ))
     db.commit()
     return {
@@ -2640,7 +2783,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         "methods": ["corecontrol_agent_shutdown"],
         "economy_mode_active": False, "managed_off_active": False,
         "power_off_mode": "shutdown",
-        "message": "Desligamento completo agendado. Depois que o Windows desligar, o CoreControl não garante religamento remoto sem hardware/Wake compatível.",
+        "message": "Desligamento iniciado. O CoreControl agora vai confirmar automaticamente quando o Agent parar de responder.",
     }
 
 

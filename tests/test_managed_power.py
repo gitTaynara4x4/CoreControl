@@ -14,7 +14,7 @@ def test_managed_commands_are_the_compatible_transport_for_economy_mode():
     assert '"power.managed_on"' in api
     assert 'case "power.managed_off":' in agent
     assert 'case "power.managed_on":' in agent
-    assert '"power_engine_version": "10.42"' in api
+    assert '"power_engine_version": "10.43"' in api
 
 
 def test_economy_keeps_system_awake_turns_display_off_and_uses_power_saver():
