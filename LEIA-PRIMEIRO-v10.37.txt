@@ -1,0 +1,12 @@
+CoreControl v10.37 - Agent 0.9.10
+
+CORRECAO
+- CoreControl Off nao desconecta nem bloqueia mais a sessao do Windows.
+- O Agent mantem o Windows ativo em segundo plano e apaga os monitores.
+- Enquanto o estado Off estiver ativo, um keeper reaplica o estado de monitor desligado.
+- Ligar computador remove o keeper e reacende os monitores.
+- Sem WOL, roteador, UPnP, IP publico ou outro PC na rede.
+
+ATUALIZACAO
+- PCs existentes com Agent 0.9.9 precisam atualizar uma vez para 0.9.10.
+- Novos clientes recebem 0.9.10 pelo instalador atual.

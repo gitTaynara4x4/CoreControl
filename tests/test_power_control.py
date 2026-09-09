@@ -83,7 +83,7 @@ def test_agent_097_audits_and_prepares_wol_without_claiming_full_shutdown_guaran
     windows = (ROOT / "agent/src/wol_capability_windows.go").read_text(encoding="utf-8")
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
 
-    assert 'const agentVersion = "0.9.9"' in main
+    assert 'const agentVersion = "0.9.10"' in main
     assert '"wol_capability"' in main
     assert "Get-NetAdapterPowerManagement" in windows
     assert "Set-NetAdapterPowerManagement" in windows

@@ -53,13 +53,13 @@ def test_api_prioritizes_native_agent_managed_power_without_mesh_runcommand():
     assert '_run_agent_command_sync(' in api
     assert '"power.managed_off"' in api
     assert '"power.managed_on"' in api
-    assert 'managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 9)))' in api
-    assert '"power_engine_version": "10.36"' in api
+    assert 'managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 10)))' in api
+    assert '"power_engine_version": "10.37"' in api
     assert 'case "power.managed_off":' in agent
     assert 'case "power.managed_on":' in agent
     assert 'CORECONTROL_MANAGED_OFF_CONFIRMED' in agent
     assert 'CORECONTROL_MANAGED_ON_CONFIRMED' in agent
-    assert 'const agentVersion = "0.9.9"' in main
+    assert 'const agentVersion = "0.9.10"' in main
 
 
 def test_frontend_treats_managed_off_as_desligado_and_hides_router_setup():
@@ -76,5 +76,25 @@ def test_frontend_treats_managed_off_as_desligado_and_hides_router_setup():
 def test_managed_off_does_not_require_elevated_include_username():
     agent = (ROOT / "agent" / "src" / "update_windows.go").read_text(encoding="utf-8")
     assert "-IncludeUserName" not in agent
-    assert "GetCurrentProcess()).SessionId" in agent
+    assert "WTSDisconnectSession" not in agent[agent.index("func executeManagedOffCommand()"):agent.index("func mapFromStruct")]
+    assert "SC_MONITORPOWER" in agent
 
+
+
+def test_managed_off_turns_display_off_without_disconnect_or_lock():
+    agent = (ROOT / "agent" / "src" / "update_windows.go").read_text(encoding="utf-8")
+    native = agent[agent.index("func executeManagedOffCommand()"):agent.index("func mapFromStruct")]
+    assert "SC_MONITORPOWER" in native
+    assert "SendMessage" in native
+    assert "managed-off.active" in native
+    assert "WTSDisconnectSession" not in native
+    assert "LockWorkStation" not in native
+    assert "rundll32.exe user32.dll,LockWorkStation" not in native
+
+
+def test_managed_on_reenables_display():
+    agent = (ROOT / "agent" / "src" / "update_windows.go").read_text(encoding="utf-8")
+    native_on = agent[agent.index("func executeManagedOnCommand()"):agent.index("func mapFromStruct")]
+    assert "managed-off.active" in native_on
+    assert "SC_MONITORPOWER" in native_on
+    assert "[IntPtr](-1)" in native_on

@@ -148,7 +148,6 @@ func executeAgentCommand(command pendingCommand) (map[string]interface{}, error)
 	}
 }
 
-
 func runManagedPowerShell(script string, timeout time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -169,30 +168,39 @@ func runManagedPowerShell(script string, timeout time.Duration) (string, error) 
 }
 
 func executeManagedOffCommand() (map[string]interface{}, error) {
-	// CoreControl Off é executado pelo próprio Agent, não pelo MeshCentral.
-	// O Agent continua vivo e consultando a VPS a cada poucos segundos, então
-	// o comando inverso funciona mesmo quando este é o único PC da rede.
+	// CoreControl Off 10.37 é executado pelo próprio Agent na sessão do usuário.
+	// Não desconecta/bloqueia a sessão: mantém o Windows e o Agent vivos, impede
+	// suspensão do sistema e força os monitores para o estado desligado até o
+	// comando power.managed_on chegar pela fila autenticada da VPS.
 	script := `$ErrorActionPreference='Stop';
 $ProgressPreference='SilentlyContinue';
 $dir=Join-Path $env:ProgramData 'CoreControl';
 New-Item -ItemType Directory -Path $dir -Force | Out-Null;
 $keeper=Join-Path $dir 'managed-off-keeper.ps1';
+$flag=Join-Path $dir 'managed-off.active';
+Set-Content -Path $flag -Value ([DateTime]::UtcNow.ToString('o')) -Encoding ASCII -Force;
 $body=@'
+$ErrorActionPreference='SilentlyContinue'
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public static class CoreControlPowerState {
+public static class CoreControlManagedDisplay {
   [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }
 "@
 $ES_CONTINUOUS=0x80000000; $ES_SYSTEM_REQUIRED=0x00000001;
+$HWND_BROADCAST=[IntPtr]0xffff; $WM_SYSCOMMAND=0x0112; $SC_MONITORPOWER=0xF170;
+$flag=Join-Path (Join-Path $env:ProgramData 'CoreControl') 'managed-off.active';
 try {
-  while($true){
-    [CoreControlPowerState]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) | Out-Null;
-    Start-Sleep -Seconds 3;
+  while(Test-Path $flag){
+    [CoreControlManagedDisplay]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) | Out-Null;
+    [CoreControlManagedDisplay]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr]2) | Out-Null;
+    Start-Sleep -Milliseconds 700;
   }
 } finally {
-  [CoreControlPowerState]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null;
+  [CoreControlManagedDisplay]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null;
+  [CoreControlManagedDisplay]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr](-1)) | Out-Null;
 }
 '@;
 Set-Content -Path $keeper -Value $body -Encoding UTF8 -Force;
@@ -201,16 +209,7 @@ $existing=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -Error
 if(-not $existing){
   Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$keeper) | Out-Null;
 }
-$wts=@'
-using System;
-using System.Runtime.InteropServices;
-public static class CoreControlWtsAgent {
-  [DllImport("Wtsapi32.dll", SetLastError=true)] public static extern bool WTSDisconnectSession(IntPtr hServer, int sessionId, bool bWait);
-}
-'@;
-Add-Type -TypeDefinition $wts -ErrorAction SilentlyContinue;
-$sid=([System.Diagnostics.Process]::GetCurrentProcess()).SessionId;
-if($sid -gt 0){try{[CoreControlWtsAgent]::WTSDisconnectSession([IntPtr]::Zero,[int]$sid,$false) | Out-Null}catch{}}
+Start-Sleep -Milliseconds 800;
 'CORECONTROL_MANAGED_OFF_CONFIRMED'`
 	out, err := runManagedPowerShell(script, 15*time.Second)
 	if err != nil {
@@ -219,16 +218,29 @@ if($sid -gt 0){try{[CoreControlWtsAgent]::WTSDisconnectSession([IntPtr]::Zero,[i
 	if !strings.Contains(out, "CORECONTROL_MANAGED_OFF_CONFIRMED") {
 		return map[string]interface{}{"managed_off": false, "output": out}, errors.New("o Windows não confirmou o CoreControl Off")
 	}
-	return map[string]interface{}{"managed_off": true}, nil
+	return map[string]interface{}{"managed_off": true, "display_off": true}, nil
 }
 
 func executeManagedOnCommand() (map[string]interface{}, error) {
 	script := `$ErrorActionPreference='SilentlyContinue';
-$keeper=Join-Path (Join-Path $env:ProgramData 'CoreControl') 'managed-off-keeper.ps1';
+$dir=Join-Path $env:ProgramData 'CoreControl';
+$keeper=Join-Path $dir 'managed-off-keeper.ps1';
+$flag=Join-Path $dir 'managed-off.active';
+Remove-Item -Path $flag -Force -ErrorAction SilentlyContinue;
 $escaped=[Regex]::Escape($keeper);
 $procs=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match $escaped});
 foreach($p in $procs){try{Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue}catch{}}
 Remove-Item -Path $keeper -Force -ErrorAction SilentlyContinue;
+$display=@'
+using System;
+using System.Runtime.InteropServices;
+public static class CoreControlManagedDisplayWake {
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+}
+'@;
+Add-Type -TypeDefinition $display -ErrorAction SilentlyContinue;
+$HWND_BROADCAST=[IntPtr]0xffff; $WM_SYSCOMMAND=0x0112; $SC_MONITORPOWER=0xF170;
+try{[CoreControlManagedDisplayWake]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr](-1)) | Out-Null}catch{}
 'CORECONTROL_MANAGED_ON_CONFIRMED'`
 	out, err := runManagedPowerShell(script, 12*time.Second)
 	if err != nil {
@@ -237,7 +249,7 @@ Remove-Item -Path $keeper -Force -ErrorAction SilentlyContinue;
 	if !strings.Contains(out, "CORECONTROL_MANAGED_ON_CONFIRMED") {
 		return map[string]interface{}{"managed_off": true, "output": out}, errors.New("o Windows não confirmou a saída do CoreControl Off")
 	}
-	return map[string]interface{}{"managed_off": false}, nil
+	return map[string]interface{}{"managed_off": false, "display_off": false}, nil
 }
 
 func mapFromStruct(value interface{}) (map[string]interface{}, error) {

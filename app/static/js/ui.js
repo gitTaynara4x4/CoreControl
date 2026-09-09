@@ -325,7 +325,7 @@
           </div>
           <div class="callout">
             <strong style="display:block;margin-bottom:4px">Como funciona</strong>
-            <span>O Windows permanece em modo gerenciado com os serviços do CoreControl ativos em segundo plano. A sessão do usuário é desconectada e o painel passa a mostrar o computador como desligado.</span>
+            <span>O Windows permanece em modo gerenciado com os serviços do CoreControl ativos em segundo plano. A sessão continua aberta, os monitores ficam apagados e o painel passa a mostrar o computador como desligado.</span>
           </div>
           <div class="modal-actions">
             <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>

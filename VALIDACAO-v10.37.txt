@@ -1,0 +1,15 @@
+CoreControl v10.37 / Agent 0.9.10
+
+Validacoes executadas:
+- python -m compileall -q app: OK
+- pytest -q tests/test_managed_power.py tests/test_power_control.py: 20 passed
+- node --check app/static/js/ui.js: OK
+- node --check app/static/js/pages/devices.js: OK
+- go vet ./... (agent/src): OK
+- build Windows amd64 CoreControlAgent.exe: OK
+
+Comportamento corrigido:
+- power.managed_off NAO desconecta sessao e NAO chama LockWorkStation.
+- Mantem Windows/Agent vivos com SetThreadExecutionState.
+- Apaga/reapaga monitores com WM_SYSCOMMAND / SC_MONITORPOWER.
+- power.managed_on remove o estado e reacende os monitores.
