@@ -1,0 +1,17 @@
+CoreControl v10.46 - Persistencia de navegacao no F5
+
+Problema corrigido:
+- O painel sempre executava navigate('overview') ao iniciar.
+- Ao pressionar F5, qualquer pagina voltava para Visao geral.
+- As subabas de Atualizacoes tambem eram mantidas apenas em memoria.
+
+Novo comportamento:
+- A pagina atual fica registrada na URL (?page=...).
+- Empresa e computador detalhados preservam seus IDs na URL.
+- Atualizacoes preserva a subaba (?tab=overview|computers|policies).
+- F5 restaura exatamente a rota atual.
+- Voltar/Avancar do navegador funciona entre paginas principais.
+- Ao sair de Atualizacoes, o parametro de subaba e removido.
+
+Nao precisa reinstalar Agent em nenhum computador.
+Alteracao somente no painel web.

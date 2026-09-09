@@ -1,6 +1,3 @@
-96f24e9 CoreControl v10.42: adiciona Modo Econômico por software
-
-Comandos para o repositório do cliente:
-git add .
-git commit -m "CoreControl v10.42: adiciona Modo Econômico por software"
+git add app/static/app.js app/static/js/auth.js app/static/js/router.js app/static/js/pages/updates.js app/static/index.html tests/test_route_persistence_v1046.py
+git commit -m "CoreControl v10.46: mantem pagina atual ao atualizar o navegador"
 git push

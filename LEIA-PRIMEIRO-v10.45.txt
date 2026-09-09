@@ -1,0 +1,25 @@
+CoreControl v10.45 — Atualizações: revisão completa de interface
+
+Arquivos alterados:
+- app/static/pages/updates.html
+- app/static/js/pages/updates.js
+- app/static/styles.css
+- app/static/js/router.js
+- app/static/index.html
+- tests/test_updates_front_v1045.py
+
+O que mudou:
+- Corrigido o front sem estilo da página Atualizações.
+- Hierarquia esclarecida: Atualizações é o módulo geral; Windows Update, Drivers e Aplicativos são categorias.
+- Nova visão geral com status principal e 4 indicadores compactos.
+- Cards separados para Windows, Drivers, Aplicativos e Políticas.
+- Tabela de computadores refeita.
+- Busca e filtro na aba Computadores.
+- Modal de detalhes de atualizações redesenhado.
+- Modal de políticas redesenhado.
+- Estados de carregamento/erro melhorados.
+- Responsividade para notebook/mobile.
+- Estilos específicos para tema escuro.
+- Cache-busting atualizado para v10.45.
+
+Não altera API nem banco. A lógica existente de Windows Update/Drivers/winget continua sendo usada.
