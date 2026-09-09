@@ -312,67 +312,37 @@
   CT.confirmDevicePowerOff = function confirmDevicePowerOff(device, readiness) {
     return new Promise((resolve) => {
       const name = CT.esc(device?.name || 'este computador');
-      const managedMode = Boolean(readiness?.managed_mode_available);
-      const safeToPowerOff = Boolean(readiness && readiness.safe_to_power_off);
+      const safeToPowerOff = Boolean(readiness?.safe_to_power_off);
       const wakeVerified = Boolean(readiness?.wake_verified);
-      const canPrepareRoute = Boolean(readiness?.route_preflight_available);
+      const boxAvailable = Boolean(readiness?.gateway_available);
+      const reason = CT.esc(readiness?.reason || 'A CoreControl Box ainda não está pronta nesta rede.');
+      const routeText = boxAvailable
+        ? `CoreControl Box online${readiness.gateway_names?.length ? `: ${CT.esc(readiness.gateway_names.join(', '))}` : '.'}`
+        : 'CoreControl Box não está online nesta rede.';
+      const canConfirm = Boolean(safeToPowerOff && wakeVerified && boxAvailable);
 
-      if (managedMode) {
-        CT.openModal(`
-          <div class="danger-modal-head">
-            <div class="danger-modal-icon" aria-hidden="true">!</div>
-            <div>
-              <h2>Desligar computador?</h2>
-              <p>Você está prestes a desligar <strong>${name}</strong> pelo CoreControl.</p>
-            </div>
+      CT.openModal(`
+        <div class="danger-modal-head">
+          <div class="danger-modal-icon" aria-hidden="true">!</div>
+          <div>
+            <h2>Desligar computador?</h2>
+            <p>Você está prestes a desligar <strong>${name}</strong> de verdade.</p>
           </div>
-          <div class="danger-summary">
-            <strong>Religamento garantido pelo serviço CoreControl</strong>
-            <span>Não é necessário configurar Wake-on-LAN, roteador, IP público ou outro computador na rede.</span>
-          </div>
-          <div class="callout">
-            <strong style="display:block;margin-bottom:4px">Como funciona</strong>
-            <span>O Windows permanece em modo gerenciado com os serviços do CoreControl ativos em segundo plano. A sessão continua aberta, os monitores ficam apagados e o painel passa a mostrar o computador como desligado.</span>
-          </div>
-          <div class="modal-actions">
-            <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>
-            <button class="btn danger" type="button" id="confirmPowerOff">Desligar computador</button>
-          </div>`);
-      } else {
-        const reason = CT.esc(readiness?.reason || 'A rota para ligar novamente ainda não foi confirmada.');
-        const routeText = readiness?.wan_route_verified
-          ? 'Rota externa de Wake-on-LAN confirmada pela VPS.'
-          : readiness?.relay_count
-            ? `Wake Relay verificado${readiness.relay_names?.length ? `: ${CT.esc(readiness.relay_names.join(', '))}` : '.'}`
-            : 'Nenhuma rota externa de religamento foi confirmada ainda.';
-        const warning = safeToPowerOff && wakeVerified
-          ? 'A rota para ligar novamente já foi comprovada. O Windows será desligado de verdade.'
-          : canPrepareRoute
-            ? 'Antes de desligar, o CoreControl tentará criar e provar automaticamente a rota Wake-on-WAN. Se não conseguir, o Windows NÃO será desligado.'
-            : 'A rota de religamento ainda não foi confirmada. O CoreControl não fará um desligamento inseguro nem fingirá desligar apagando o monitor.';
-        const canConfirm = Boolean((safeToPowerOff && wakeVerified) || canPrepareRoute);
-
-        CT.openModal(`
-          <div class="danger-modal-head">
-            <div class="danger-modal-icon" aria-hidden="true">!</div>
-            <div>
-              <h2>Desligar computador?</h2>
-              <p>Você está prestes a desligar <strong>${name}</strong> remotamente.</p>
-            </div>
-          </div>
-          <div class="danger-summary">
-            <strong>${wakeVerified ? 'Religamento disponível' : canPrepareRoute ? 'Preparar religamento automaticamente' : 'Religamento não confirmado'}</strong>
-            <span>${CT.esc(warning)}</span>
-          </div>
-          <div class="callout">
-            <strong style="display:block;margin-bottom:4px">Status da rota</strong>
-            <span>${routeText}</span>${wakeVerified ? '' : `<br><span style="display:block;margin-top:6px">${reason}</span>`}
-          </div>
-          <div class="modal-actions">
-            <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>
-            <button class="btn danger" type="button" id="confirmPowerOff" ${canConfirm ? '' : 'disabled'}>${wakeVerified ? 'Desligar computador' : canPrepareRoute ? 'Preparar e desligar' : 'Indisponível'}</button>
-          </div>`);
-      }
+        </div>
+        <div class="danger-summary">
+          <strong>${canConfirm ? 'Controle de energia pronto' : 'CoreControl Box necessária'}</strong>
+          <span>${canConfirm
+            ? 'A Box ficará ligada no local e será a única rota usada para religar este computador.'
+            : 'O suporte precisa deixar a CoreControl Box online. O cliente não configura roteador, UPnP ou Wake-on-WAN.'}</span>
+        </div>
+        <div class="callout">
+          <strong style="display:block;margin-bottom:4px">Status</strong>
+          <span>${routeText}</span>${canConfirm ? '' : `<br><span style="display:block;margin-top:6px">${reason}</span>`}
+        </div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>
+          <button class="btn danger" type="button" id="confirmPowerOff" ${canConfirm ? '' : 'disabled'}>${canConfirm ? 'Desligar computador' : 'CoreControl Box necessária'}</button>
+        </div>`);
 
       let settled = false;
       const finish = (accepted) => {
@@ -382,7 +352,7 @@
         resolve(Boolean(accepted));
       };
       CT.$('#cancelPowerOff').onclick = () => finish(false);
-      CT.$('#confirmPowerOff').onclick = () => finish(managedMode || (safeToPowerOff && wakeVerified) || canPrepareRoute);
+      CT.$('#confirmPowerOff').onclick = () => finish(canConfirm);
     });
   };
 

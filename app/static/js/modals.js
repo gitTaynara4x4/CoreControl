@@ -75,6 +75,72 @@
     }
   };
 
+  CT.createBoxEnrollmentToken = async function createBoxEnrollmentToken(companyId, companyName, validMinutes) {
+    try {
+      const minutes = Number(validMinutes) || 30;
+      const data = await CT.api(`/companies/${companyId}/gateway-enrollment-token?valid_minutes=${minutes}`, { method: 'POST' });
+      const installationUrl = new URL(data.installation_url, window.location.origin).href;
+      CT.openModal(`
+        <h2>Instalar CoreControl Box</h2>
+        <p>Instale <strong>uma vez neste local</strong> da empresa <strong>${CT.esc(companyName)}</strong>. O Box fica conectado à VPS por uma conexão de saída e religa os PCs da mesma LAN.</p>
+        <div class="callout" style="margin-top:12px"><strong>Não depende de:</strong> UPnP, abertura de portas, IP público, CGNAT ou marca do roteador.</div>
+        <div style="margin-top:16px">
+          <div style="font-size:12px;font-weight:650;margin-bottom:6px">Instalador autorizado</div>
+          <div class="token-box" id="gatewayInstallationLink" style="font-size:12px;word-break:break-all">${CT.esc(installationUrl)}</div>
+        </div>
+        <div style="margin-top:14px">
+          <div style="font-size:12px;opacity:.72;margin-bottom:6px">Código de uso único</div>
+          <div class="token-box" id="gatewayInstallationCode" style="font-size:22px;font-weight:700;letter-spacing:2px;text-align:center">${CT.esc(data.installation_code)}</div>
+        </div>
+        <div class="callout" style="margin-top:12px">O equipamento escolhido para Box deve permanecer ligado. Pode ser um mini PC/servidor Windows do local. Os computadores monitorados continuam usando o Agent normal.</div>
+        <div class="modal-actions" style="flex-wrap:wrap">
+          <button class="btn" type="button" id="closeBoxToken">Fechar</button>
+          <button class="btn" type="button" id="copyBoxCode">Copiar código</button>
+          <button class="btn" type="button" id="copyBoxLink">Copiar link</button>
+          <button class="btn primary" type="button" id="downloadBox">Baixar Box</button>
+        </div>`);
+      CT.$('#closeBoxToken').onclick = CT.closeModal;
+      CT.$('#copyBoxCode').onclick = async () => {
+        await navigator.clipboard.writeText(data.installation_code);
+        CT.toast('Código do Box copiado.');
+      };
+      CT.$('#copyBoxLink').onclick = async () => {
+        await navigator.clipboard.writeText(installationUrl);
+        CT.toast('Link do Box copiado.');
+      };
+      CT.$('#downloadBox').onclick = () => window.location.assign(installationUrl);
+    } catch (error) {
+      CT.toast(error.message, true);
+    }
+  };
+
+  CT.openBoxEnrollmentOptions = function openBoxEnrollmentOptions(companyId, companyName) {
+    CT.openModal(`
+      <h2>Adicionar CoreControl Box</h2>
+      <p>O Box é instalado <strong>uma vez por rede/local</strong> e permite desligar e religar PCs sem configurar o roteador.</p>
+      <form id="gatewayEnrollmentOptionsForm" class="stack">
+        <label>Validade da autorização
+          <select id="gatewayEnrollmentValidity" required>
+            <option value="30" selected>30 minutos</option>
+            <option value="120">2 horas</option>
+            <option value="1440">24 horas</option>
+          </select>
+        </label>
+        <div class="callout">Em redes com vários PCs, os Agents já funcionam como relay entre si. O Box dedicado garante o religamento quando todos os computadores forem desligados.</div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="cancelBoxEnrollment">Cancelar</button>
+          <button class="btn primary" type="submit">Gerar Box</button>
+        </div>
+      </form>`);
+    CT.$('#cancelBoxEnrollment').onclick = CT.closeModal;
+    CT.$('#gatewayEnrollmentOptionsForm').onsubmit = async (event) => {
+      event.preventDefault();
+      const minutes = Number(CT.$('#gatewayEnrollmentValidity').value) || 30;
+      CT.closeModal();
+      await CT.createBoxEnrollmentToken(companyId, companyName, minutes);
+    };
+  };
+
   CT.createDeviceReinstallToken = async function createDeviceReinstallToken(device, validMinutes) {
     try {
       const minutes = Number(validMinutes) || 30;

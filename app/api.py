@@ -58,6 +58,8 @@ Db = Annotated[Session, Depends(get_db)]
 
 
 COMPONENT_DIR = Path(__file__).resolve().parent / "downloads"
+GATEWAY_COMPONENT = COMPONENT_DIR / "CoreControlGateway.exe"
+
 DESKTOP_COMPONENTS = {
     "CoreControl.exe": "application/vnd.microsoft.portable-executable",
     "CoreControlAgent.exe": "application/vnd.microsoft.portable-executable",
@@ -199,10 +201,19 @@ def device_wol_info(db: Session, device: Device) -> dict:
     extra = sample_extra(sample)
     capability = extra.get("wol_capability")
     capability = capability if isinstance(capability, dict) else {}
+    network_cidrs_raw = extra.get("network_cidrs")
+    network_cidrs = []
+    if isinstance(network_cidrs_raw, list):
+        network_cidrs = [str(item or "").strip() for item in network_cidrs_raw if str(item or "").strip()]
+    network_cidr = str(extra.get("network_cidr") or "").strip()
+    if network_cidr and network_cidr not in network_cidrs:
+        network_cidrs.insert(0, network_cidr)
     return {
         "mac_address": normalize_mac(capability.get("mac_address")) or normalize_mac(extra.get("primary_mac")),
-        "network_cidr": str(extra.get("network_cidr") or "").strip(),
+        "network_cidr": network_cidr,
+        "network_cidrs": network_cidrs,
         "relay_capable": bool(extra.get("wol_relay_capable")),
+        "gateway_mode": bool(extra.get("gateway_mode")) or getattr(device, "device_kind", "computer") == "gateway",
         "ip_local": sample.ip_local if sample else None,
         "capability_checked": bool(capability.get("checked")),
         "capability_checked_at": str(capability.get("checked_at") or "").strip() or None,
@@ -223,50 +234,73 @@ def device_wol_info(db: Session, device: Device) -> dict:
     }
 
 
-def find_wake_relays(db: Session, target: Device) -> list[Device]:
+def find_power_gateways(db: Session, target: Device) -> list[Device]:
+    """Return dedicated, always-on CoreControl Boxes on the target LAN.
+
+    v10.41 deliberately does not use ordinary PCs, MeshCentral relays or
+    customer-router mappings for the power path. A dedicated Box is the single
+    supported relay so every installation behaves the same way behind CGNAT,
+    dynamic IPs and different router brands.
+    """
     target_info = device_wol_info(db, target)
-    network_cidr = target_info.get("network_cidr") or ""
-    mac_address = target_info.get("mac_address") or ""
-    if not network_cidr or not mac_address:
+    if not target_info.get("mac_address"):
         return []
 
-    peers = list(
+    candidates = list(
         db.scalars(
             select(Device).where(
                 Device.company_id == target.company_id,
+                Device.device_kind == "gateway",
                 Device.active.is_(True),
-                Device.id != target.id,
             )
         ).all()
     )
-    relays: list[Device] = []
-    for peer in peers:
-        if not device_online(peer):
+    gateways: list[Device] = []
+    for gateway in candidates:
+        if not device_online(gateway):
             continue
-        peer_info = device_wol_info(db, peer)
-        if not peer_info.get("relay_capable"):
+        gateway_info = device_wol_info(db, gateway)
+        if not gateway_info.get("gateway_mode"):
             continue
-        if peer_info.get("network_cidr") != network_cidr:
+        if not _same_wol_network(target_info, gateway_info):
             continue
-        relays.append(peer)
-    return relays
+        gateways.append(gateway)
+
+    gateways.sort(
+        key=lambda gateway: -(as_utc(gateway.last_seen).timestamp() if as_utc(gateway.last_seen) else 0)
+    )
+    return gateways
+
+
+def find_wake_relays(db: Session, target: Device) -> list[Device]:
+    """Compatibility alias: from v10.41 a wake relay is always a CoreControl Box."""
+    return find_power_gateways(db, target)
+
+def _network_objects(info: dict) -> list[ipaddress.IPv4Network]:
+    raw_values = list(info.get("network_cidrs") or [])
+    single = str(info.get("network_cidr") or "").strip()
+    if single and single not in raw_values:
+        raw_values.insert(0, single)
+    networks: list[ipaddress.IPv4Network] = []
+    for raw in raw_values:
+        try:
+            network = ipaddress.ip_network(str(raw).strip(), strict=False)
+        except ValueError:
+            continue
+        if network.version == 4 and network.is_private:
+            networks.append(network)
+    return networks
 
 
 def _same_wol_network(target_info: dict, peer_info: dict) -> bool:
-    """Conservative same-LAN check for MeshCentral WOL relays.
-
-    Prefer the network CIDR reported by the Agent. Older samples may not have
-    it, so fall back to IPv4 membership when one side does provide a network.
-    We deliberately avoid broadcasting through arbitrary company devices that
-    may be installed at another physical site.
-    """
-    target_cidr = str(target_info.get("network_cidr") or "").strip()
-    peer_cidr = str(peer_info.get("network_cidr") or "").strip()
-    if target_cidr and peer_cidr:
-        try:
-            return ipaddress.ip_network(target_cidr, strict=False) == ipaddress.ip_network(peer_cidr, strict=False)
-        except ValueError:
-            return False
+    """Conservative same-LAN check used by native Agents and Gateways."""
+    target_networks = _network_objects(target_info)
+    peer_networks = _network_objects(peer_info)
+    if target_networks and peer_networks:
+        for target_network in target_networks:
+            for peer_network in peer_networks:
+                if target_network == peer_network:
+                    return True
 
     try:
         target_ip = ipaddress.ip_address(str(target_info.get("ip_local") or "").strip())
@@ -275,17 +309,11 @@ def _same_wol_network(target_info: dict, peer_info: dict) -> bool:
         return False
     if target_ip.version != 4 or peer_ip.version != 4 or not target_ip.is_private or not peer_ip.is_private:
         return False
-    if target_cidr:
-        try:
-            return peer_ip in ipaddress.ip_network(target_cidr, strict=False)
-        except ValueError:
-            return False
-    if peer_cidr:
-        try:
-            return target_ip in ipaddress.ip_network(peer_cidr, strict=False)
-        except ValueError:
-            return False
-    # Last-resort compatibility for old telemetry: only /24 private peers.
+    if any(peer_ip in network for network in target_networks):
+        return True
+    if any(target_ip in network for network in peer_networks):
+        return True
+    # Compatibility for older Agents that only reported a private IPv4 address.
     return int(target_ip) >> 8 == int(peer_ip) >> 8
 
 
@@ -783,6 +811,7 @@ def _run_agent_command_sync(
     command_type: str,
     *,
     created_by: int | None,
+    payload: dict | None = None,
     timeout_seconds: float = 18.0,
 ) -> dict:
     """Queue a command to the installed CoreControl Agent and wait for its signed result.
@@ -795,7 +824,7 @@ def _run_agent_command_sync(
         db,
         device,
         command_type,
-        {},
+        payload or {},
         created_by=created_by,
         deduplicate=False,
     )
@@ -969,102 +998,54 @@ def device_power_pending_state(db: Session, device: Device, *, currently_on: boo
 
 def device_power_readiness(db: Session, device: Device) -> dict:
     target_info = device_wol_info(db, device)
-    relays = find_wake_relays(db, device)
-    wan_route = latest_wan_wake_route(db, device)
-    mesh_fallback = bool(
-        settings.remote_enabled
-        and meshcentral_client.provisioning_configured
-        and device.mesh_node_id
-    )
-
+    gateways = find_power_gateways(db, device)
     pc_wol_prepared = bool(target_info.get("windows_prepared"))
-    amt_detected = bool(target_info.get("intel_amt_detected"))
-    wan_method = str(wan_route.get("method") or "").strip()
     windows_device = "windows" in str(device.os_name or "").lower()
     managed_off = device_managed_off_state(db, device)
 
-    # v10.38: o botão Desligar volta a significar desligamento REAL do Windows.
-    # O modo antigo de apagar somente o monitor fica disponível apenas para
-    # retirar máquinas que já estavam presas nesse estado legado.
     native_agent_online = bool(device_online(device))
     shutdown_agent_available = bool(
-        native_agent_online and _version_at_least(device.agent_version, (0, 9, 11))
+        native_agent_online and _version_at_least(device.agent_version, (0, 9, 13))
     )
     legacy_managed_agent_available = bool(
         native_agent_online and _version_at_least(device.agent_version, (0, 9, 10))
     )
     managed_mode_available = bool(managed_off["active"] and legacy_managed_agent_available)
 
-    # Um desligamento S5 só é autorizado quando existe caminho comprovado para
-    # entregar Magic Packet depois que este próprio PC já estiver offline.
-    # Relay local ou UPnP broadcast confirmado satisfazem essa condição.
-    full_shutdown_safe = bool(relays or (wan_route.get("verified") and wan_method == "upnp_broadcast"))
-    wake_verified = bool(full_shutdown_safe)
-
-    # Enquanto o PC ainda está ligado, o CoreControl pode tentar criar a rota
-    # externa automaticamente. Isso NÃO pode ser pulado só porque o Agent novo
-    # existe (era o bug principal do 10.37).
-    route_preflight_available = bool(
-        windows_device
-        and native_agent_online
-        and pc_wol_prepared
-        and (mesh_fallback or _version_at_least(device.agent_version, (0, 9, 10)))
+    # v10.41 invariant: physical shutdown is allowed only with a dedicated
+    # CoreControl Box online on the same LAN. No ordinary-PC relay, UPnP,
+    # Wake-on-WAN or MeshCentral fallback participates in this decision.
+    box_available = bool(gateways)
+    full_shutdown_safe = bool(
+        windows_device and shutdown_agent_available and pc_wol_prepared and box_available
     )
-
-    wake_available = bool(
-        (managed_off["active"] and legacy_managed_agent_available)
-        or full_shutdown_safe
-    )
-    off_available = bool(
-        (windows_device and (shutdown_agent_available or mesh_fallback))
-        or (not windows_device and mesh_fallback)
-    )
-    safe_to_power_off = bool(
-        full_shutdown_safe
-        or (off_available and not settings.power_require_verified_wake)
-    )
+    wake_verified = bool(pc_wol_prepared and box_available)
+    wake_available = bool((managed_off["active"] and legacy_managed_agent_available) or wake_verified)
+    off_available = full_shutdown_safe
+    safe_to_power_off = full_shutdown_safe
 
     if managed_off["active"] and legacy_managed_agent_available:
         reason = (
-            "Este PC ainda está no modo legado CoreControl Off. Use Ligar uma vez para sair desse estado; "
-            "depois o novo fluxo fará desligamento real do Windows."
+            "Este PC ainda está no modo antigo CoreControl Off. Use Ligar uma vez; depois o fluxo padrão usará desligamento real com a CoreControl Box."
         )
+    elif not windows_device:
+        reason = "O desligamento físico padronizado da v10.41 está disponível para computadores Windows."
     elif native_agent_online and not shutdown_agent_available:
         reason = (
-            f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize para o Agent 0.9.11 ou superior "
-            "para usar desligamento real com confirmação pelo próprio Windows."
-        )
-    elif full_shutdown_safe:
-        reason = (
-            "Rota de religamento confirmada. O CoreControl pode desligar o Windows de verdade e depois enviar Wake-on-LAN."
+            f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize para o Agent 0.9.13 ou superior."
         )
     elif not target_info.get("mac_address"):
-        reason = "O Agent ainda não informou o endereço MAC deste computador."
+        reason = "O Agent ainda não informou o endereço MAC físico deste computador."
     elif not target_info.get("capability_checked"):
-        reason = "Aguardando o Agent concluir o diagnóstico automático de Wake-on-LAN."
+        reason = "Aguardando o diagnóstico automático de Wake-on-LAN do Agent."
     elif not pc_wol_prepared:
-        reason = target_info.get("capability_reason") or "A placa de rede ainda não ficou preparada para Wake-on-LAN no Windows."
-    elif route_preflight_available:
-        reason = (
-            "O PC está preparado para Wake-on-LAN. Ao confirmar o desligamento, o CoreControl tentará criar e provar "
-            "automaticamente uma rota Wake-on-WAN antes de desligar o Windows."
-        )
-    elif amt_detected:
-        reason = (
-            "O PC parece possuir Intel AMT/vPro, mas ainda não existe uma rota de religamento provisionada e confirmada."
-        )
-    elif target_info.get("link_type") == "wifi":
-        reason = (
-            "Este PC está usando Wi-Fi. Wake após desligamento total por Wi-Fi depende do hardware/firmware e não há rota confirmada."
-        )
+        reason = target_info.get("capability_reason") or "A placa de rede não ficou preparada para Wake-on-LAN."
+    elif box_available:
+        reason = "CoreControl Box online e pronta. Desligar e Ligar usam sempre a mesma rota local, sem configurar o roteador."
     else:
-        reason = (
-            "Ainda não existe uma rota comprovada para ligar este PC depois do desligamento total. "
-            "O CoreControl não vai fingir que desligou apagando apenas o monitor."
-        )
+        reason = "CoreControl Box não está online nesta rede. A Box é a rota padrão obrigatória para ligar o PC depois do desligamento."
 
     pending = device_power_pending_state(db, device, currently_on=device_power_currently_on(device))
-
     return {
         "mac_known": bool(target_info.get("mac_address")),
         "network_cidr": target_info.get("network_cidr") or None,
@@ -1079,38 +1060,41 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "wake_armed": bool(target_info.get("wake_armed")),
         "pc_wol_prepared": pc_wol_prepared,
         "s5_driver_hint": bool(target_info.get("s5_driver_hint")),
-        "intel_amt_detected": amt_detected,
+        "intel_amt_detected": bool(target_info.get("intel_amt_detected")),
         "auto_configured": bool(target_info.get("auto_configured")),
         "firmware_needs_check": bool(target_info.get("firmware_needs_check")),
         "capability_reason": target_info.get("capability_reason") or None,
         "capability_error": target_info.get("capability_error") or None,
-        "relay_available": bool(relays),
-        "relay_count": len(relays),
-        "relay_names": [relay.name for relay in relays[:5]],
-        "wan_route_verified": bool(wan_route.get("verified")),
-        "wan_route_status": wan_route.get("status") or "idle",
-        "wan_route_message": wan_route.get("message"),
-        "wan_route_method": wan_route.get("method"),
-        "wan_route_verified_at": wan_route.get("verified_at"),
-        "mesh_fallback": mesh_fallback,
+        # Compatibility fields: relay == dedicated Box from v10.41.
+        "relay_available": box_available,
+        "relay_count": len(gateways),
+        "relay_names": [gateway.name for gateway in gateways[:5]],
+        "gateway_available": box_available,
+        "gateway_count": len(gateways),
+        "gateway_names": [gateway.name for gateway in gateways[:5]],
+        "wan_route_verified": False,
+        "wan_route_status": "disabled",
+        "wan_route_message": "Wake-on-WAN/UPnP não faz parte do fluxo de energia v10.41.",
+        "wan_route_method": None,
+        "wan_route_verified_at": None,
+        "mesh_fallback": False,
         "wake_available": wake_available,
         "wake_verified": wake_verified,
         "full_shutdown_safe": full_shutdown_safe,
-        "route_preflight_available": route_preflight_available,
+        "route_preflight_available": False,
         "shutdown_agent_available": shutdown_agent_available,
         "managed_mode_available": managed_mode_available,
         "managed_off_active": bool(managed_off["active"]),
         "managed_off_since": managed_off.get("since"),
         "software_only_power": False,
-        "power_engine_version": "10.38",
-        "power_off_mode": "shutdown" if full_shutdown_safe else ("prepare" if route_preflight_available else "blocked"),
+        "power_engine_version": "10.41",
+        "power_off_mode": "shutdown" if full_shutdown_safe else "blocked",
         "off_available": off_available,
         "safe_to_power_off": safe_to_power_off,
-        "requires_verified_wake": settings.power_require_verified_wake,
+        "requires_verified_wake": True,
         "reason": reason,
         **pending,
     }
-
 
 def remote_state(device: Device, sample: Telemetry | None) -> dict:
     extra = sample_extra(sample)
@@ -1186,6 +1170,7 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "company_id": device.company_id,
         "company_name": device.company.name if device.company else None,
         "device_uid": device.device_uid,
+        "device_kind": getattr(device, "device_kind", "computer"),
         "name": device.name,
         "hostname": device.hostname,
         "sector": device.sector,
@@ -1224,7 +1209,11 @@ def sync_company_remote_devices(
     remote_devices = meshcentral_client.list_group_devices(company.mesh_group_id, force=force)
     local_devices = list(
         db.scalars(
-            select(Device).where(Device.company_id == company.id, Device.active.is_(True))
+            select(Device).where(
+                Device.company_id == company.id,
+                Device.active.is_(True),
+                Device.device_kind == "computer",
+            )
         ).all()
     )
     now = utcnow()
@@ -1614,7 +1603,11 @@ def _dashboard_company_operations(user: CurrentUser, db: Session, devices: list[
 @router.get("/dashboard/summary")
 def dashboard_summary(user: CurrentUser, db: Db):
     company_filter = [] if is_global_admin(user) else [Device.company_id == user.company_id]
-    devices = list(db.scalars(select(Device).where(Device.active.is_(True), *company_filter)).all())
+    devices = list(
+        db.scalars(
+            select(Device).where(Device.active.is_(True), Device.device_kind == "computer", *company_filter)
+        ).all()
+    )
     sync_offline_alerts(db, devices)
     companies_stmt = select(Company).where(Company.active.is_(True))
     if not is_global_admin(user):
@@ -1643,7 +1636,7 @@ def list_companies(user: CurrentUser, db: Db):
     companies = list(db.scalars(stmt).all())
     result = []
     for company in companies:
-        devices_stmt = select(Device).where(Device.company_id == company.id)
+        devices_stmt = select(Device).where(Device.company_id == company.id, Device.device_kind == "computer")
         if not is_global_admin(user):
             devices_stmt = devices_stmt.where(Device.active.is_(True))
         devices = list(db.scalars(devices_stmt).all())
@@ -1814,7 +1807,7 @@ def get_company(company_id: int, user: CurrentUser, db: Db):
     company = db.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    devices_stmt = select(Device).where(Device.company_id == company_id)
+    devices_stmt = select(Device).where(Device.company_id == company_id, Device.device_kind == "computer")
     if not is_global_admin(user):
         devices_stmt = devices_stmt.where(Device.active.is_(True))
     devices = list(db.scalars(devices_stmt.order_by(Device.name)).all())
@@ -1902,6 +1895,7 @@ def create_enrollment_token(
             company_id=company_id,
             token_hash=sha256_text(raw),
             code_hash=sha256_text(install_code),
+            purpose="computer",
             expires_at=expires,
             created_by=user.id,
         )
@@ -1931,6 +1925,117 @@ def create_enrollment_token(
         "valid_minutes": valid_minutes,
         "single_use": True,
     }
+
+
+@router.post("/companies/{company_id}/gateway-enrollment-token")
+def create_gateway_enrollment_token(
+    company_id: int,
+    user: CurrentUser,
+    db: Db,
+    valid_minutes: int = 30,
+):
+    """Create a support-only one-use authorization for a dedicated CoreControl Box."""
+    assert_company_access(user, company_id)
+    require_roles(user, "platform_admin")
+    company = db.get(Company, company_id)
+    if not company or not company.active:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada ou desativada")
+    if valid_minutes not in VALID_ENROLLMENT_MINUTES:
+        raise HTTPException(status_code=422, detail="Validade permitida: 30 minutos, 2 horas ou 24 horas")
+
+    raw = f"ctenr_{new_secret(32)}"
+    install_code = new_install_code(db)
+    expires = utcnow() + timedelta(minutes=valid_minutes)
+    db.add(
+        EnrollmentToken(
+            company_id=company_id,
+            token_hash=sha256_text(raw),
+            code_hash=sha256_text(install_code),
+            purpose="gateway",
+            expires_at=expires,
+            created_by=user.id,
+        )
+    )
+    db.add(
+        AuditLog(
+            company_id=company_id,
+            actor_user_id=user.id,
+            action="gateway.enrollment_token.create",
+            details=f"Autorização de Gateway de uso único válida até {expires.isoformat()}",
+        )
+    )
+    db.commit()
+    base = settings.public_url.rstrip("/")
+    return {
+        "token": raw,
+        "installation_code": install_code,
+        "installation_url": f"{base}/api/gateway/{raw}/download",
+        "code_download_url": f"{base}/api/gateway/codigo/{install_code}/download",
+        "expires_at": expires.isoformat(),
+        "valid_minutes": valid_minutes,
+        "single_use": True,
+        "purpose": "gateway",
+    }
+
+
+@router.get("/gateway/{credential}/download")
+def download_gateway(credential: str, db: Db):
+    enrollment, _ = get_valid_enrollment(db, credential)
+    if str(getattr(enrollment, "purpose", "computer") or "computer") != "gateway":
+        raise HTTPException(status_code=403, detail="Esta autorização não pertence a um CoreControl Box")
+    if not GATEWAY_COMPONENT.exists() or not GATEWAY_COMPONENT.is_file():
+        raise HTTPException(status_code=503, detail="CoreControl Box indisponível no servidor")
+    safe_credential = normalize_install_code(credential) or credential
+    return FileResponse(
+        GATEWAY_COMPONENT,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename=f"CoreControlBox--{safe_credential}.exe",
+        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/gateway/codigo/{installation_code}/download")
+def download_gateway_by_code(installation_code: str, db: Db):
+    normalized = normalize_install_code(installation_code)
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Código de instalação inválido")
+    enrollment, _ = get_valid_enrollment(db, normalized)
+    if str(getattr(enrollment, "purpose", "computer") or "computer") != "gateway":
+        raise HTTPException(status_code=403, detail="Este código não pertence a um CoreControl Box")
+    if not GATEWAY_COMPONENT.exists() or not GATEWAY_COMPONENT.is_file():
+        raise HTTPException(status_code=503, detail="CoreControl Box indisponível no servidor")
+    return FileResponse(
+        GATEWAY_COMPONENT,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename=f"CoreControlBox--{normalized}.exe",
+        headers={"Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/gateways")
+def list_gateways(user: CurrentUser, db: Db, company_id: int | None = None):
+    stmt = select(Device).where(Device.device_kind == "gateway")
+    if is_global_admin(user):
+        if company_id is not None:
+            stmt = stmt.where(Device.company_id == company_id)
+    else:
+        stmt = stmt.where(Device.company_id == user.company_id, Device.active.is_(True))
+    gateways = list(db.scalars(stmt.order_by(Device.name)).all())
+    result = []
+    for gateway in gateways:
+        info = device_wol_info(db, gateway)
+        result.append({
+            "id": gateway.id,
+            "company_id": gateway.company_id,
+            "name": gateway.name,
+            "hostname": gateway.hostname,
+            "online": device_online(gateway),
+            "last_seen": iso(gateway.last_seen),
+            "version": gateway.agent_version,
+            "network_cidrs": info.get("network_cidrs") or ([info.get("network_cidr")] if info.get("network_cidr") else []),
+            "relay_capable": bool(info.get("relay_capable")),
+        })
+    return result
 
 
 @router.post("/devices/{device_id}/reinstall-token")
@@ -1977,6 +2082,7 @@ def create_device_reinstall_token(
             device_id=device.id,
             token_hash=sha256_text(raw),
             code_hash=sha256_text(install_code),
+            purpose="computer",
             expires_at=expires,
             created_by=user.id,
         )
@@ -2023,6 +2129,7 @@ def enrollment_info(credential: str, db: Db):
         "company_name": company.name,
         "expires_at": iso(enrollment.expires_at),
         "single_use": True,
+        "purpose": str(getattr(enrollment, "purpose", "computer") or "computer"),
         "reinstall": enrollment.device_id is not None,
         "device_id": enrollment.device_id,
         "device_name": device.name if device else None,
@@ -2088,7 +2195,7 @@ def enrollment_component(credential: str, filename: str, db: Db):
 
 @router.get("/devices")
 def list_devices(user: CurrentUser, db: Db, company_id: int | None = None):
-    stmt = select(Device)
+    stmt = select(Device).where(Device.device_kind == "computer")
     if is_global_admin(user):
         if company_id is not None:
             stmt = stmt.where(Device.company_id == company_id)
@@ -2415,7 +2522,7 @@ def test_device_wake_route(device_id: int, user: CurrentUser, db: Db):
 def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db):
     require_roles(user, "platform_admin", "company_admin", "technician")
     device = db.get(Device, device_id)
-    if not device or not device.active:
+    if not device or not device.active or getattr(device, "device_kind", "computer") != "computer":
         raise HTTPException(status_code=404, detail="Computador não encontrado")
     assert_device_access(user, device)
 
@@ -2423,27 +2530,12 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     if requested not in {"wake", "off"}:
         raise HTTPException(status_code=400, detail="Ação de energia inválida")
 
-    mesh_ready = bool(
-        settings.remote_enabled
-        and meshcentral_client.provisioning_configured
-        and device.mesh_node_id
-    )
-    # Wake físico ainda pode consultar MeshCentral. CoreControl Off software-only
-    # não deve bloquear esperando ListDevices/RunCommand.
-    if mesh_ready and requested == "wake":
-        try:
-            refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
-        except MeshCentralCommandError:
-            pass
-
     currently_on = device_power_currently_on(device)
     managed_state = device_managed_off_state(db, device)
     managed_off_active = bool(managed_state["active"])
     existing_pending = device_power_pending_state(db, device, currently_on=currently_on)
     is_retry = bool(requested == "wake" and existing_pending.get("pending_action") == "wake" and not managed_off_active)
 
-    # Desligamento não deve ser disparado duas vezes. Wake é diferente: Magic
-    # Packet é idempotente e pode precisar de novas tentativas até a placa acordar.
     if requested == "off" and existing_pending.get("pending_action") == "off":
         return {
             "ok": True,
@@ -2455,39 +2547,54 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
             "message": "O desligamento já está em andamento.",
         }
 
+    # One-time recovery from the old software-only state. New power operations
+    # never enter managed-off again.
     if requested == "off" and managed_off_active:
-        # Recupera automaticamente máquinas que ficaram presas no antigo modo
-        # "apagou o monitor". O usuário pediu Desligar, então primeiro retire
-        # esse estado legado e depois siga para o desligamento REAL.
         if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 10))):
-            raise HTTPException(
-                status_code=503,
-                detail="Este computador ficou marcado no modo desligado antigo e o Agent não está online para recuperar o estado.",
-            )
-        legacy_result = _run_agent_command_sync(
-            db,
-            device,
-            "power.managed_on",
-            created_by=user.id,
-        )
+            raise HTTPException(status_code=503, detail="O Agent precisa estar online para sair do modo desligado antigo.")
+        legacy_result = _run_agent_command_sync(db, device, "power.managed_on", created_by=user.id)
         if bool(legacy_result.get("managed_off")):
             raise HTTPException(status_code=503, detail="O Agent não conseguiu sair do modo desligado antigo.")
-        db.add(
-            AuditLog(
-                company_id=device.company_id,
-                actor_user_id=user.id,
-                device_id=device.id,
-                action="power.managed_off.exited",
-                details=json.dumps(
-                    {"hostname": device.hostname, "mode": "legacy_recovery", "engine": "10.38"},
-                    ensure_ascii=False,
-                ),
-            )
-        )
+        db.add(AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action="power.managed_off.exited",
+            details=json.dumps({"hostname": device.hostname, "mode": "legacy_recovery", "engine": "10.41"}, ensure_ascii=False),
+        ))
         db.commit()
         managed_off_active = False
+        currently_on = device_power_currently_on(device)
+
     if requested == "off" and not currently_on:
         raise HTTPException(status_code=409, detail="O computador já aparece desligado/offline.")
+
+    if requested == "wake" and managed_off_active:
+        if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 10))):
+            raise HTTPException(status_code=503, detail="O Agent precisa estar online para sair do modo desligado antigo.")
+        legacy_result = _run_agent_command_sync(db, device, "power.managed_on", created_by=user.id)
+        if bool(legacy_result.get("managed_off")):
+            raise HTTPException(status_code=503, detail="O Agent não confirmou a saída do modo desligado antigo.")
+        db.add(AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action="power.managed_off.exited",
+            details=json.dumps({"hostname": device.hostname, "mode": "legacy_recovery", "engine": "10.41"}, ensure_ascii=False),
+        ))
+        db.commit()
+        return {
+            "ok": True,
+            "device_id": device.id,
+            "device_name": device.name,
+            "action": requested,
+            "status": "online",
+            "methods": ["corecontrol_agent_legacy_wake"],
+            "wake_verified": True,
+            "managed_off_active": False,
+            "message": "Estado antigo recuperado. O computador voltou ao modo normal do CoreControl.",
+        }
+
     if requested == "wake" and currently_on and not managed_off_active:
         return {
             "ok": True,
@@ -2502,309 +2609,135 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         }
 
     readiness = device_power_readiness(db, device)
-    wan_route = latest_wan_wake_route(db, device)
-    windows_device = "windows" in str(device.os_name or "").lower()
-
-    # Antes de desligar um PC que pode estar sozinho na rede, tente criar ou
-    # melhorar a rota Wake-on-WAN enquanto a máquina AINDA está ligada. Mesmo
-    # quando já existe unicast verificado, tentamos promover para broadcast,
-    # pois broadcast confirmado é seguro para desligamento total/S5.
-    route_preflight_error: str | None = None
-    if (
-        requested == "off"
-        and windows_device
-        and readiness.get("pc_wol_prepared")
-        and not readiness.get("full_shutdown_safe")
-        and readiness.get("route_preflight_available")
-    ):
-        preflight_info = device_wol_info(db, device)
-        auto_route = None
-        mesh_route_error = None
-        agent_route_error = None
-
-        # Primeiro tente pelo Mesh Agent, quando disponível. Em seguida tente a
-        # implementação nativa do CoreControl Agent. No 10.37 este bloco era
-        # pulado para todo Agent novo, portanto clientes novos nunca chegavam a
-        # possuir uma rota real de religamento.
-        if mesh_ready:
-            auto_route, mesh_route_error = _try_mesh_wan_route(
-                db,
-                device,
-                created_by=user.id,
-                target_info=preflight_info,
-            )
-
-        if not auto_route and device_online(device) and _version_at_least(device.agent_version, (0, 9, 10)):
-            auto_route, agent_route_error = _try_agent_wan_route_sync(
-                db,
-                device,
-                created_by=user.id,
-                target_info=preflight_info,
-            )
-
-        route_preflight_error = agent_route_error or mesh_route_error
-        if auto_route:
-            db.commit()
-            readiness = device_power_readiness(db, device)
-            wan_route = latest_wan_wake_route(db, device)
-            route_preflight_error = None
-
+    gateways = find_power_gateways(db, device)
     methods: list[str] = []
-    relay_ids: list[int] = []
+    gateway_ids: list[int] = []
 
-    # Só o primeiro despacho cria o marcador que sustenta "Ligando..." após F5.
-    # Retentativas de Wake não reiniciam o relógio de 5 minutos.
-    if not is_retry:
-        db.add(
-            AuditLog(
-                company_id=device.company_id,
-                actor_user_id=user.id,
-                device_id=device.id,
-                action=f"power.{requested}.pending",
-                details=json.dumps(
-                    {
-                        "hostname": device.hostname,
-                        "mesh_node_id": device.mesh_node_id,
-                        "requested_action": requested,
-                        "phase": "dispatching",
-                    },
-                    ensure_ascii=False,
-                ),
-            )
+    # The box-only architecture is intentionally strict. It prevents the same
+    # product from behaving differently for each router/customer.
+    if not gateways:
+        raise HTTPException(
+            status_code=409,
+            detail="CoreControl Box offline ou não instalada nesta rede. O CoreControl usa somente a Box para o caminho de religamento; não configura roteador, UPnP ou Wake-on-WAN.",
         )
+
+    if requested == "off":
+        if "windows" not in str(device.os_name or "").lower():
+            raise HTTPException(status_code=409, detail="O desligamento físico padronizado está disponível para Windows.")
+        if not device_online(device):
+            raise HTTPException(status_code=503, detail="O CoreControl Agent não está online para executar o desligamento.")
+        if not _version_at_least(device.agent_version, (0, 9, 13)):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Atualize este computador para o CoreControl Agent 0.9.13 ou superior. Versão atual: {device.agent_version or 'não informada'}.",
+            )
+        if not readiness.get("pc_wol_prepared"):
+            raise HTTPException(
+                status_code=409,
+                detail=str(readiness.get("capability_reason") or readiness.get("reason") or "A placa de rede não está preparada para Wake-on-LAN."),
+            )
+    else:
+        if not readiness.get("mac_known"):
+            raise HTTPException(status_code=409, detail="O CoreControl ainda não conhece o endereço MAC deste computador.")
+
+    if not is_retry:
+        db.add(AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action=f"power.{requested}.pending",
+            details=json.dumps({
+                "hostname": device.hostname,
+                "requested_action": requested,
+                "engine": "10.41",
+                "route": "corecontrol_box_only",
+            }, ensure_ascii=False),
+        ))
         db.commit()
 
     try:
         if requested == "off":
-            # v10.38: Desligar significa desligar o Windows de verdade.
-            if device_online(device) and not _version_at_least(device.agent_version, (0, 9, 11)):
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"Este computador ainda usa o CoreControl Agent {device.agent_version or 'antigo'}. "
-                        "Atualize para o Agent 0.9.11 ou superior para usar o desligamento real."
-                    ),
-                )
-
-            # Nunca faça shutdown S5 sem uma rota comprovada para ligar de novo.
-            # Em vez de fingir que desligou apagando monitor, informe claramente
-            # a falha de rede/roteador.
-            if settings.power_require_verified_wake and not readiness.get("full_shutdown_safe"):
-                detail_reason = route_preflight_error or str(
-                    readiness.get("reason") or "Não foi possível confirmar uma rota Wake-on-WAN enquanto o computador estava ligado."
-                )
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "Não foi possível desligar com segurança porque o CoreControl não conseguiu garantir como ligar este PC novamente. "
-                        + detail_reason
-                    ),
-                )
-
-            if windows_device:
-                if not readiness.get("full_shutdown_safe") and settings.power_require_verified_wake:
-                    raise HTTPException(status_code=409, detail="A rota de religamento ainda não foi confirmada.")
-
-                # Preferência: fila autenticada do próprio Agent. Ele prepara a
-                # placa para Magic Packet, agenda shutdown.exe e devolve ACK antes
-                # do Windows encerrar a rede.
-                if device_online(device) and _version_at_least(device.agent_version, (0, 9, 11)):
+            result = _run_agent_command_sync(
+                db,
+                device,
+                "power.shutdown",
+                created_by=user.id,
+                timeout_seconds=20.0,
+            )
+            if not bool(result.get("shutdown_scheduled")):
+                raise HTTPException(status_code=503, detail="O Agent não confirmou o desligamento do Windows.")
+            methods.extend(["corecontrol_agent_shutdown", "corecontrol_box_ready"])
+            gateway_ids = [gateway.id for gateway in gateways]
+        else:
+            mac_address = str(device_wol_info(db, device).get("mac_address") or "").strip()
+            last_error: Exception | None = None
+            for gateway in gateways[:3]:
+                try:
                     result = _run_agent_command_sync(
                         db,
-                        device,
-                        "power.shutdown",
-                        created_by=user.id,
-                        timeout_seconds=20.0,
-                    )
-                    if not bool(result.get("shutdown_scheduled")):
-                        raise HTTPException(status_code=503, detail="O CoreControl Agent não confirmou o agendamento do desligamento do Windows.")
-                    methods.append("corecontrol_agent_shutdown")
-                elif mesh_ready:
-                    # Fallback para instalação antiga onde o Mesh Agent está
-                    # funcional, mas o CoreControl Agent ainda não foi atualizado.
-                    try:
-                        meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
-                        methods.append("meshcentral_windows_wol_shutdown")
-                    except MeshCentralCommandError as exc:
-                        raise HTTPException(status_code=503, detail=f"Não foi possível desligar o Windows: {exc}") from exc
-                else:
-                    raise HTTPException(status_code=503, detail="Nenhum canal online conseguiu executar o desligamento do Windows.")
-            else:
-                if not mesh_ready:
-                    raise HTTPException(status_code=503, detail="O computador não possui canal remoto para desligamento.")
-                try:
-                    meshcentral_client.device_power(device.mesh_node_id, "off")
-                    methods.append("meshcentral_off")
-                except MeshCentralCommandError as exc:
-                    raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {exc}") from exc
-        else:
-            if managed_off_active:
-                if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 10))):
-                    raise HTTPException(
-                        status_code=503,
-                        detail="O CoreControl Agent compatível não está online para sair do modo desligado.",
-                    )
-                result = _run_agent_command_sync(
-                    db,
-                    device,
-                    "power.managed_on",
-                    created_by=user.id,
-                )
-                if bool(result.get("managed_off")):
-                    raise HTTPException(status_code=503, detail="O CoreControl Agent não confirmou a saída do modo desligado.")
-                methods.append("corecontrol_agent_managed_on")
-                db.add(
-                    AuditLog(
-                        company_id=device.company_id,
-                        actor_user_id=user.id,
-                        device_id=device.id,
-                        action="power.managed_off.exited",
-                        details=json.dumps(
-                            {
-                                "hostname": device.hostname,
-                                "mode": "software_only",
-                                "transport": "agent_queue",
-                                "engine": "10.38-legacy-recovery",
-                            },
-                            ensure_ascii=False,
-                        ),
-                    )
-                )
-                db.commit()
-            else:
-                target_info = device_wol_info(db, device)
-                mac_address = target_info.get("mac_address") or ""
-
-                # Mantém as rotas antigas apenas como fallback para um PC que
-                # esteja fisicamente offline e não tenha entrado em managed off.
-                # é que uma tentativa pendente não bloqueia novo Magic Packet.
-                if mac_address and wan_route.get("verified"):
-                    try:
-                        _send_wan_magic_packet(wan_route, mac_address)
-                        methods.append("corecontrol_wan_upnp")
-                    except (OSError, ValueError):
-                        pass
-
-                relays = find_wake_relays(db, device) if mac_address else []
-                for relay in relays[:3]:
-                    queue_agent_command(
-                        db,
-                        relay,
+                        gateway,
                         "power.wake_peer",
-                        {
+                        created_by=user.id,
+                        payload={
                             "mac_address": mac_address,
                             "target_device_id": device.id,
                             "target_name": device.name,
                         },
-                        created_by=user.id,
-                        deduplicate=False,
+                        timeout_seconds=14.0,
                     )
-                    relay_ids.append(relay.id)
-                if relay_ids:
-                    methods.append("corecontrol_lan_relay")
-
-                # v10.27: não dependa apenas do CoreControl Agent do relay. Se outro
-                # Mesh Agent estiver online na mesma LAN, execute o Magic Packet
-                # diretamente nele. Isso cobre PCs antigos cujo Agent ainda não
-                # iniciou sessão e redes onde DevicePower --wake não entrega o
-                # broadcast de forma confiável.
-                mesh_relay_ids: list[int] = []
-                if mac_address:
-                    for relay in find_mesh_wake_relays(db, device)[:3]:
-                        try:
-                            meshcentral_client.device_wake_via_peer(relay.mesh_node_id, mac_address)
-                            mesh_relay_ids.append(relay.id)
-                        except MeshCentralCommandError:
-                            continue
-                    if mesh_relay_ids:
-                        methods.append("meshcentral_lan_relay")
-                        for relay_id in mesh_relay_ids:
-                            if relay_id not in relay_ids:
-                                relay_ids.append(relay_id)
-
-                if mesh_ready:
-                    try:
-                        meshcentral_client.device_power(device.mesh_node_id, "wake")
-                        methods.append("meshcentral_wake")
-                    except MeshCentralCommandError:
-                        if not methods:
-                            raise HTTPException(status_code=503, detail="Não foi possível enviar o Wake-on-LAN pelo MeshCentral.")
-
-                if not methods:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            "Não existe uma rota disponível para Wake-on-LAN. "
-                            + readiness["reason"]
-                        ),
-                    )
+                    if int(result.get("packets_sent") or 0) <= 0:
+                        raise HTTPException(status_code=503, detail="A CoreControl Box não confirmou o envio do Magic Packet.")
+                    gateway_ids.append(gateway.id)
+                    methods.append("corecontrol_box_wol")
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    continue
+            if not methods:
+                if isinstance(last_error, HTTPException):
+                    raise last_error
+                raise HTTPException(status_code=503, detail="Nenhuma CoreControl Box conseguiu enviar o comando para ligar.")
     except Exception as exc:
-        # Falha de uma RETENTATIVA não encerra a tentativa original; o polling
-        # pode continuar e tentar outra rota. Só o primeiro despacho falho limpa
-        # o estado pendente.
         failed_action = "power.wake.retry_failed" if is_retry else f"power.{requested}.failed"
-        db.add(
-            AuditLog(
-                company_id=device.company_id,
-                actor_user_id=user.id,
-                device_id=device.id,
-                action=failed_action,
-                details=json.dumps(
-                    {
-                        "hostname": device.hostname,
-                        "requested_action": requested,
-                        "error": str(getattr(exc, "detail", exc)),
-                    },
-                    ensure_ascii=False,
-                ),
-            )
-        )
+        db.add(AuditLog(
+            company_id=device.company_id,
+            actor_user_id=user.id,
+            device_id=device.id,
+            action=failed_action,
+            details=json.dumps({
+                "hostname": device.hostname,
+                "requested_action": requested,
+                "engine": "10.41",
+                "error": str(getattr(exc, "detail", exc)),
+            }, ensure_ascii=False),
+        ))
         db.commit()
         raise
 
     action_name = "power.wake.retry" if is_retry else ("power.wake.sent" if requested == "wake" else "power.off.sent")
-    db.add(
-        AuditLog(
-            company_id=device.company_id,
-            actor_user_id=user.id,
-            device_id=device.id,
-            action=action_name,
-            details=json.dumps(
-                {
-                    "hostname": device.hostname,
-                    "mesh_node_id": device.mesh_node_id,
-                    "requested_action": requested,
-                    "methods": methods,
-                    "relay_device_ids": relay_ids,
-                    "wake_verified": readiness["wake_verified"],
-                    "full_shutdown_safe": readiness.get("full_shutdown_safe"),
-                    "power_off_mode": readiness.get("power_off_mode"),
-                    "retry": is_retry,
-                },
-                ensure_ascii=False,
-            ),
-        )
-    )
+    db.add(AuditLog(
+        company_id=device.company_id,
+        actor_user_id=user.id,
+        device_id=device.id,
+        action=action_name,
+        details=json.dumps({
+            "hostname": device.hostname,
+            "requested_action": requested,
+            "methods": methods,
+            "gateway_device_ids": gateway_ids,
+            "engine": "10.41",
+            "route": "corecontrol_box_only",
+        }, ensure_ascii=False),
+    ))
     db.commit()
-    pending = device_power_pending_state(db, device, currently_on=currently_on)
 
+    pending = device_power_pending_state(db, device, currently_on=currently_on)
     if requested == "off":
-        if "corecontrol_agent_shutdown" in methods:
-            message = (
-                "Desligamento real confirmado pelo CoreControl Agent. O Windows foi programado para desligar e a rota Wake-on-LAN para religamento está verificada."
-            )
-        else:
-            message = (
-                "Comando de desligamento real enviado. A rota para religamento está verificada e o CoreControl acompanhará até o computador ficar offline."
-            )
-    elif "corecontrol_agent_managed_on" in methods:
-        message = "Computador ligado pelo CoreControl. A máquina continua acessível sem depender de Wake-on-LAN ou do roteador."
+        message = "Desligamento real confirmado. A CoreControl Box continuará online para ligar este PC novamente."
     elif is_retry:
-        message = "Novo Wake-on-LAN enviado. Continuando a aguardar o computador voltar online."
-    elif relay_ids:
-        message = "Wake-on-LAN enviado por um computador online da mesma rede e pelos fallbacks disponíveis. O CoreControl acompanhará até o computador voltar online."
+        message = "Novo sinal para ligar enviado pela CoreControl Box. Continuando a aguardar o computador voltar online."
     else:
-        message = "Sinal para ligar enviado. O CoreControl acompanhará o computador até ele voltar online."
+        message = "Sinal para ligar enviado e confirmado pela CoreControl Box. Aguardando o Agent voltar online."
 
     return {
         "ok": True,
@@ -2813,10 +2746,11 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         "action": requested,
         "status": "pending" if pending.get("pending_action") else "sent",
         "methods": methods,
-        "wake_verified": readiness["wake_verified"],
-        "full_shutdown_safe": readiness.get("full_shutdown_safe"),
-        "power_off_mode": readiness.get("power_off_mode"),
-        "managed_off_active": False if requested == "off" else bool(device_managed_off_state(db, device)["active"]),
+        "gateway_device_ids": gateway_ids,
+        "wake_verified": bool(readiness.get("wake_verified")),
+        "full_shutdown_safe": bool(readiness.get("full_shutdown_safe")),
+        "power_off_mode": "shutdown",
+        "managed_off_active": False,
         **pending,
         "message": message,
     }
@@ -3068,11 +3002,14 @@ def install_device(payload: DeviceInstallRequest, user: CurrentUser, db: Db):
     device = db.scalar(
         select(Device).where(Device.company_id == company_id, Device.device_uid == payload.device_uid)
     )
+    if device is not None and str(getattr(device, "device_kind", "computer") or "computer") != "computer":
+        raise HTTPException(status_code=409, detail="Este identificador pertence a um CoreControl Box")
     created = device is None
     if device is None:
         device = Device(
             company_id=company_id,
             device_uid=payload.device_uid,
+            device_kind="computer",
             name=payload.name.strip(),
             hostname=payload.hostname.strip(),
             sector=payload.sector,
@@ -3183,6 +3120,11 @@ def get_agent_device_by_secret(db: Session, authorization: str | None) -> Device
 @router.post("/agent/enroll", status_code=201)
 def agent_enroll(payload: EnrollmentRequest, db: Db):
     enrollment, company = get_valid_enrollment(db, payload.enrollment_token)
+    enrollment_purpose = str(getattr(enrollment, "purpose", "computer") or "computer")
+    if enrollment_purpose != payload.device_kind:
+        raise HTTPException(status_code=403, detail="Esta autorização de instalação não pertence a este tipo de dispositivo")
+    if payload.device_kind == "gateway" and enrollment.device_id is not None:
+        raise HTTPException(status_code=409, detail="Uma autorização de reinstalação de computador não pode instalar um Gateway")
     now = utcnow()
     existing = db.scalar(
         select(Device).where(Device.company_id == enrollment.company_id, Device.device_uid == payload.device_uid)
@@ -3201,6 +3143,8 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
     raw_secret = f"ctagt_{new_secret(36)}"
     if existing:
         device = existing
+        if str(getattr(device, "device_kind", "computer") or "computer") != payload.device_kind:
+            raise HTTPException(status_code=409, detail="Este identificador já pertence a outro tipo de dispositivo")
         incoming_name = (payload.name or "").strip()
         incoming_hostname = (payload.hostname or "").strip()
         existing_name = (device.name or "").strip()
@@ -3229,6 +3173,7 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
         device = Device(
             company_id=enrollment.company_id,
             device_uid=payload.device_uid,
+            device_kind=payload.device_kind,
             name=payload.name,
             hostname=payload.hostname,
             sector=payload.sector,
@@ -3252,7 +3197,7 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
             actor_user_id=enrollment.created_by,
             device_id=device.id,
             action="agent.enroll",
-            details=json.dumps({"hostname": device.hostname, "uid": device.device_uid, "source": "installation_authorization"}, ensure_ascii=False),
+            details=json.dumps({"hostname": device.hostname, "uid": device.device_uid, "source": "gateway_authorization" if payload.device_kind == "gateway" else "installation_authorization", "device_kind": payload.device_kind}, ensure_ascii=False),
         )
     )
     db.commit()
@@ -3262,13 +3207,17 @@ def agent_enroll(payload: EnrollmentRequest, db: Db):
     # agente remoto pertencente à mesma empresa. Isso permite que a instalação
     # por código configure diagnóstico + acesso remoto em um único fluxo, sem
     # expor login/senha da empresa e sem reutilizar o token de uso único.
-    remote_agent, remote_warning = prepare_remote_install(db, company, device)
-    if remote_agent is not None:
-        remote_agent = dict(remote_agent)
-        remote_agent["url"] = "/api/agent/remote-agent"
+    remote_agent = None
+    remote_warning = None
+    if payload.device_kind == "computer":
+        remote_agent, remote_warning = prepare_remote_install(db, company, device)
+        if remote_agent is not None:
+            remote_agent = dict(remote_agent)
+            remote_agent["url"] = "/api/agent/remote-agent"
 
     return {
         "device_id": device.id,
+        "device_kind": payload.device_kind,
         "agent_secret": raw_secret,
         "company_id": device.company_id,
         "company_name": company.name,
@@ -3376,7 +3325,8 @@ def agent_telemetry(
     )
     db.add(sample)
     db.flush()
-    evaluate_telemetry_alerts(db, device, sample)
-    maybe_enqueue_update_policy(db, device, now)
+    if str(getattr(device, "device_kind", "computer") or "computer") == "computer":
+        evaluate_telemetry_alerts(db, device, sample)
+        maybe_enqueue_update_policy(db, device, now)
     db.commit()
     return {"ok": True, "server_time": now.isoformat(), "next_interval_seconds": 30}

@@ -230,8 +230,8 @@
       const activity = t.activity || {};
       const powerOn = CT.devicePowerIsOn(device);
       const managedOff = Boolean(device.power?.managed_off_active);
-      const currentApp = managedOff ? 'Desligado pelo CoreControl' : powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
-      const currentWindow = managedOff ? 'Canal remoto preservado para religamento imediato.' : powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
+      const currentApp = managedOff ? 'Estado antigo CoreControl Off' : powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
+      const currentWindow = managedOff ? 'Use Ligar uma vez para recuperar este estado antigo.' : powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
       const temperature = tempInfo(t);
       const profile = cleanProfile(device.profile);
       const remoteReady = Boolean(device.remote?.available) && !Boolean(device.power?.managed_off_active);
@@ -244,16 +244,16 @@
       const powerAction = powerOn ? 'off' : 'wake';
       const powerLabel = pendingAction ? CT.powerPendingButtonHtml(pendingAction) : (powerOn ? 'Desligar computador' : 'Ligar computador');
       const powerTitle = pendingAction
-        ? (pendingAction === 'wake' ? 'Wake-on-LAN já enviado. Aguardando o computador ficar online.' : 'Desligamento já enviado. Aguardando o computador ficar offline.')
+        ? (pendingAction === 'wake' ? 'Comando para ligar enviado pela CoreControl Box. Aguardando o Agent voltar online.' : 'Desligamento confirmado. Aguardando o Agent ficar offline.')
         : powerAvailable
-          ? (powerState.managed_mode_available
-            ? (powerOn ? 'Desligar pelo CoreControl sem depender do roteador.' : 'Ligar pelo serviço CoreControl que permaneceu acessível.')
-            : (powerOn
-              ? (shutdownRouteVerified
-                ? `Desligar pelo MeshCentral${powerState.relay_names?.length ? `. Wake Relay verificado: ${powerState.relay_names.join(', ')}` : '. Rota de religamento verificada.'}`
-                : 'O CoreControl preparará e confirmará automaticamente a rota de religamento antes de desligar.')
-              : powerState.wake_verified ? 'Ligar usando uma rota Wake-on-LAN verificada.' : 'Tentar Wake-on-LAN pelo MeshCentral.'))
-          : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
+          ? (managedOff
+              ? 'Recuperar uma vez o estado antigo CoreControl Off.'
+              : powerOn
+                ? 'Desligar o Windows de verdade usando a CoreControl Box como rota de religamento.'
+                : 'Ligar este computador pela CoreControl Box da rede local.')
+          : (powerState.reason || (powerOn
+              ? 'A CoreControl Box precisa estar online para permitir o desligamento.'
+              : 'A CoreControl Box precisa estar online para permitir o religamento.'))
       const healthAvailable = CT.healthAvailable(device);
       const stateTone = healthAvailable ? (device.health_score >= 80 ? 'good' : 'warn') : 'unavailable';
       return `

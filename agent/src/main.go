@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.9.11"
+const agentVersion = "0.9.13"
 
 type Config struct {
 	ServerURL         string `json:"server_url"`
@@ -374,7 +374,8 @@ func (a *Agent) runCycle() (string, error) {
 			"gpu_driver_version":     snapshot.GPUDriverVersion,
 			"primary_mac":            snapshot.PrimaryMAC,
 			"network_cidr":           snapshot.NetworkCIDR,
-			"wol_relay_capable":      true,
+			"network_cidrs":          localNetworkCIDRs(),
+			"wol_relay_capable":      false,
 			"wol_capability":         wolCapability,
 		},
 	}

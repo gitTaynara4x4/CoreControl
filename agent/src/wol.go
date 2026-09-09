@@ -92,6 +92,41 @@ func sendWakeOnLAN(macText string) (map[string]interface{}, error) {
 	return result, nil
 }
 
+func localNetworkCIDRs() []string {
+	seen := map[string]struct{}{}
+	interfaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range interfaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			addrs, _ := iface.Addrs()
+			for _, addr := range addrs {
+				ipNet, ok := addr.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				ip := ipNet.IP.To4()
+				if ip == nil || !ip.IsPrivate() {
+					continue
+				}
+				ones, bits := ipNet.Mask.Size()
+				if ones < 0 || bits != 32 {
+					continue
+				}
+				networkIP := ip.Mask(ipNet.Mask)
+				seen[fmt.Sprintf("%s/%d", networkIP.String(), ones)] = struct{}{}
+			}
+		}
+	}
+	values := make([]string, 0, len(seen))
+	for value := range seen {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
+}
+
 func localBroadcastAddresses() []string {
 	seen := map[string]struct{}{"255.255.255.255": {}}
 	interfaces, err := net.Interfaces()

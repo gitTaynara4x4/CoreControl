@@ -54,8 +54,8 @@ def test_managed_power_is_kept_only_for_legacy_recovery():
     assert 'case "power.managed_on":' in agent
     assert 'case "power.shutdown":' in agent
     assert 'CORECONTROL_REAL_SHUTDOWN_CONFIRMED' in agent
-    assert '"power_engine_version": "10.38"' in api
-    assert 'const agentVersion = "0.9.11"' in main
+    assert '"power_engine_version": "10.41"' in api
+    assert 'const agentVersion = "0.9.13"' in main
 
 
 def test_frontend_treats_managed_off_as_desligado_and_hides_router_setup():
@@ -63,10 +63,10 @@ def test_frontend_treats_managed_off_as_desligado_and_hides_router_setup():
     devices = (ROOT / "app/static/js/pages/devices.js").read_text(encoding="utf-8")
     overview = (ROOT / "app/static/js/pages/overview.js").read_text(encoding="utf-8")
     assert "managed_off_active" in ui
-    assert "managed_mode_available" in devices
-    assert "Não necessária no modo CoreControl Off" in devices
+    assert "managed_off_active" in devices
+    assert "Recuperação do estado antigo pelo Agent" in devices
     assert "wakeRouteButton.classList.add('hidden')" in devices
-    assert "managed_mode_available" in overview
+    assert "managed_off_active" in overview
 
 
 def test_managed_off_does_not_require_elevated_include_username():

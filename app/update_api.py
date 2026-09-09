@@ -179,7 +179,7 @@ def _state_public(db: Session, device: Device, *, include_items: bool = False) -
 
 
 def _accessible_devices(db: Session, user: User, device_ids: list[int] | None = None) -> list[Device]:
-    stmt = select(Device).where(Device.active.is_(True)).order_by(Device.name)
+    stmt = select(Device).where(Device.active.is_(True), Device.device_kind == "computer").order_by(Device.name)
     if not is_global_admin(user):
         if user.company_id is None:
             return []

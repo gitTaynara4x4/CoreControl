@@ -28,6 +28,7 @@ _RUNTIME_COLUMNS: dict[str, dict[str, str]] = {
         "mesh_group_synced_at": "TIMESTAMP NULL",
     },
     "devices": {
+        "device_kind": "VARCHAR(24) NOT NULL DEFAULT 'computer'",
         "mesh_node_id": "VARCHAR(190) NULL",
         "remote_online": "BOOLEAN NOT NULL DEFAULT FALSE",
         "remote_checked_at": "TIMESTAMP NULL",
@@ -35,6 +36,7 @@ _RUNTIME_COLUMNS: dict[str, dict[str, str]] = {
     },
     "enrollment_tokens": {
         "code_hash": "VARCHAR(64) NULL",
+        "purpose": "VARCHAR(24) NOT NULL DEFAULT 'computer'",
         # Nullable para manter compatibilidade com autorizações antigas. Em
         # instalações existentes o vínculo lógico é validado pela API.
         "device_id": "INTEGER NULL",
@@ -60,6 +62,13 @@ def apply_runtime_migrations() -> None:
                 if column_name.lower() in present:
                     continue
                 connection.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {definition}'))
+
+
+        if "devices" in existing_tables:
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_devices_device_kind ON devices (device_kind)"))
+
+        if "enrollment_tokens" in existing_tables:
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_enrollment_tokens_purpose ON enrollment_tokens (purpose)"))
 
         if "enrollment_tokens" in existing_tables:
             connection.execute(

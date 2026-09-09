@@ -87,6 +87,7 @@ class DeviceUpdate(BaseModel):
 
 class EnrollmentRequest(BaseModel):
     enrollment_token: str
+    device_kind: str = Field(default="computer", pattern=r"^(computer|gateway)$")
     device_uid: str = Field(min_length=3, max_length=190)
     name: str = Field(min_length=1, max_length=160)
     hostname: str = Field(min_length=1, max_length=160)

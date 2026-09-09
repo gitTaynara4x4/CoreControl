@@ -1180,22 +1180,18 @@
     ].join('');
 
     const powerState = device.power || {};
-    const wolStatus = powerState.managed_mode_available
-      ? 'Opcional · CoreControl Off não depende de WOL'
+    const wolStatus = powerState.managed_off_active
+      ? 'Estado legado · use Ligar uma vez para recuperar'
       : !powerState.capability_checked
         ? 'Aguardando diagnóstico do Agent'
         : powerState.pc_wol_prepared
           ? 'Preparado no Windows'
           : 'Ainda não preparado';
-    const wakeRouteStatus = powerState.managed_mode_available
-      ? 'Não necessária no modo CoreControl Off'
-      : powerState.wan_route_verified
-        ? 'Confirmada'
-        : powerState.wake_verified
-          ? `Confirmada${powerState.relay_names?.length ? ` · ${powerState.relay_names.join(', ')}` : ''}`
-          : ['testing', 'verifying'].includes(powerState.wan_route_status)
-            ? 'Configurando...'
-            : 'Não configurada';
+    const wakeRouteStatus = powerState.managed_off_active
+      ? 'Recuperação do estado antigo pelo Agent'
+      : powerState.gateway_available
+        ? `CoreControl Box${powerState.gateway_names?.length ? ` · ${powerState.gateway_names.join(', ')}` : ''}`
+        : 'CoreControl Box necessária';
 
 
     CT.$('#deviceProtection').innerHTML = [
@@ -1213,51 +1209,13 @@
       CT.info('Rota para ligar após desligar', wakeRouteStatus),
     ].join('');
 
+    // v10.40: o caminho suportado é CoreControl Box local. O teste de
+    // Wake-on-WAN/UPnP ficou apenas como compatibilidade de backend e não é
+    // mais oferecido ao usuário para evitar configuração específica de roteador.
     const wakeRouteButton = CT.$('#wakeRouteTestBtn');
-    const canManagePower = ['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role);
-    const routeBusy = ['testing', 'verifying'].includes(powerState.wan_route_status);
-    if (wakeRouteButton && canManagePower && powerState.managed_mode_available) {
+    if (wakeRouteButton) {
       wakeRouteButton.classList.add('hidden');
       wakeRouteButton.onclick = null;
-    } else if (wakeRouteButton && canManagePower) {
-      wakeRouteButton.classList.remove('hidden');
-      wakeRouteButton.textContent = routeBusy
-        ? 'Testando rota...'
-        : powerState.wan_route_verified
-          ? 'Testar rota novamente'
-          : 'Testar rota de ligamento';
-      wakeRouteButton.disabled = !device.online || !powerState.pc_wol_prepared || routeBusy;
-      wakeRouteButton.title = !device.online
-        ? 'O computador precisa estar online para testar a rota.'
-        : !powerState.pc_wol_prepared
-          ? 'O Wake-on-LAN precisa estar preparado antes do teste externo.'
-          : 'A VPS tentará alcançar este PC pela internet antes de liberar o desligamento.';
-      wakeRouteButton.onclick = async () => {
-        const originalText = wakeRouteButton.textContent;
-        wakeRouteButton.disabled = true;
-        wakeRouteButton.textContent = 'Testando rota...';
-        try {
-          const start = await CT.api(`/devices/${device.id}/wake-route-test`, { method: 'POST' });
-          CT.toast(start?.message || 'Teste de rota iniciado.');
-          let last = null;
-          for (let attempt = 0; attempt < 28; attempt += 1) {
-            if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, 2000));
-            last = await CT.api(`/devices/${device.id}/power-readiness`);
-            if (last.wan_route_verified) {
-              CT.toast('Rota para ligar confirmada. O desligamento foi liberado.');
-              return CT.navigate('device', device.id);
-            }
-            if (['failed', 'expired'].includes(last.wan_route_status)) {
-              throw new Error('Não foi possível confirmar automaticamente a rota de religamento.');
-            }
-          }
-          throw new Error('O teste demorou mais que o esperado. Tente novamente.');
-        } catch (error) {
-          wakeRouteButton.disabled = false;
-          wakeRouteButton.textContent = originalText;
-          CT.toast(error.message || 'Não foi possível confirmar a rota de ligamento.', true);
-        }
-      };
     }
 
     CT.$('#deviceRemoteLabel').innerHTML = CT.remoteLabel(device);
@@ -1289,8 +1247,8 @@
         CT.setPowerPendingButton(devicePowerBtn, pendingAction);
         CT.setPowerPendingFeedback(devicePowerFeedback, pendingAction);
         devicePowerBtn.title = pendingWake
-          ? 'O comando de Wake-on-LAN já foi enviado. Aguardando o MeshCentral detectar o computador online.'
-          : 'O comando de desligamento já foi enviado. Aguardando o MeshCentral detectar o computador offline.';
+          ? 'O comando para ligar já foi enviado pela CoreControl Box. Aguardando o Agent voltar online.'
+          : 'O comando de desligamento já foi confirmado. Aguardando o Agent ficar offline.';
 
         // O estado pendente vem do backend (audit_logs), portanto sobrevive a F5.
         // Ao reabrir a página, retomamos a observação até chegar a resposta real.
@@ -1310,8 +1268,8 @@
             CT.toast(pendingWake ? 'Computador online.' : 'Computador desligado.');
           } else {
             CT.toast(pendingWake
-              ? 'A tentativa de ligar expirou sem o MeshCentral detectar o computador online.'
-              : 'O comando foi enviado, mas a confirmação do MeshCentral está demorando. O CoreControl continuará verificando.', true);
+              ? 'A tentativa de ligar expirou sem o Agent voltar online.'
+              : 'O comando foi enviado, mas a confirmação do desligamento está demorando. O CoreControl continuará verificando.', true);
           }
           return CT.navigate('device', device.id);
         }, 0);
@@ -1322,16 +1280,14 @@
         devicePowerBtn.textContent = powerOn ? 'Desligar computador' : 'Ligar computador';
         devicePowerBtn.disabled = !powerAvailable;
         devicePowerBtn.title = powerAvailable
-          ? (powerState.managed_mode_available
-            ? (powerOn
-              ? 'Desligar pelo CoreControl sem depender de Wake-on-LAN ou configuração do roteador.'
-              : 'Ligar pelo CoreControl usando o serviço remoto que permaneceu ativo.')
-            : (powerOn
-              ? (shutdownRouteVerified
-                ? (powerState.wan_route_verified ? 'Desligar pelo MeshCentral. Rota externa de Wake-on-LAN confirmada.' : `Desligar pelo MeshCentral. Wake Relay verificado${powerState.relay_names?.length ? `: ${powerState.relay_names.join(', ')}` : ''}.`)
-                : 'O CoreControl preparará e confirmará automaticamente uma rota Wake-on-WAN antes de desligar.')
-              : powerState.wan_route_verified ? 'Ligar usando a rota externa Wake-on-LAN confirmada.' : powerState.wake_verified ? 'Ligar usando Wake Relay da rede local.' : 'Tentar Wake-on-LAN pelo MeshCentral.'))
-          : (powerOn ? 'O desligamento remoto exige o vínculo MeshCentral deste computador.' : (powerState.reason || 'Não existe uma rota disponível para ligar este computador.'));
+          ? (powerState.managed_off_active
+              ? 'Recuperar uma vez o estado antigo CoreControl Off.'
+              : powerOn
+                ? 'Desligar o Windows de verdade. A CoreControl Box permanecerá online para religar este PC.'
+                : 'Ligar este computador pela CoreControl Box da rede local.')
+          : (powerState.reason || (powerOn
+              ? 'A CoreControl Box precisa estar online para permitir o desligamento.'
+              : 'A CoreControl Box precisa estar online para permitir o religamento.'))
         devicePowerBtn.onclick = async () => {
           const originalHtml = devicePowerBtn.innerHTML;
           const statusEl = CT.$('#deviceOnlineStatus');

@@ -1,0 +1,17 @@
+CoreControl v10.41 - CORECONTROL BOX ONLY
+
+Objetivo
+- Uma única arquitetura de energia para todos os clientes.
+- Nenhum PC comum atua como relay.
+- O CoreControl não configura UPnP/Wake-on-WAN para Ligar/Desligar.
+- Desligar real: Agent 0.9.13 agenda shutdown.exe após a VPS confirmar que a Box está online na mesma LAN.
+- Ligar: VPS envia power.wake_peer somente para a CoreControl Box e aguarda confirmação de Magic Packet enviado.
+
+Componentes
+- CoreControl Agent 0.9.13
+- CoreControl Setup 0.4.21
+- CoreControl Box 1.1.0
+- Power Engine 10.41
+
+Importante
+A Box precisa permanecer ligada no local. O PC precisa suportar Wake-on-LAN após desligamento; o Agent tenta preparar automaticamente as opções disponíveis no Windows.

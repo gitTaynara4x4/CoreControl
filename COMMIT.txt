@@ -1,0 +1,7 @@
+a7c68a2 CoreControl v10.41: padroniza energia com CoreControl Box
+
+Para aplicar no seu repositório após substituir os arquivos:
+
+git add .
+git commit -m "CoreControl v10.41: padroniza energia com CoreControl Box"
+git push

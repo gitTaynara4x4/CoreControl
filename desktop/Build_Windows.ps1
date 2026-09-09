@@ -3,6 +3,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $agentSource = Join-Path $root 'agent\src'
 $appSource = Join-Path $PSScriptRoot 'app\src'
 $setupSource = Join-Path $PSScriptRoot 'setup\src'
+$gatewaySource = Join-Path $root 'gateway\src'
 $iconPatchSource = Join-Path $PSScriptRoot 'tools\iconpatch'
 $downloadDir = Join-Path $root 'app\downloads'
 $publicUrl = if ($env:CORETUNER_PUBLIC_URL) { $env:CORETUNER_PUBLIC_URL } else { 'https://apps-corecontrol.9ywrah.easypanel.host' }
@@ -30,6 +31,13 @@ go vet ./...
 go build -trimpath -ldflags '-H windowsgui -s -w' -o (Join-Path $downloadDir 'CoreControlAgent.exe') .
 Pop-Location
 
+
+Push-Location $gatewaySource
+go test ./...
+go vet ./...
+go build -trimpath -ldflags "-H windowsgui -s -w -X main.defaultServerURL=$publicUrl" -o (Join-Path $downloadDir 'CoreControlGateway.exe') .
+Pop-Location
+
 Push-Location $appSource
 go test ./...
 go vet ./...
@@ -45,6 +53,7 @@ Pop-Location
 Push-Location $iconPatchSource
 go test ./...
 go run . -exe (Join-Path $downloadDir 'CoreControlAgent.exe') -ico $iconSource
+go run . -exe (Join-Path $downloadDir 'CoreControlGateway.exe') -ico $iconSource
 go run . -exe (Join-Path $downloadDir 'CoreControl.exe') -ico $iconSource
 go run . -exe (Join-Path $downloadDir 'CoreControlSetup.exe') -ico $iconSource
 
@@ -54,5 +63,5 @@ Copy-Item -Force (Join-Path $downloadDir 'CoreControl.exe') (Join-Path $download
 Copy-Item -Force (Join-Path $downloadDir 'CoreControlSetup.exe') (Join-Path $downloadDir 'CoreTunerSetup.exe')
 Pop-Location
 
-Write-Host 'CoreControlSetup.exe, CoreControl.exe e CoreControlAgent.exe gerados em app\downloads (com aliases legados).' -ForegroundColor Green
+Write-Host 'CoreControlSetup.exe, CoreControl.exe, CoreControlAgent.exe e CoreControlGateway.exe gerados em app\downloads (com aliases legados).' -ForegroundColor Green
 Write-Host 'Esta compilação não usa PowerShell para coletar diagnóstico.' -ForegroundColor Green
