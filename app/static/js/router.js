@@ -9,7 +9,7 @@
     devices: ['Computadores', 'Veja saúde, uso e alertas de todas as máquinas autorizadas.'],
     alerts: ['Alertas', 'Priorize o que exige atenção técnica.'],
     remote: ['Acesso remoto', 'Acesse computadores autorizados com registro da solicitação.'],
-    updates: ['Atualizações', 'Windows, drivers, aplicativos e políticas de atualização.'],
+    updates: ['Atualizações', 'Gerencie Windows Update, drivers e aplicativos dos computadores.'],
     scripts: ['Scripts', 'Automatize diagnósticos e tarefas administrativas com rastreabilidade.'],
     network: ['Rede', 'Acompanhe conectividade e execute diagnósticos de rede.'],
     reports: ['Relatórios', 'Consolide inventário, monitoramento, operações e auditoria.'],
