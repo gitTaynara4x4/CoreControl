@@ -29,7 +29,7 @@ def test_scripts_tab_is_restored_from_url():
     router = read('app/static/js/router.js')
     assert "searchParams.get('tab')" in js
     assert "searchParams.set('tab', tab)" in js
-    assert "['updates', 'scripts'].includes(page)" in router
+    assert "'scripts'" in router and "'reports'" in router and "url.searchParams.delete('tab')" in router
 
 
 def test_cache_busting_updated():

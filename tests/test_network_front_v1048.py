@@ -28,7 +28,7 @@ def test_network_front_has_compact_overview_and_filters():
 def test_network_tabs_survive_refresh():
     assert "NETWORK_TABS = new Set(['overview', 'tests', 'devices'])" in JS
     assert "url.searchParams.set('tab', tab)" in JS
-    assert "['updates', 'scripts', 'network']" in ROUTER
+    assert "['updates', 'scripts', 'network', 'reports']" in ROUTER
 
 
 def test_network_has_test_and_device_views():

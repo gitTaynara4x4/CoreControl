@@ -36,4 +36,6 @@ def test_auth_login_keeps_requested_route():
 
 def test_cache_busting_for_route_files():
     index = read('app/static/index.html')
-    assert index.count('20260909-route-persistence-v10-46') >= 4
+    assert '/static/js/auth.js?v=20260909-route-persistence-v10-46' in index
+    assert '/static/app.js?v=20260909-route-persistence-v10-46' in index
+    assert '/static/js/router.js?v=20260909-reports-ui-v10-49' in index
