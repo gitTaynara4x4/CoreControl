@@ -1,0 +1,23 @@
+CORECONTROL v10.35 - POWER VIA AGENT NATIVO
+
+Problema corrigido
+- MeshCentral RunCommand --reply podia expirar mesmo com o PC online.
+- O fluxo Software Only ficava pendurado por ~35s e o botão Desligar falhava.
+
+Nova arquitetura
+- CoreControl Off usa a fila autenticada do próprio CoreControlAgent.exe.
+- O Agent consulta /api/agent/commands/next a cada poucos segundos.
+- Comandos novos: power.managed_off e power.managed_on.
+- O servidor só grava estado desligado após receber confirmação assinada do Agent.
+- Não usa ListDevices/RunCommand para CoreControl Off.
+- Não depende de roteador, UPnP, Wake-on-LAN, IP público, CGNAT ou outro PC na LAN.
+
+Compatibilidade
+- Requer CoreControl Agent 0.9.8+.
+- Novos clientes que executarem o Setup atual recebem o Agent 0.9.8 automaticamente.
+- Computadores já instalados com Agent 0.9.7 ou anterior precisam executar o Setup uma única vez para atualizar o binário.
+- Depois dessa migração não existe procedimento manual por cliente para Desligar/Ligar.
+
+Importante
+- CoreControl Off é software-only: o Windows e o serviço do Agent permanecem vivos para receber o comando Ligar.
+- Não é desligamento elétrico S5.

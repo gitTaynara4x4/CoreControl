@@ -776,6 +776,50 @@ def _try_agent_wan_route_sync(
     return None, f"{last_message} O teste automático excedeu o tempo de confirmação."
 
 
+
+def _run_agent_command_sync(
+    db: Session,
+    device: Device,
+    command_type: str,
+    *,
+    created_by: int | None,
+    timeout_seconds: float = 18.0,
+) -> dict:
+    """Queue a command to the installed CoreControl Agent and wait for its signed result.
+
+    The Windows Agent polls the authenticated command endpoint every 5 seconds.
+    This path is intentionally independent from MeshCentral/RunCommand so software-only
+    power control does not depend on a second remote-control transport.
+    """
+    command, _created = queue_agent_command(
+        db,
+        device,
+        command_type,
+        {},
+        created_by=created_by,
+        deduplicate=False,
+    )
+    db.commit()
+    deadline = time.monotonic() + max(8.0, float(timeout_seconds))
+    while time.monotonic() < deadline:
+        time.sleep(0.35)
+        db.expire_all()
+        current = db.get(AgentCommand, command.id)
+        if current is None:
+            raise HTTPException(status_code=503, detail="O comando do CoreControl Agent desapareceu da fila.")
+        if current.status == "succeeded":
+            return _command_json(current.result_json)
+        if current.status == "failed":
+            raise HTTPException(
+                status_code=503,
+                detail=(current.error_text or "O CoreControl Agent não conseguiu executar o comando de energia."),
+            )
+    raise HTTPException(
+        status_code=504,
+        detail="O CoreControl Agent não confirmou o comando de energia dentro do prazo.",
+    )
+
+
 POWER_WAKE_PENDING_FOR = timedelta(minutes=5)
 POWER_OFF_PENDING_FOR = timedelta(minutes=3)
 
@@ -934,13 +978,11 @@ def device_power_readiness(db: Session, device: Device) -> dict:
     windows_device = "windows" in str(device.os_name or "").lower()
     managed_off = device_managed_off_state(db, device)
 
-    # v10.34: CoreControl Off não pode depender do texto de os_name. Em alguns
-    # cadastros o Agent já está online e o MeshCentral está vinculado, mas o
-    # campo de sistema operacional chega vazio/atrasado. Isso fazia o backend
-    # cair indevidamente no fluxo Wake-on-WAN/roteador. O vínculo remoto é a
-    # capacidade necessária para o modo software-only; o próprio comando
-    # confirma no Windows se a preparação foi executada.
-    managed_mode_available = bool(mesh_fallback)
+    # v10.35: CoreControl Off usa o canal autenticado do PRÓPRIO Agent.
+    # Não depende de MeshCentral, roteador, UPnP, WOL ou outro PC na LAN.
+    # O Agent 0.9.8+ consulta a fila da VPS a cada poucos segundos e devolve
+    # confirmação assinada antes de o painel marcar o estado como desligado.
+    managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 8)))
 
     # Wake-on-LAN continua disponível como recurso adicional para máquinas que
     # realmente podem desligar em S5. Porém o modo padrão software-only não
@@ -952,8 +994,13 @@ def device_power_readiness(db: Session, device: Device) -> dict:
 
     if managed_mode_available:
         reason = (
-            "Modo CoreControl Off disponível. Este PC pode ser colocado em estado desligado pelo painel "
-            "sem depender de Wake-on-LAN, roteador, IP público ou outro computador na rede."
+            "Modo CoreControl Off 10.35 disponível pelo Agent. Este PC pode ser colocado em estado desligado pelo painel "
+            "sem depender de MeshCentral RunCommand, Wake-on-LAN, roteador, IP público ou outro computador na rede."
+        )
+    elif device_online(device) and not _version_at_least(device.agent_version, (0, 9, 8)):
+        reason = (
+            f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize uma vez para 0.9.8 ou superior; "
+            "os novos clientes já recebem essa versão automaticamente pelo instalador atual."
         )
     elif not target_info.get("mac_address"):
         reason = "O Agent ainda não informou o endereço MAC deste computador."
@@ -1032,7 +1079,7 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "managed_off_active": bool(managed_off["active"]),
         "managed_off_since": managed_off.get("since"),
         "software_only_power": managed_mode_available,
-        "power_engine_version": "10.34",
+        "power_engine_version": "10.35",
         "power_off_mode": "managed" if managed_mode_available else ("shutdown" if full_shutdown_safe else ("hibernate" if wake_verified else "blocked")),
         "off_available": off_available,
         "safe_to_power_off": safe_to_power_off,
@@ -2358,12 +2405,13 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         and meshcentral_client.provisioning_configured
         and device.mesh_node_id
     )
-    if mesh_ready:
+    # Wake físico ainda pode consultar MeshCentral. CoreControl Off software-only
+    # não deve bloquear esperando ListDevices/RunCommand.
+    if mesh_ready and requested == "wake":
         try:
             refresh_remote_for_devices(db, [device], force=True, suppress_errors=False)
-        except MeshCentralCommandError as exc:
-            if requested == "off":
-                raise HTTPException(status_code=503, detail=f"MeshCentral indisponível: {exc}") from exc
+        except MeshCentralCommandError:
+            pass
 
     currently_on = device_power_currently_on(device)
     managed_state = device_managed_off_state(db, device)
@@ -2413,6 +2461,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
 
     readiness = device_power_readiness(db, device)
     wan_route = latest_wan_wake_route(db, device)
+    windows_device = "windows" in str(device.os_name or "").lower()
 
     # Antes de desligar um PC que pode estar sozinho na rede, tente criar ou
     # melhorar a rota Wake-on-WAN enquanto a máquina AINDA está ligada. Mesmo
@@ -2483,10 +2532,18 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
 
     try:
         if requested == "off":
-            if not mesh_ready:
+            # CoreControl Off 10.35 usa o Agent nativo e não exige MeshCentral.
+            # Máquinas já instaladas com Agent anterior precisam de uma única
+            # atualização do Agent; depois passam a usar a fila nativa como todos
+            # os novos clientes. Não tente mascarar isso voltando ao RunCommand.
+            if device_online(device) and not _version_at_least(device.agent_version, (0, 9, 8)):
                 raise HTTPException(
-                    status_code=503,
-                    detail="O desligamento remoto exige o vínculo MeshCentral deste computador.",
+                    status_code=409,
+                    detail=(
+                        f"Este computador ainda usa o CoreControl Agent {device.agent_version or 'antigo'}. "
+                        "Atualize uma vez para o Agent 0.9.8 ou superior. Depois disso, Desligar/Ligar usa o canal nativo do Agent "
+                        "e não depende de MeshCentral, roteador ou outro PC."
+                    ),
                 )
 
             # Nunca coloque o único PC da rede em um estado do qual o próprio
@@ -2508,37 +2565,37 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     ),
                 )
 
-            # v10.34: CoreControl Off é SEMPRE a primeira opção quando existe
-            # vínculo remoto. Não consulte os_name e não teste roteador/WOL.
-            # Isso evita cair no fluxo legado só porque a telemetria do SO ainda
-            # não foi persistida.
+            # v10.35: envie direto para o CoreControl Agent já instalado.
+            # O backend espera a confirmação assinada do próprio Agent; não há
+            # ListDevices nem RunCommand neste caminho.
             if readiness.get("managed_mode_available"):
-                try:
-                    meshcentral_client.device_enter_managed_off(device.mesh_node_id)
-                    methods.append("corecontrol_managed_off")
-                    db.add(
-                        AuditLog(
-                            company_id=device.company_id,
-                            actor_user_id=user.id,
-                            device_id=device.id,
-                            action="power.managed_off.entered",
-                            details=json.dumps(
-                                {
-                                    "hostname": device.hostname,
-                                    "mesh_node_id": device.mesh_node_id,
-                                    "mode": "software_only",
-                                    "engine": "10.34",
-                                },
-                                ensure_ascii=False,
-                            ),
-                        )
+                result = _run_agent_command_sync(
+                    db,
+                    device,
+                    "power.managed_off",
+                    created_by=user.id,
+                )
+                if not bool(result.get("managed_off")):
+                    raise HTTPException(status_code=503, detail="O CoreControl Agent não confirmou o modo desligado.")
+                methods.append("corecontrol_agent_managed_off")
+                db.add(
+                    AuditLog(
+                        company_id=device.company_id,
+                        actor_user_id=user.id,
+                        device_id=device.id,
+                        action="power.managed_off.entered",
+                        details=json.dumps(
+                            {
+                                "hostname": device.hostname,
+                                "mode": "software_only",
+                                "transport": "agent_queue",
+                                "engine": "10.35",
+                            },
+                            ensure_ascii=False,
+                        ),
                     )
-                    db.commit()
-                except MeshCentralCommandError as exc:
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"Não foi possível colocar o computador em CoreControl Off: {exc}",
-                    ) from exc
+                )
+                db.commit()
             elif windows_device:
                 # Fallback legado, utilizado somente se não houver CoreControl Off.
                 if readiness.get("full_shutdown_safe"):
@@ -2573,36 +2630,38 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {exc}") from exc
         else:
             if managed_off_active:
-                if not mesh_ready:
+                if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 8))):
                     raise HTTPException(
                         status_code=503,
-                        detail="O CoreControl Off perdeu o vínculo remoto deste computador.",
+                        detail="O CoreControl Agent compatível não está online para sair do modo desligado.",
                     )
-                try:
-                    meshcentral_client.device_exit_managed_off(device.mesh_node_id)
-                    methods.append("corecontrol_managed_on")
-                    db.add(
-                        AuditLog(
-                            company_id=device.company_id,
-                            actor_user_id=user.id,
-                            device_id=device.id,
-                            action="power.managed_off.exited",
-                            details=json.dumps(
-                                {
-                                    "hostname": device.hostname,
-                                    "mesh_node_id": device.mesh_node_id,
-                                    "mode": "software_only",
-                                },
-                                ensure_ascii=False,
-                            ),
-                        )
+                result = _run_agent_command_sync(
+                    db,
+                    device,
+                    "power.managed_on",
+                    created_by=user.id,
+                )
+                if bool(result.get("managed_off")):
+                    raise HTTPException(status_code=503, detail="O CoreControl Agent não confirmou a saída do modo desligado.")
+                methods.append("corecontrol_agent_managed_on")
+                db.add(
+                    AuditLog(
+                        company_id=device.company_id,
+                        actor_user_id=user.id,
+                        device_id=device.id,
+                        action="power.managed_off.exited",
+                        details=json.dumps(
+                            {
+                                "hostname": device.hostname,
+                                "mode": "software_only",
+                                "transport": "agent_queue",
+                                "engine": "10.35",
+                            },
+                            ensure_ascii=False,
+                        ),
                     )
-                    db.commit()
-                except MeshCentralCommandError as exc:
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"Não foi possível ligar o computador pelo CoreControl Off: {exc}",
-                    ) from exc
+                )
+                db.commit()
             else:
                 target_info = device_wol_info(db, device)
                 mac_address = target_info.get("mac_address") or ""

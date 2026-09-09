@@ -75,6 +75,10 @@ var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 func executeAgentCommand(command pendingCommand) (map[string]interface{}, error) {
 	switch command.Type {
+	case "power.managed_off":
+		return executeManagedOffCommand()
+	case "power.managed_on":
+		return executeManagedOnCommand()
 	case "power.wake_peer":
 		return executeWakePeerCommand(command)
 	case "power.route_probe":
@@ -142,6 +146,98 @@ func executeAgentCommand(command pendingCommand) (map[string]interface{}, error)
 	default:
 		return nil, fmt.Errorf("tipo de comando não permitido: %s", command.Type)
 	}
+}
+
+
+func runManagedPowerShell(script string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	output, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(output))
+	if ctx.Err() == context.DeadlineExceeded {
+		return text, errors.New("o Windows não concluiu a alteração de energia dentro do prazo")
+	}
+	if err != nil {
+		if text != "" {
+			return text, fmt.Errorf("PowerShell falhou: %s", text)
+		}
+		return text, fmt.Errorf("PowerShell falhou: %w", err)
+	}
+	return text, nil
+}
+
+func executeManagedOffCommand() (map[string]interface{}, error) {
+	// CoreControl Off é executado pelo próprio Agent, não pelo MeshCentral.
+	// O Agent continua vivo e consultando a VPS a cada poucos segundos, então
+	// o comando inverso funciona mesmo quando este é o único PC da rede.
+	script := `$ErrorActionPreference='Stop';
+$ProgressPreference='SilentlyContinue';
+$dir=Join-Path $env:ProgramData 'CoreControl';
+New-Item -ItemType Directory -Path $dir -Force | Out-Null;
+$keeper=Join-Path $dir 'managed-off-keeper.ps1';
+$body=@'
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class CoreControlPowerState {
+  [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);
+}
+"@
+$ES_CONTINUOUS=0x80000000; $ES_SYSTEM_REQUIRED=0x00000001;
+try {
+  while($true){
+    [CoreControlPowerState]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) | Out-Null;
+    Start-Sleep -Seconds 3;
+  }
+} finally {
+  [CoreControlPowerState]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null;
+}
+'@;
+Set-Content -Path $keeper -Value $body -Encoding UTF8 -Force;
+$escaped=[Regex]::Escape($keeper);
+$existing=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match $escaped});
+if(-not $existing){
+  Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$keeper) | Out-Null;
+}
+$wts=@'
+using System;
+using System.Runtime.InteropServices;
+public static class CoreControlWtsAgent {
+  [DllImport("Wtsapi32.dll", SetLastError=true)] public static extern bool WTSDisconnectSession(IntPtr hServer, int sessionId, bool bWait);
+}
+'@;
+Add-Type -TypeDefinition $wts -ErrorAction SilentlyContinue;
+$sessions=@(Get-Process explorer -IncludeUserName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SessionId -Unique | Where-Object {$_ -gt 0});
+foreach($sid in $sessions){try{[CoreControlWtsAgent]::WTSDisconnectSession([IntPtr]::Zero,[int]$sid,$false) | Out-Null}catch{}}
+'CORECONTROL_MANAGED_OFF_CONFIRMED'`
+	out, err := runManagedPowerShell(script, 15*time.Second)
+	if err != nil {
+		return map[string]interface{}{"managed_off": false, "output": out}, err
+	}
+	if !strings.Contains(out, "CORECONTROL_MANAGED_OFF_CONFIRMED") {
+		return map[string]interface{}{"managed_off": false, "output": out}, errors.New("o Windows não confirmou o CoreControl Off")
+	}
+	return map[string]interface{}{"managed_off": true}, nil
+}
+
+func executeManagedOnCommand() (map[string]interface{}, error) {
+	script := `$ErrorActionPreference='SilentlyContinue';
+$keeper=Join-Path (Join-Path $env:ProgramData 'CoreControl') 'managed-off-keeper.ps1';
+$escaped=[Regex]::Escape($keeper);
+$procs=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match $escaped});
+foreach($p in $procs){try{Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue}catch{}}
+Remove-Item -Path $keeper -Force -ErrorAction SilentlyContinue;
+'CORECONTROL_MANAGED_ON_CONFIRMED'`
+	out, err := runManagedPowerShell(script, 12*time.Second)
+	if err != nil {
+		return map[string]interface{}{"managed_off": true, "output": out}, err
+	}
+	if !strings.Contains(out, "CORECONTROL_MANAGED_ON_CONFIRMED") {
+		return map[string]interface{}{"managed_off": true, "output": out}, errors.New("o Windows não confirmou a saída do CoreControl Off")
+	}
+	return map[string]interface{}{"managed_off": false}, nil
 }
 
 func mapFromStruct(value interface{}) (map[string]interface{}, error) {

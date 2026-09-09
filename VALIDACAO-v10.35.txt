@@ -1,0 +1,13 @@
+VALIDACAO CORECONTROL v10.35
+
+- Python compileall app: PASS
+- pytest tests/test_managed_power.py tests/test_power_control.py: 17 passed
+- Go Windows amd64 test compilation: PASS
+- CoreControlAgent.exe Windows amd64 GUI 0.9.8: PASS
+- SHA256 CoreControlAgent.exe: 5d84d71cc1ba850c129c56014b3a4ab90ca2f3990af1b3881f7b232addb2b7f8
+
+Arquivos principais alterados:
+- app/api.py
+- agent/src/main.go
+- agent/src/update_windows.go
+- app/downloads/CoreControlAgent.exe
