@@ -209,8 +209,8 @@ public static class CoreControlWtsAgent {
 }
 '@;
 Add-Type -TypeDefinition $wts -ErrorAction SilentlyContinue;
-$sessions=@(Get-Process explorer -IncludeUserName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SessionId -Unique | Where-Object {$_ -gt 0});
-foreach($sid in $sessions){try{[CoreControlWtsAgent]::WTSDisconnectSession([IntPtr]::Zero,[int]$sid,$false) | Out-Null}catch{}}
+$sid=([System.Diagnostics.Process]::GetCurrentProcess()).SessionId;
+if($sid -gt 0){try{[CoreControlWtsAgent]::WTSDisconnectSession([IntPtr]::Zero,[int]$sid,$false) | Out-Null}catch{}}
 'CORECONTROL_MANAGED_OFF_CONFIRMED'`
 	out, err := runManagedPowerShell(script, 15*time.Second)
 	if err != nil {

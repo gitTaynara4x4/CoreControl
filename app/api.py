@@ -978,11 +978,11 @@ def device_power_readiness(db: Session, device: Device) -> dict:
     windows_device = "windows" in str(device.os_name or "").lower()
     managed_off = device_managed_off_state(db, device)
 
-    # v10.35: CoreControl Off usa o canal autenticado do PRÓPRIO Agent.
+    # v10.36: CoreControl Off usa o canal autenticado do PRÓPRIO Agent.
     # Não depende de MeshCentral, roteador, UPnP, WOL ou outro PC na LAN.
-    # O Agent 0.9.8+ consulta a fila da VPS a cada poucos segundos e devolve
+    # O Agent 0.9.9+ consulta a fila da VPS a cada poucos segundos e devolve
     # confirmação assinada antes de o painel marcar o estado como desligado.
-    managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 8)))
+    managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 9)))
 
     # Wake-on-LAN continua disponível como recurso adicional para máquinas que
     # realmente podem desligar em S5. Porém o modo padrão software-only não
@@ -994,13 +994,13 @@ def device_power_readiness(db: Session, device: Device) -> dict:
 
     if managed_mode_available:
         reason = (
-            "Modo CoreControl Off 10.35 disponível pelo Agent. Este PC pode ser colocado em estado desligado pelo painel "
+            "Modo CoreControl Off 10.36 disponível pelo Agent. Este PC pode ser colocado em estado desligado pelo painel "
             "sem depender de MeshCentral RunCommand, Wake-on-LAN, roteador, IP público ou outro computador na rede."
         )
-    elif device_online(device) and not _version_at_least(device.agent_version, (0, 9, 8)):
+    elif device_online(device) and not _version_at_least(device.agent_version, (0, 9, 9)):
         reason = (
-            f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize uma vez para 0.9.8 ou superior; "
-            "os novos clientes já recebem essa versão automaticamente pelo instalador atual."
+            f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize uma vez para 0.9.9 ou superior; "
+            "os novos clientes já recebem essa versão corrigida automaticamente pelo instalador atual."
         )
     elif not target_info.get("mac_address"):
         reason = "O Agent ainda não informou o endereço MAC deste computador."
@@ -1079,7 +1079,7 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "managed_off_active": bool(managed_off["active"]),
         "managed_off_since": managed_off.get("since"),
         "software_only_power": managed_mode_available,
-        "power_engine_version": "10.35",
+        "power_engine_version": "10.36",
         "power_off_mode": "managed" if managed_mode_available else ("shutdown" if full_shutdown_safe else ("hibernate" if wake_verified else "blocked")),
         "off_available": off_available,
         "safe_to_power_off": safe_to_power_off,
@@ -2532,16 +2532,16 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
 
     try:
         if requested == "off":
-            # CoreControl Off 10.35 usa o Agent nativo e não exige MeshCentral.
+            # CoreControl Off 10.36 usa o Agent nativo e não exige MeshCentral.
             # Máquinas já instaladas com Agent anterior precisam de uma única
             # atualização do Agent; depois passam a usar a fila nativa como todos
             # os novos clientes. Não tente mascarar isso voltando ao RunCommand.
-            if device_online(device) and not _version_at_least(device.agent_version, (0, 9, 8)):
+            if device_online(device) and not _version_at_least(device.agent_version, (0, 9, 9)):
                 raise HTTPException(
                     status_code=409,
                     detail=(
                         f"Este computador ainda usa o CoreControl Agent {device.agent_version or 'antigo'}. "
-                        "Atualize uma vez para o Agent 0.9.8 ou superior. Depois disso, Desligar/Ligar usa o canal nativo do Agent "
+                        "Atualize uma vez para o Agent 0.9.9 ou superior. Depois disso, Desligar/Ligar usa o canal nativo do Agent "
                         "e não depende de MeshCentral, roteador ou outro PC."
                     ),
                 )
@@ -2565,7 +2565,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     ),
                 )
 
-            # v10.35: envie direto para o CoreControl Agent já instalado.
+            # v10.36: envie direto para o CoreControl Agent já instalado.
             # O backend espera a confirmação assinada do próprio Agent; não há
             # ListDevices nem RunCommand neste caminho.
             if readiness.get("managed_mode_available"):
@@ -2589,7 +2589,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                                 "hostname": device.hostname,
                                 "mode": "software_only",
                                 "transport": "agent_queue",
-                                "engine": "10.35",
+                                "engine": "10.36",
                             },
                             ensure_ascii=False,
                         ),
@@ -2630,7 +2630,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                     raise HTTPException(status_code=503, detail=f"Não foi possível enviar o comando de energia: {exc}") from exc
         else:
             if managed_off_active:
-                if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 8))):
+                if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 9))):
                     raise HTTPException(
                         status_code=503,
                         detail="O CoreControl Agent compatível não está online para sair do modo desligado.",
@@ -2655,7 +2655,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                                 "hostname": device.hostname,
                                 "mode": "software_only",
                                 "transport": "agent_queue",
-                                "engine": "10.35",
+                                "engine": "10.36",
                             },
                             ensure_ascii=False,
                         ),

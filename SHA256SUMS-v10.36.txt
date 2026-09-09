@@ -1,0 +1,2 @@
+8408697742072adf95fe5a6df4d4a2db142d69946a8a7f6c9c90babb1fcd94a3  app/downloads/CoreControlAgent.exe
+8408697742072adf95fe5a6df4d4a2db142d69946a8a7f6c9c90babb1fcd94a3  app/downloads/CoreTunerAgent.exe

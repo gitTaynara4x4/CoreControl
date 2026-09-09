@@ -1,0 +1,15 @@
+CoreControl v10.36 / Agent 0.9.9
+
+Correção principal
+- Remove Get-Process -IncludeUserName do CoreControl Off nativo.
+- O Agent usa a própria sessão do PowerShell/Agent via GetCurrentProcess().SessionId.
+- Não exige Executar como Administrador para identificar a sessão a desconectar.
+- Backend exige Agent 0.9.9+ para evitar que o 0.9.8 com esse bug seja usado.
+- Fluxo permanece pela fila autenticada do Agent, sem MeshCentral RunCommand, UPnP, roteador ou outro PC.
+
+Validações executadas
+- python -m compileall app: OK
+- pytest tests/test_managed_power.py tests/test_power_control.py: 18 passed
+- GOOS=windows GOARCH=amd64 go vet ./... (agent): OK
+- GOOS=windows GOARCH=amd64 go test -c (agent): OK
+- CoreControlAgent.exe Windows x64 recompilado e ícone incorporado: OK

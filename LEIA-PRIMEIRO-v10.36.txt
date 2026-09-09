@@ -1,0 +1,8 @@
+CoreControl v10.36 - Managed Off sem elevação
+
+Correção:
+- Agent 0.9.9 não usa Get-Process -IncludeUserName.
+- O modo CoreControl Off usa a própria sessão do Agent/PowerShell para WTSDisconnectSession.
+- Não exige Executar como Administrador.
+- Backend exige Agent 0.9.9+ para evitar usar o 0.9.8 com esse bug.
+- Fluxo continua via fila nativa do Agent, sem MeshCentral RunCommand, roteador, UPnP ou outro PC.

@@ -588,7 +588,7 @@ class MeshCentralClient:
             "try {\n"
             "  while($true){\n"
             "    [CoreControlPowerState]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) | Out-Null;\n"
-            "    $sessions=@(Get-Process explorer -IncludeUserName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SessionId -Unique | Where-Object {$_ -gt 0});\n"
+            "    $sessions=@(Get-Process explorer -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SessionId -Unique | Where-Object {$_ -gt 0});\n"
             "    foreach($sid in $sessions){try{[CoreControlManagedSession]::WTSDisconnectSession([IntPtr]::Zero,[int]$sid,$false) | Out-Null}catch{}};\n"
             "    Start-Sleep -Seconds 3;\n"
             "  }\n"
@@ -606,7 +606,7 @@ class MeshCentralClient:
             # Disconnect every Explorer-backed interactive session. This is the
             # service-safe equivalent of locking the user's console session and
             # does not require a password or an interactive Mesh command.
-            "$sessions=@(Get-Process explorer -IncludeUserName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SessionId -Unique | Where-Object {$_ -gt 0});"
+            "$sessions=@(Get-Process explorer -ErrorAction SilentlyContinue | Select-Object -ExpandProperty SessionId -Unique | Where-Object {$_ -gt 0});"
             "if($sessions.Count -gt 0){"
             "$wts=@'\nusing System;\nusing System.Runtime.InteropServices;\npublic static class CoreControlWts {\n[DllImport(\"Wtsapi32.dll\", SetLastError=true)] public static extern bool WTSDisconnectSession(IntPtr hServer, int sessionId, bool bWait);\n}\n'@;"
             "Add-Type -TypeDefinition $wts -ErrorAction SilentlyContinue;"

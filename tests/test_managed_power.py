@@ -53,13 +53,13 @@ def test_api_prioritizes_native_agent_managed_power_without_mesh_runcommand():
     assert '_run_agent_command_sync(' in api
     assert '"power.managed_off"' in api
     assert '"power.managed_on"' in api
-    assert 'managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 8)))' in api
-    assert '"power_engine_version": "10.35"' in api
+    assert 'managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 9)))' in api
+    assert '"power_engine_version": "10.36"' in api
     assert 'case "power.managed_off":' in agent
     assert 'case "power.managed_on":' in agent
     assert 'CORECONTROL_MANAGED_OFF_CONFIRMED' in agent
     assert 'CORECONTROL_MANAGED_ON_CONFIRMED' in agent
-    assert 'const agentVersion = "0.9.8"' in main
+    assert 'const agentVersion = "0.9.9"' in main
 
 
 def test_frontend_treats_managed_off_as_desligado_and_hides_router_setup():
@@ -71,3 +71,10 @@ def test_frontend_treats_managed_off_as_desligado_and_hides_router_setup():
     assert "Não necessária no modo CoreControl Off" in devices
     assert "wakeRouteButton.classList.add('hidden')" in devices
     assert "managed_mode_available" in overview
+
+
+def test_managed_off_does_not_require_elevated_include_username():
+    agent = (ROOT / "agent" / "src" / "update_windows.go").read_text(encoding="utf-8")
+    assert "-IncludeUserName" not in agent
+    assert "GetCurrentProcess()).SessionId" in agent
+
