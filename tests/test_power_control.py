@@ -58,7 +58,7 @@ def test_power_control_has_verified_lan_relay_fallback():
     assert '@router.get("/devices/{device_id}/power-readiness")' in api
     assert '"power.wake_peer"' in api
     assert 'corecontrol_lan_relay' in api
-    assert 'Desligamento bloqueado por segurança' in api
+    assert 'Não foi possível desligar com segurança' in api
     assert '"primary_mac"' in agent
     assert '"network_cidr"' in agent
     assert '"wol_relay_capable"' in agent
@@ -83,7 +83,7 @@ def test_agent_097_audits_and_prepares_wol_without_claiming_full_shutdown_guaran
     windows = (ROOT / "agent/src/wol_capability_windows.go").read_text(encoding="utf-8")
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
 
-    assert 'const agentVersion = "0.9.10"' in main
+    assert 'const agentVersion = "0.9.11"' in main
     assert '"wol_capability"' in main
     assert "Get-NetAdapterPowerManagement" in windows
     assert "Set-NetAdapterPowerManagement" in windows
@@ -91,7 +91,7 @@ def test_agent_097_audits_and_prepares_wol_without_claiming_full_shutdown_guaran
     assert "wake_armed" in windows
     assert "intel_amt_detected" in windows
     assert "pc_wol_prepared" in api
-    assert "rota externa confirmada" in api
+    assert "Rota externa confirmada" in api
 
 
 def test_device_detail_exposes_wol_preflight_status():
@@ -178,24 +178,34 @@ def test_native_agent_heartbeat_has_priority_over_mesh_power_state():
     ui = (ROOT / "app/static/js/ui.js").read_text(encoding="utf-8")
 
     fn = api[api.index("def device_power_currently_on"):api.index("def device_power_pending_state")]
-    assert "if device_online(device):" in fn
-    assert "return True" in fn
-    assert fn.index("if device_online(device):") < fn.index("if mesh_ready and checked_at and mesh_recent:")
+    assert "agent_power_fresh" in fn
+    assert "<= 30" in fn
+    assert fn.index("if agent_power_fresh:") < fn.index("if mesh_ready and mesh_recent:")
     assert "if (device?.actual_online || device?.online) return true;" in ui
 
 
-def test_managed_power_response_uses_the_same_method_names_that_are_dispatched():
+def test_real_shutdown_is_dispatched_by_native_agent():
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
-    assert 'methods.append("corecontrol_agent_managed_off")' in api
-    assert 'if "corecontrol_agent_managed_off" in methods:' in api
-    assert '"managed_off_active": "corecontrol_agent_managed_off" in methods' in api
-    assert 'methods.append("corecontrol_agent_managed_on")' in api
-    assert 'elif "corecontrol_agent_managed_on" in methods:' in api
+    agent = (ROOT / "agent/src/update_windows.go").read_text(encoding="utf-8")
+    assert '"power.shutdown"' in api
+    assert 'methods.append("corecontrol_agent_shutdown")' in api
+    assert 'case "power.shutdown":' in agent
+    assert "CORECONTROL_REAL_SHUTDOWN_CONFIRMED" in agent
+    assert "shutdown.exe" in agent
+
+
+def test_new_clients_attempt_wake_route_before_shutdown():
+    api = (ROOT / "app/api.py").read_text(encoding="utf-8")
+    ui = (ROOT / "app/static/js/ui.js").read_text(encoding="utf-8")
+    assert '"route_preflight_available": route_preflight_available' in api
+    assert 'and readiness.get("route_preflight_available")' in api
+    assert "Preparar e desligar" in ui
+    assert "canPrepareRoute" in ui
 
 
 def test_setup_reports_the_bundled_agent_version_instead_of_setup_version():
     setup = (ROOT / "desktop/setup/src/main.go").read_text(encoding="utf-8")
-    assert 'const appVersion = "0.4.17"' in setup
-    assert 'const bundledAgentVersion = "0.9.10"' in setup
+    assert 'const appVersion = "0.4.18"' in setup
+    assert 'const bundledAgentVersion = "0.9.11"' in setup
     assert '"agent_version": bundledAgentVersion' in setup
     assert '"agent_version": appVersion' not in setup

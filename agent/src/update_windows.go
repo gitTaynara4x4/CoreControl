@@ -79,6 +79,8 @@ func executeAgentCommand(command pendingCommand) (map[string]interface{}, error)
 		return executeManagedOffCommand()
 	case "power.managed_on":
 		return executeManagedOnCommand()
+	case "power.shutdown":
+		return executeShutdownCommand()
 	case "power.wake_peer":
 		return executeWakePeerCommand(command)
 	case "power.route_probe":
@@ -165,6 +167,39 @@ func runManagedPowerShell(script string, timeout time.Duration) (string, error) 
 		return text, fmt.Errorf("PowerShell falhou: %w", err)
 	}
 	return text, nil
+}
+
+func executeShutdownCommand() (map[string]interface{}, error) {
+	// CoreControl 10.38: shutdown REAL do Windows. O comando agenda o
+	// desligamento com alguns segundos de atraso para que o Agent consiga
+	// devolver o ACK assinado à VPS antes de a pilha de rede cair.
+	script := `$ErrorActionPreference='Stop';
+$ProgressPreference='SilentlyContinue';
+$adapters=@(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq 'Up'});
+foreach($a in $adapters){
+  try{Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -ErrorAction SilentlyContinue | Out-Null}catch{}
+  try{Set-NetAdapterPowerManagement -Name $a.Name -ArpOffload Enabled -ErrorAction SilentlyContinue | Out-Null}catch{}
+  try{$desc=[string]$a.InterfaceDescription;if($desc){& powercfg.exe /deviceenablewake $desc 2>$null | Out-Null}}catch{}
+}
+$shutdown=Join-Path $env:SystemRoot 'System32\shutdown.exe';
+if(-not (Test-Path $shutdown)){throw 'shutdown.exe não foi encontrado no Windows.'}
+try{& $shutdown /a 2>$null | Out-Null}catch{}
+& $shutdown /s /f /t 12;
+$code=[int]$LASTEXITCODE;
+if($code -ne 0){throw ('shutdown.exe recusou o desligamento. Código: '+$code)}
+'CORECONTROL_REAL_SHUTDOWN_CONFIRMED'`
+	out, err := runManagedPowerShell(script, 12*time.Second)
+	if err != nil {
+		return map[string]interface{}{"shutdown_scheduled": false, "output": out}, err
+	}
+	if !strings.Contains(out, "CORECONTROL_REAL_SHUTDOWN_CONFIRMED") {
+		return map[string]interface{}{"shutdown_scheduled": false, "output": out}, errors.New("o Windows não confirmou o agendamento do desligamento")
+	}
+	return map[string]interface{}{
+		"shutdown_scheduled":     true,
+		"shutdown_delay_seconds": 12,
+		"power_mode":             "s5",
+	}, nil
 }
 
 func executeManagedOffCommand() (map[string]interface{}, error) {

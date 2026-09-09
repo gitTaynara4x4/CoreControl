@@ -23,8 +23,8 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.17"
-const bundledAgentVersion = "0.9.10"
+const appVersion = "0.4.18"
+const bundledAgentVersion = "0.9.11"
 
 var defaultServerURL = "http://127.0.0.1:8002"
 

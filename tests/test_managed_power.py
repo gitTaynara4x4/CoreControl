@@ -44,22 +44,18 @@ def test_managed_on_stops_keeper_without_wol(monkeypatch):
     assert "Wake-on-LAN" not in script
 
 
-def test_api_prioritizes_native_agent_managed_power_without_mesh_runcommand():
+def test_managed_power_is_kept_only_for_legacy_recovery():
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
     agent = (ROOT / "agent/src/update_windows.go").read_text(encoding="utf-8")
     main = (ROOT / "agent/src/main.go").read_text(encoding="utf-8")
-    assert 'action="power.managed_off.entered"' in api
     assert 'action="power.managed_off.exited"' in api
-    assert '_run_agent_command_sync(' in api
-    assert '"power.managed_off"' in api
     assert '"power.managed_on"' in api
-    assert 'managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 10)))' in api
-    assert '"power_engine_version": "10.37"' in api
     assert 'case "power.managed_off":' in agent
     assert 'case "power.managed_on":' in agent
-    assert 'CORECONTROL_MANAGED_OFF_CONFIRMED' in agent
-    assert 'CORECONTROL_MANAGED_ON_CONFIRMED' in agent
-    assert 'const agentVersion = "0.9.10"' in main
+    assert 'case "power.shutdown":' in agent
+    assert 'CORECONTROL_REAL_SHUTDOWN_CONFIRMED' in agent
+    assert '"power_engine_version": "10.38"' in api
+    assert 'const agentVersion = "0.9.11"' in main
 
 
 def test_frontend_treats_managed_off_as_desligado_and_hides_router_setup():

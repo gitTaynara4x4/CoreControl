@@ -858,14 +858,20 @@ def device_effectively_online(db: Session, device: Device) -> bool:
 
 
 def device_power_currently_on(device: Device) -> bool:
-    """Return the best server-side physical/reachable power state known.
+    """Return the best current physical/reachable power state.
 
-    The authenticated CoreControl Agent heartbeat is the primary source of
-    truth. MeshCentral is only a fallback when the native Agent heartbeat is
-    stale/offline. A broken or recently reinstalled Mesh Agent must never make
-    a healthy CoreControl Agent look like a powered-off computer.
+    Agent command polling refreshes ``last_seen`` every few seconds while the
+    PC is really alive.  Give that fresh native heartbeat priority over
+    MeshCentral, but do not keep a just-shut-down PC "online" for the normal
+    3-minute telemetry grace period.  After ~30 seconds without native contact,
+    a recent MeshCentral state can confirm that the machine is offline.
     """
-    if device_online(device):
+    now = utcnow()
+    last_seen = as_utc(device.last_seen)
+    agent_power_fresh = bool(
+        last_seen and (now - last_seen).total_seconds() <= 30
+    )
+    if agent_power_fresh:
         return True
 
     mesh_ready = bool(
@@ -876,11 +882,12 @@ def device_power_currently_on(device: Device) -> bool:
     checked_at = as_utc(device.remote_checked_at)
     mesh_recent = bool(
         checked_at
-        and (utcnow() - checked_at).total_seconds() <= settings.remote_status_stale_seconds
+        and (now - checked_at).total_seconds() <= settings.remote_status_stale_seconds
     )
-    if mesh_ready and checked_at and mesh_recent:
+    if mesh_ready and mesh_recent:
         return bool(device.remote_online)
-    return False
+
+    return device_online(device)
 
 
 def device_power_pending_state(db: Session, device: Device, *, currently_on: bool | None = None) -> dict:
@@ -970,80 +977,90 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         and device.mesh_node_id
     )
 
-    # "PC preparado" e "rota confirmada" são coisas diferentes. O Agent pode
-    # habilitar/validar a placa local, mas um PC totalmente desligado ainda
-    # precisa receber o Magic Packet pela rede ou possuir gerenciamento
-    # out-of-band realmente provisionado. Não marcamos isso como garantido só
-    # porque o MeshCentral aceita o comando --wake.
     pc_wol_prepared = bool(target_info.get("windows_prepared"))
     amt_detected = bool(target_info.get("intel_amt_detected"))
-    wake_verified = bool(relays or wan_route.get("verified"))
     wan_method = str(wan_route.get("method") or "").strip()
     windows_device = "windows" in str(device.os_name or "").lower()
     managed_off = device_managed_off_state(db, device)
 
-    # v10.37: CoreControl Off usa o canal autenticado do PRÓPRIO Agent e apaga a tela sem desconectar a sessão.
-    # Não depende de MeshCentral, roteador, UPnP, WOL ou outro PC na LAN.
-    # O Agent 0.9.10+ consulta a fila da VPS a cada poucos segundos e devolve
-    # confirmação assinada antes de o painel marcar o estado como desligado.
-    managed_mode_available = bool(device_online(device) and _version_at_least(device.agent_version, (0, 9, 10)))
+    # v10.38: o botão Desligar volta a significar desligamento REAL do Windows.
+    # O modo antigo de apagar somente o monitor fica disponível apenas para
+    # retirar máquinas que já estavam presas nesse estado legado.
+    native_agent_online = bool(device_online(device))
+    shutdown_agent_available = bool(
+        native_agent_online and _version_at_least(device.agent_version, (0, 9, 11))
+    )
+    legacy_managed_agent_available = bool(
+        native_agent_online and _version_at_least(device.agent_version, (0, 9, 10))
+    )
+    managed_mode_available = bool(managed_off["active"] and legacy_managed_agent_available)
 
-    # Wake-on-LAN continua disponível como recurso adicional para máquinas que
-    # realmente podem desligar em S5. Porém o modo padrão software-only não
-    # depende disso: o PC permanece alcançável e o operador vê estado desligado.
+    # Um desligamento S5 só é autorizado quando existe caminho comprovado para
+    # entregar Magic Packet depois que este próprio PC já estiver offline.
+    # Relay local ou UPnP broadcast confirmado satisfazem essa condição.
     full_shutdown_safe = bool(relays or (wan_route.get("verified") and wan_method == "upnp_broadcast"))
-    wake_available = bool(managed_off["active"] and managed_mode_available) or bool(wake_verified)
-    off_available = bool(managed_mode_available or mesh_fallback)
-    safe_to_power_off = bool(managed_mode_available or (off_available and (wake_verified or not settings.power_require_verified_wake)))
+    wake_verified = bool(full_shutdown_safe)
 
-    if managed_mode_available:
+    # Enquanto o PC ainda está ligado, o CoreControl pode tentar criar a rota
+    # externa automaticamente. Isso NÃO pode ser pulado só porque o Agent novo
+    # existe (era o bug principal do 10.37).
+    route_preflight_available = bool(
+        windows_device
+        and native_agent_online
+        and pc_wol_prepared
+        and (mesh_fallback or _version_at_least(device.agent_version, (0, 9, 10)))
+    )
+
+    wake_available = bool(
+        (managed_off["active"] and legacy_managed_agent_available)
+        or full_shutdown_safe
+    )
+    off_available = bool(
+        (windows_device and (shutdown_agent_available or mesh_fallback))
+        or (not windows_device and mesh_fallback)
+    )
+    safe_to_power_off = bool(
+        full_shutdown_safe
+        or (off_available and not settings.power_require_verified_wake)
+    )
+
+    if managed_off["active"] and legacy_managed_agent_available:
         reason = (
-            "Modo CoreControl Off 10.37 disponível pelo Agent. Este PC pode ser colocado em estado desligado pelo painel "
-            "sem depender de MeshCentral RunCommand, Wake-on-LAN, roteador, IP público ou outro computador na rede."
+            "Este PC ainda está no modo legado CoreControl Off. Use Ligar uma vez para sair desse estado; "
+            "depois o novo fluxo fará desligamento real do Windows."
         )
-    elif device_online(device) and not _version_at_least(device.agent_version, (0, 9, 10)):
+    elif native_agent_online and not shutdown_agent_available:
         reason = (
-            f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize uma vez para 0.9.10 ou superior; "
-            "os novos clientes já recebem essa versão corrigida automaticamente pelo instalador atual."
+            f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize para o Agent 0.9.11 ou superior "
+            "para usar desligamento real com confirmação pelo próprio Windows."
+        )
+    elif full_shutdown_safe:
+        reason = (
+            "Rota de religamento confirmada. O CoreControl pode desligar o Windows de verdade e depois enviar Wake-on-LAN."
         )
     elif not target_info.get("mac_address"):
         reason = "O Agent ainda não informou o endereço MAC deste computador."
     elif not target_info.get("capability_checked"):
-        reason = "Aguardando o Agent 0.9.7 concluir o diagnóstico automático de Wake-on-LAN."
+        reason = "Aguardando o Agent concluir o diagnóstico automático de Wake-on-LAN."
     elif not pc_wol_prepared:
         reason = target_info.get("capability_reason") or "A placa de rede ainda não ficou preparada para Wake-on-LAN no Windows."
-    elif relays:
-        reason = "PC preparado e existe uma rota Wake-on-LAN verificada dentro da rede local."
-    elif wan_route.get("verified"):
-        if wan_method == "mesh_upnp_unicast":
-            reason = (
-                "PC preparado e a VPS confirmou uma rota externa direta pelo roteador. "
-                "Para não depender de outro PC na rede, o CoreControl usará modo seguro/hibernação ao desligar."
-            )
-        else:
-            reason = (
-                "PC preparado e a VPS confirmou Wake-on-WAN por broadcast. "
-                "Este computador pode ser desligado totalmente e ligado novamente sem depender de outro PC na rede."
-            )
+    elif route_preflight_available:
+        reason = (
+            "O PC está preparado para Wake-on-LAN. Ao confirmar o desligamento, o CoreControl tentará criar e provar "
+            "automaticamente uma rota Wake-on-WAN antes de desligar o Windows."
+        )
     elif amt_detected:
         reason = (
-            "O PC parece possuir Intel AMT/vPro e está preparado para WOL, mas o CoreControl ainda não confirmou o gerenciamento "
-            "out-of-band deste equipamento. O desligamento permanece protegido até essa rota ser provisionada."
+            "O PC parece possuir Intel AMT/vPro, mas ainda não existe uma rota de religamento provisionada e confirmada."
         )
     elif target_info.get("link_type") == "wifi":
         reason = (
-            "O Windows está preparado para wake, mas este PC está usando Wi-Fi. Wake após desligamento total por Wi-Fi depende do "
-            "hardware/firmware e ainda não há uma rota externa confirmada."
-        )
-    elif target_info.get("s5_driver_hint"):
-        reason = (
-            "O PC está preparado para Magic Packet e o driver anuncia recurso relacionado a wake após desligamento, mas ainda não "
-            "existe uma rota externa confirmada para entregar o pacote quando este for o único PC ligado na rede."
+            "Este PC está usando Wi-Fi. Wake após desligamento total por Wi-Fi depende do hardware/firmware e não há rota confirmada."
         )
     else:
         reason = (
-            "O PC está preparado para Wake-on-LAN no Windows, mas ainda não existe uma rota externa confirmada para entregar o "
-            "Magic Packet depois que ele ficar totalmente desligado."
+            "Ainda não existe uma rota comprovada para ligar este PC depois do desligamento total. "
+            "O CoreControl não vai fingir que desligou apagando apenas o monitor."
         )
 
     pending = device_power_pending_state(db, device, currently_on=device_power_currently_on(device))
@@ -1079,12 +1096,14 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "wake_available": wake_available,
         "wake_verified": wake_verified,
         "full_shutdown_safe": full_shutdown_safe,
+        "route_preflight_available": route_preflight_available,
+        "shutdown_agent_available": shutdown_agent_available,
         "managed_mode_available": managed_mode_available,
         "managed_off_active": bool(managed_off["active"]),
         "managed_off_since": managed_off.get("since"),
-        "software_only_power": managed_mode_available,
-        "power_engine_version": "10.37",
-        "power_off_mode": "managed" if managed_mode_available else ("shutdown" if full_shutdown_safe else ("hibernate" if wake_verified else "blocked")),
+        "software_only_power": False,
+        "power_engine_version": "10.38",
+        "power_off_mode": "shutdown" if full_shutdown_safe else ("prepare" if route_preflight_available else "blocked"),
         "off_available": off_available,
         "safe_to_power_off": safe_to_power_off,
         "requires_verified_wake": settings.power_require_verified_wake,
@@ -2437,17 +2456,36 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         }
 
     if requested == "off" and managed_off_active:
-        return {
-            "ok": True,
-            "device_id": device.id,
-            "device_name": device.name,
-            "action": requested,
-            "status": "off",
-            "methods": ["corecontrol_managed_off"],
-            "wake_verified": True,
-            "managed_off_active": True,
-            "message": "O computador já está desligado pelo CoreControl.",
-        }
+        # Recupera automaticamente máquinas que ficaram presas no antigo modo
+        # "apagou o monitor". O usuário pediu Desligar, então primeiro retire
+        # esse estado legado e depois siga para o desligamento REAL.
+        if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 10))):
+            raise HTTPException(
+                status_code=503,
+                detail="Este computador ficou marcado no modo desligado antigo e o Agent não está online para recuperar o estado.",
+            )
+        legacy_result = _run_agent_command_sync(
+            db,
+            device,
+            "power.managed_on",
+            created_by=user.id,
+        )
+        if bool(legacy_result.get("managed_off")):
+            raise HTTPException(status_code=503, detail="O Agent não conseguiu sair do modo desligado antigo.")
+        db.add(
+            AuditLog(
+                company_id=device.company_id,
+                actor_user_id=user.id,
+                device_id=device.id,
+                action="power.managed_off.exited",
+                details=json.dumps(
+                    {"hostname": device.hostname, "mode": "legacy_recovery", "engine": "10.38"},
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        db.commit()
+        managed_off_active = False
     if requested == "off" and not currently_on:
         raise HTTPException(status_code=409, detail="O computador já aparece desligado/offline.")
     if requested == "wake" and currently_on and not managed_off_active:
@@ -2474,40 +2512,42 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     route_preflight_error: str | None = None
     if (
         requested == "off"
-        and "windows" in str(device.os_name or "").lower()
+        and windows_device
         and readiness.get("pc_wol_prepared")
-        and not readiness.get("managed_mode_available")
         and not readiness.get("full_shutdown_safe")
-        and mesh_ready
+        and readiness.get("route_preflight_available")
     ):
         preflight_info = device_wol_info(db, device)
-        auto_route, mesh_route_error = _try_mesh_wan_route(
-            db,
-            device,
-            created_by=user.id,
-            target_info=preflight_info,
-        )
+        auto_route = None
+        mesh_route_error = None
+        agent_route_error = None
 
-        # HNetCfg.NATUPnP não funciona em todos os roteadores/Windows. Se ele
-        # falhar, tente automaticamente a implementação SSDP/SOAP do Agent da
-        # PRÓPRIA máquina antes de bloquear o desligamento. Nenhum relay ou
-        # segundo computador dentro da LAN é necessário.
-        if not auto_route:
+        # Primeiro tente pelo Mesh Agent, quando disponível. Em seguida tente a
+        # implementação nativa do CoreControl Agent. No 10.37 este bloco era
+        # pulado para todo Agent novo, portanto clientes novos nunca chegavam a
+        # possuir uma rota real de religamento.
+        if mesh_ready:
+            auto_route, mesh_route_error = _try_mesh_wan_route(
+                db,
+                device,
+                created_by=user.id,
+                target_info=preflight_info,
+            )
+
+        if not auto_route and device_online(device) and _version_at_least(device.agent_version, (0, 9, 10)):
             auto_route, agent_route_error = _try_agent_wan_route_sync(
                 db,
                 device,
                 created_by=user.id,
                 target_info=preflight_info,
             )
-            route_preflight_error = agent_route_error or mesh_route_error
 
+        route_preflight_error = agent_route_error or mesh_route_error
         if auto_route:
             db.commit()
             readiness = device_power_readiness(db, device)
             wan_route = latest_wan_wake_route(db, device)
             route_preflight_error = None
-        elif not route_preflight_error:
-            route_preflight_error = mesh_route_error
 
     methods: list[str] = []
     relay_ids: list[int] = []
@@ -2536,97 +2576,62 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
 
     try:
         if requested == "off":
-            # CoreControl Off 10.37 usa o Agent nativo e não exige MeshCentral.
-            # Máquinas já instaladas com Agent anterior precisam de uma única
-            # atualização do Agent; depois passam a usar a fila nativa como todos
-            # os novos clientes. Não tente mascarar isso voltando ao RunCommand.
-            if device_online(device) and not _version_at_least(device.agent_version, (0, 9, 10)):
+            # v10.38: Desligar significa desligar o Windows de verdade.
+            if device_online(device) and not _version_at_least(device.agent_version, (0, 9, 11)):
                 raise HTTPException(
                     status_code=409,
                     detail=(
                         f"Este computador ainda usa o CoreControl Agent {device.agent_version or 'antigo'}. "
-                        "Atualize uma vez para o Agent 0.9.10 ou superior. Depois disso, Desligar/Ligar usa o canal nativo do Agent "
-                        "e não depende de MeshCentral, roteador ou outro PC."
+                        "Atualize para o Agent 0.9.11 ou superior para usar o desligamento real."
                     ),
                 )
 
-            # Nunca coloque o único PC da rede em um estado do qual o próprio
-            # CoreControl não saiba trazê-lo de volta. Se a política exige rota
-            # verificada, bloqueie antes de enviar qualquer comando de energia.
-            if (
-                settings.power_require_verified_wake
-                and not readiness.get("managed_mode_available")
-                and not readiness.get("safe_to_power_off")
-            ):
+            # Nunca faça shutdown S5 sem uma rota comprovada para ligar de novo.
+            # Em vez de fingir que desligou apagando monitor, informe claramente
+            # a falha de rede/roteador.
+            if settings.power_require_verified_wake and not readiness.get("full_shutdown_safe"):
                 detail_reason = route_preflight_error or str(
-                    readiness.get("reason") or "Não foi possível confirmar a rota Wake-on-WAN enquanto o computador estava ligado."
+                    readiness.get("reason") or "Não foi possível confirmar uma rota Wake-on-WAN enquanto o computador estava ligado."
                 )
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        "Desligamento bloqueado por segurança após tentar automaticamente as rotas disponíveis. "
+                        "Não foi possível desligar com segurança porque o CoreControl não conseguiu garantir como ligar este PC novamente. "
                         + detail_reason
                     ),
                 )
 
-            # v10.37: envie direto para o CoreControl Agent já instalado.
-            # O backend espera a confirmação assinada do próprio Agent; não há
-            # ListDevices nem RunCommand neste caminho.
-            if readiness.get("managed_mode_available"):
-                result = _run_agent_command_sync(
-                    db,
-                    device,
-                    "power.managed_off",
-                    created_by=user.id,
-                )
-                if not bool(result.get("managed_off")):
-                    raise HTTPException(status_code=503, detail="O CoreControl Agent não confirmou o modo desligado.")
-                methods.append("corecontrol_agent_managed_off")
-                db.add(
-                    AuditLog(
-                        company_id=device.company_id,
-                        actor_user_id=user.id,
-                        device_id=device.id,
-                        action="power.managed_off.entered",
-                        details=json.dumps(
-                            {
-                                "hostname": device.hostname,
-                                "mode": "software_only",
-                                "transport": "agent_queue",
-                                "engine": "10.37",
-                            },
-                            ensure_ascii=False,
-                        ),
+            if windows_device:
+                if not readiness.get("full_shutdown_safe") and settings.power_require_verified_wake:
+                    raise HTTPException(status_code=409, detail="A rota de religamento ainda não foi confirmada.")
+
+                # Preferência: fila autenticada do próprio Agent. Ele prepara a
+                # placa para Magic Packet, agenda shutdown.exe e devolve ACK antes
+                # do Windows encerrar a rede.
+                if device_online(device) and _version_at_least(device.agent_version, (0, 9, 11)):
+                    result = _run_agent_command_sync(
+                        db,
+                        device,
+                        "power.shutdown",
+                        created_by=user.id,
+                        timeout_seconds=20.0,
                     )
-                )
-                db.commit()
-            elif windows_device:
-                # Fallback legado, utilizado somente se não houver CoreControl Off.
-                if readiness.get("full_shutdown_safe"):
-                    shutdown_error: MeshCentralCommandError | None = None
+                    if not bool(result.get("shutdown_scheduled")):
+                        raise HTTPException(status_code=503, detail="O CoreControl Agent não confirmou o agendamento do desligamento do Windows.")
+                    methods.append("corecontrol_agent_shutdown")
+                elif mesh_ready:
+                    # Fallback para instalação antiga onde o Mesh Agent está
+                    # funcional, mas o CoreControl Agent ainda não foi atualizado.
                     try:
                         meshcentral_client.device_shutdown_for_wol(device.mesh_node_id)
                         methods.append("meshcentral_windows_wol_shutdown")
                     except MeshCentralCommandError as exc:
-                        shutdown_error = exc
-
-                    if not methods:
-                        try:
-                            meshcentral_client.device_power(device.mesh_node_id, "off")
-                            methods.append("meshcentral_off_fallback")
-                        except MeshCentralCommandError as exc:
-                            detail = shutdown_error or exc
-                            raise HTTPException(status_code=503, detail=f"Não foi possível desligar o Windows: {detail}") from exc
+                        raise HTTPException(status_code=503, detail=f"Não foi possível desligar o Windows: {exc}") from exc
                 else:
-                    try:
-                        meshcentral_client.device_hibernate_for_wol(device.mesh_node_id)
-                        methods.append("meshcentral_windows_wol_hibernate")
-                    except MeshCentralCommandError as exc:
-                        raise HTTPException(
-                            status_code=503,
-                            detail=f"Não foi possível colocar o Windows no modo seguro para religamento: {exc}",
-                        ) from exc
+                    raise HTTPException(status_code=503, detail="Nenhum canal online conseguiu executar o desligamento do Windows.")
             else:
+                if not mesh_ready:
+                    raise HTTPException(status_code=503, detail="O computador não possui canal remoto para desligamento.")
                 try:
                     meshcentral_client.device_power(device.mesh_node_id, "off")
                     methods.append("meshcentral_off")
@@ -2659,7 +2664,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
                                 "hostname": device.hostname,
                                 "mode": "software_only",
                                 "transport": "agent_queue",
-                                "engine": "10.37",
+                                "engine": "10.38-legacy-recovery",
                             },
                             ensure_ascii=False,
                         ),
@@ -2784,19 +2789,13 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     pending = device_power_pending_state(db, device, currently_on=currently_on)
 
     if requested == "off":
-        if "corecontrol_agent_managed_off" in methods:
+        if "corecontrol_agent_shutdown" in methods:
             message = (
-                "Computador desligado pelo CoreControl. O serviço remoto permanece ativo em segundo plano para garantir que o botão Ligar funcione sem configuração de rede."
-            )
-        elif "meshcentral_windows_wol_hibernate" in methods:
-            message = (
-                "Modo seguro de energia enviado. O computador ficará aparente como desligado, mas continuará preparado "
-                "para ser ligado pela rota Wake-on-WAN sem depender de outro PC na rede."
+                "Desligamento real confirmado pelo CoreControl Agent. O Windows foi programado para desligar e a rota Wake-on-LAN para religamento está verificada."
             )
         else:
             message = (
-                "Comando para desligar enviado. A rota Wake-on-WAN para religamento está verificada e o CoreControl acompanhará "
-                "até o computador ficar offline."
+                "Comando de desligamento real enviado. A rota para religamento está verificada e o CoreControl acompanhará até o computador ficar offline."
             )
     elif "corecontrol_agent_managed_on" in methods:
         message = "Computador ligado pelo CoreControl. A máquina continua acessível sem depender de Wake-on-LAN ou do roteador."
@@ -2817,7 +2816,7 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
         "wake_verified": readiness["wake_verified"],
         "full_shutdown_safe": readiness.get("full_shutdown_safe"),
         "power_off_mode": readiness.get("power_off_mode"),
-        "managed_off_active": "corecontrol_agent_managed_off" in methods,
+        "managed_off_active": False if requested == "off" else bool(device_managed_off_state(db, device)["active"]),
         **pending,
         "message": message,
     }

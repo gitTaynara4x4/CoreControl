@@ -315,6 +315,7 @@
       const managedMode = Boolean(readiness?.managed_mode_available);
       const safeToPowerOff = Boolean(readiness && readiness.safe_to_power_off);
       const wakeVerified = Boolean(readiness?.wake_verified);
+      const canPrepareRoute = Boolean(readiness?.route_preflight_available);
 
       if (managedMode) {
         CT.openModal(`
@@ -345,8 +346,11 @@
             ? `Wake Relay verificado${readiness.relay_names?.length ? `: ${CT.esc(readiness.relay_names.join(', '))}` : '.'}`
             : 'Nenhuma rota externa de religamento foi confirmada ainda.';
         const warning = safeToPowerOff && wakeVerified
-          ? 'O CoreControl encontrou uma rota de religamento verificada e fará o desligamento normal.'
-          : 'A rota de religamento ainda não foi confirmada. O CoreControl não fará um desligamento inseguro.';
+          ? 'A rota para ligar novamente já foi comprovada. O Windows será desligado de verdade.'
+          : canPrepareRoute
+            ? 'Antes de desligar, o CoreControl tentará criar e provar automaticamente a rota Wake-on-WAN. Se não conseguir, o Windows NÃO será desligado.'
+            : 'A rota de religamento ainda não foi confirmada. O CoreControl não fará um desligamento inseguro nem fingirá desligar apagando o monitor.';
+        const canConfirm = Boolean((safeToPowerOff && wakeVerified) || canPrepareRoute);
 
         CT.openModal(`
           <div class="danger-modal-head">
@@ -357,7 +361,7 @@
             </div>
           </div>
           <div class="danger-summary">
-            <strong>${wakeVerified ? 'Religamento disponível' : 'Atenção ao religamento'}</strong>
+            <strong>${wakeVerified ? 'Religamento disponível' : canPrepareRoute ? 'Preparar religamento automaticamente' : 'Religamento não confirmado'}</strong>
             <span>${CT.esc(warning)}</span>
           </div>
           <div class="callout">
@@ -366,7 +370,7 @@
           </div>
           <div class="modal-actions">
             <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>
-            <button class="btn danger" type="button" id="confirmPowerOff">${wakeVerified ? 'Desligar computador' : 'Cancelar'}</button>
+            <button class="btn danger" type="button" id="confirmPowerOff" ${canConfirm ? '' : 'disabled'}>${wakeVerified ? 'Desligar computador' : canPrepareRoute ? 'Preparar e desligar' : 'Indisponível'}</button>
           </div>`);
       }
 
@@ -378,7 +382,7 @@
         resolve(Boolean(accepted));
       };
       CT.$('#cancelPowerOff').onclick = () => finish(false);
-      CT.$('#confirmPowerOff').onclick = () => finish(managedMode || (safeToPowerOff && wakeVerified));
+      CT.$('#confirmPowerOff').onclick = () => finish(managedMode || (safeToPowerOff && wakeVerified) || canPrepareRoute);
     });
   };
 
