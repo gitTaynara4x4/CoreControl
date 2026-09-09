@@ -239,9 +239,8 @@
       const activity = t.activity || {};
       const powerOn = CT.devicePowerIsOn(device);
       const economyActive = CT.deviceEconomyModeActive(device);
-      const shuttingDown = CT.deviceShutdownState(device) === 'shutting_down';
-      const currentApp = shuttingDown ? 'Desligando...' : economyActive ? 'Modo econômico' : powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
-      const currentWindow = shuttingDown ? 'Aguardando o CoreControl Agent parar de responder para confirmar o desligamento' : economyActive ? 'Monitor desligado · Agent conectado · suspensão real bloqueada' : powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
+      const currentApp = economyActive ? 'Modo econômico' : powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
+      const currentWindow = economyActive ? 'Monitor desligado · Agent conectado · suspensão real bloqueada' : powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
       const temperature = tempInfo(t);
       const profile = cleanProfile(device.profile);
       const remoteReady = Boolean(device.remote?.available) && !economyActive;
@@ -262,7 +261,7 @@
           <div class="ops-device-head">
             <div class="ops-device-ident">
               <span class="ops-device-icon">${icon('monitor')}</span>
-              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${shuttingDown ? 'warning' : economyActive ? 'economy' : (powerOn ? 'online' : 'offline')}"><i></i>${shuttingDown ? 'Desligando...' : economyActive ? 'Modo econômico' : (powerOn ? 'Ligado' : 'Desligado')}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
+              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${economyActive ? 'economy' : (powerOn ? 'online' : 'offline')}"><i></i>${economyActive ? 'Modo econômico' : (powerOn ? 'Ligado' : 'Desligado')}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
             </div>
             <div class="ops-health-badge ${stateTone}" title="${CT.esc(healthAvailable ? 'Saúde calculada com telemetria atual.' : (powerOn ? 'Aguardando comunicação atual do CoreControl Agent.' : 'Computador desligado. Saúde indisponível.'))}"><strong>${healthAvailable ? device.health_score : '—'}</strong><span>Saúde</span></div>
           </div>

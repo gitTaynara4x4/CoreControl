@@ -16,7 +16,7 @@ def test_v1042_uses_software_economy_as_default_power_path():
     assert '"power.managed_on"' in endpoint
     assert 'find_power_gateways' not in endpoint
     assert 'CoreControl Box offline ou não instalada' not in endpoint
-    assert '"power_engine_version": "10.43"' in api
+    assert '"power_engine_version": "10.42"' in api
     assert '"software_only_power": True' in api
     assert '"requires_verified_wake": False' in api
 
@@ -78,4 +78,4 @@ def test_release_versions_are_bumped():
     assert 'const agentVersion = "0.9.14"' in agent
     assert 'const appVersion = "0.4.22"' in setup
     assert 'const bundledAgentVersion = "0.9.14"' in setup
-    assert "20260909-shutdown-confirm-v10-43" in index
+    assert "20260909-economy-v10-42" in index

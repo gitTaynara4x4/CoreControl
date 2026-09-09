@@ -1,0 +1,24 @@
+CoreControl v10.43 — confirmação real de desligamento por heartbeat
+
+Correção:
+- Ao clicar em "Desligar completamente", a interface muda para "Desligando...".
+- O servidor usa o ACK do comando power.shutdown + o heartbeat autenticado do CoreControl Agent.
+- Durante a confirmação, o Agent atualiza presença em intervalo curto.
+- Quando o Agent para de responder após o shutdown, o PC passa para "Desligado" sem esperar o timeout geral de 3 minutos.
+- MeshCentral não é usado como fonte de confirmação durante essa transição, evitando estado Online cacheado.
+- Se o Agent continuar respondendo, o CoreControl não mente: volta para Online e informa que o desligamento não foi confirmado.
+- Botões de energia ficam bloqueados enquanto o desligamento está em andamento.
+
+IMPORTANTE:
+- Esta correção é de servidor/frontend. NÃO é necessário reinstalar o PC da Luiza.
+- Faça o deploy destes arquivos e atualize a página do navegador.
+- O Agent 0.9.14 atual já é compatível.
+
+Estado esperado:
+Online -> Desligando... -> Desligado
+
+Se o Windows não desligar:
+Online -> Desligando... -> Online · desligamento não confirmado
+
+Commit:
+c769540 CoreControl v10.43: confirma desligamento pelo heartbeat do Agent
