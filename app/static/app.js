@@ -16,7 +16,7 @@
         CT.state.user = await CT.api('/auth/me');
         CT.showApp();
         CT.setupUser();
-        await CT.navigate('overview');
+        await CT.restoreRoute('replace');
         CT.startRefresh();
       } catch (_) {
         CT.showLogin();

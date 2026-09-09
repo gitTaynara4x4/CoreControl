@@ -2,7 +2,21 @@
   'use strict';
 
   const CT = window.CoreTuner;
+  const UPDATE_TABS = new Set(['overview', 'computers', 'policies']);
   let activeTab = 'overview';
+
+  function readActiveTab() {
+    const value = new URL(window.location.href).searchParams.get('tab');
+    return UPDATE_TABS.has(value) ? value : 'overview';
+  }
+
+  function writeActiveTab(tab) {
+    if (!UPDATE_TABS.has(tab) || CT.state.page !== 'updates') return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('page', 'updates');
+    url.searchParams.set('tab', tab);
+    window.history.replaceState({ corecontrol: true, page: 'updates', tab }, '', url);
+  }
 
   function icon(name) {
     const icons = {
@@ -513,12 +527,15 @@
     if (empty) empty.classList.toggle('hidden', visible > 0 || rows.length === 0);
   }
 
-  async function renderTab(tab) {
+  async function renderTab(tab, options = {}) {
     const view = CT.$('#updatesView');
     if (!view) return;
-    activeTab = tab;
-    setTabState(tab);
+    activeTab = UPDATE_TABS.has(tab) ? tab : 'overview';
+    if (options.syncRoute !== false) writeActiveTab(activeTab);
+    setTabState(activeTab);
     view.innerHTML = renderLoading();
+
+    tab = activeTab;
 
     if (tab === 'policies') {
       const policies = await CT.api('/updates/policies');
@@ -569,6 +586,7 @@
   }
 
   CT.registerPage('updates', async function renderUpdates() {
+    activeTab = readActiveTab();
     await CT.mountPage('updates');
     const page = CT.$('.page-updates');
     if (!page) return;

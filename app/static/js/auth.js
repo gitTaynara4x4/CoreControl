@@ -107,7 +107,7 @@
         CT.state.user = await CT.api('/auth/me');
         CT.showApp();
         CT.setupUser();
-        await CT.navigate('overview');
+        await CT.restoreRoute('replace');
         CT.startRefresh();
       } catch (error) {
         CT.toast(error.message, true);
@@ -138,7 +138,7 @@
         CT.state.user = await CT.api('/auth/me');
         CT.showApp();
         CT.setupUser();
-        await CT.navigate('overview');
+        await CT.navigate('overview', null, { history: 'replace' });
         CT.startRefresh();
         CT.toast('Empresa criada com sucesso.');
       } catch (error) {

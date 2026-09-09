@@ -19,6 +19,50 @@
     device: ['Detalhes do computador', 'Diagnóstico técnico e histórico de telemetria.'],
   };
 
+  const ROUTE_PAGE_PARAM = 'page';
+  const ROUTE_CONTEXT_PARAMS = {
+    company: 'company',
+    device: 'device',
+  };
+
+  CT.readRoute = function readRoute() {
+    const url = new URL(window.location.href);
+    let page = url.searchParams.get(ROUTE_PAGE_PARAM) || 'overview';
+    if (!Object.prototype.hasOwnProperty.call(CT.pageMeta, page)) page = 'overview';
+
+    let context = null;
+    const contextParam = ROUTE_CONTEXT_PARAMS[page];
+    if (contextParam) {
+      const raw = url.searchParams.get(contextParam);
+      const parsed = Number(raw);
+      if (raw && Number.isFinite(parsed) && parsed > 0) context = parsed;
+      else page = page === 'company' ? 'companies' : 'devices';
+    }
+
+    return { page, context };
+  };
+
+  CT.writeRoute = function writeRoute(page, context = null, mode = 'push') {
+    const url = new URL(window.location.href);
+    url.searchParams.set(ROUTE_PAGE_PARAM, page);
+
+    Object.values(ROUTE_CONTEXT_PARAMS).forEach((param) => url.searchParams.delete(param));
+    const contextParam = ROUTE_CONTEXT_PARAMS[page];
+    if (contextParam && context != null) url.searchParams.set(contextParam, String(context));
+
+    // Subestados pertencem somente ao módulo que os criou.
+    if (page !== 'updates') url.searchParams.delete('tab');
+
+    const state = { corecontrol: true, page, context };
+    if (mode === 'replace') window.history.replaceState(state, '', url);
+    else if (mode !== 'none') window.history.pushState(state, '', url);
+  };
+
+  CT.restoreRoute = async function restoreRoute(mode = 'replace') {
+    const route = CT.readRoute();
+    await CT.navigate(route.page, route.context, { history: mode });
+  };
+
   CT.setupUser = function setupUser() {
     CT.$('#userName').textContent = CT.state.user.name;
     CT.$('#userRole').textContent = CT.roleName(CT.state.user.role);
@@ -39,10 +83,15 @@
     }, 15000);
   };
 
-  CT.navigate = async function navigate(page, context = null) {
+  CT.navigate = async function navigate(page, context = null, options = {}) {
+    const historyMode = options.history || 'push';
+    if (!Object.prototype.hasOwnProperty.call(CT.pageMeta, page)) page = 'overview';
+
     CT.state.page = page;
     if (page === 'company') CT.state.selectedCompany = context;
     if (page === 'device') CT.state.selectedDevice = context;
+
+    CT.writeRoute(page, context, historyMode);
 
     CT.$$('.nav-item[data-page]').forEach((button) => {
       button.classList.toggle('active', button.dataset.page === page);
@@ -96,6 +145,11 @@
     CT.$('#mainNav').addEventListener('click', (event) => {
       const button = event.target.closest('[data-page]');
       if (button) CT.navigate(button.dataset.page);
+    });
+    window.addEventListener('popstate', async () => {
+      if (!CT.state.user || CT.$('#appView').classList.contains('hidden')) return;
+      const route = CT.readRoute();
+      await CT.navigate(route.page, route.context, { history: 'none' });
     });
     CT.$('#modalBackdrop').addEventListener('click', (event) => {
       if (event.target.id === 'modalBackdrop') CT.closeModal();
