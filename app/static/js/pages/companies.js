@@ -38,18 +38,15 @@
     ].join('');
 
     const boxOnline = gateways.some((gateway) => gateway.online);
-    CT.$('#companyGatewayArea').innerHTML = CT.isGlobalAdmin()
-      ? (gateways.length
-          ? gateways.map((gateway) => `
-            <div class="callout" style="display:flex;align-items:center;gap:12px;justify-content:space-between;margin:0 0 8px">
-              <div>
-                <strong>${CT.esc(gateway.name || 'CoreControl Box')}</strong>
-                <div style="font-size:12px;opacity:.72;margin-top:4px">${gateway.online ? 'Online e pronta para controle de energia' : `Offline · último contato ${CT.fmtDate(gateway.last_seen)}`} · ${CT.esc((gateway.network_cidrs || []).join(', ') || 'rede aguardando detecção')}</div>
-              </div>
-              <span class="status ${gateway.online ? 'online' : 'offline'}"><i class="dot ${gateway.online ? 'online' : 'offline'}"></i>${gateway.online ? 'Online' : 'Offline'}</span>
-            </div>`).join('')
-          : '<div class="empty"><strong>CoreControl Box ainda não instalada.</strong><br>Instale uma Box neste local para padronizar o Ligar/Desligar.</div>')
-      : `<div class="callout"><strong>${boxOnline ? 'Controle de energia disponível' : 'Controle de energia aguardando ativação'}</strong><br>${boxOnline ? 'O CoreControl está pronto para ligar e desligar este computador.' : 'A configuração é feita pelo suporte. Nenhuma alteração no roteador é necessária.'}</div>`;
+    const economyReady = activeDevices.some((device) => Boolean(device.power?.economy_available || device.power?.economy_mode_active));
+    CT.$('#companyGatewayArea').innerHTML = `
+      <div class="callout">
+        <strong>${economyReady ? 'Modo econômico disponível' : 'Aguardando CoreControl Agent'}</strong><br>
+        ${economyReady
+          ? 'Os computadores podem entrar e sair do Modo econômico apenas pelo software. O Windows continua ligado e o Agent permanece conectado.'
+          : 'Assim que o Agent estiver online, o controle de energia por software fica disponível automaticamente.'}
+      </div>
+      ${CT.isGlobalAdmin() && gateways.length ? `<div class="callout" style="margin-top:8px"><strong>Módulo físico opcional</strong><br>${boxOnline ? 'Há uma CoreControl Box online neste local.' : 'Há uma CoreControl Box cadastrada, mas offline.'} Ela não é necessária para o Modo econômico.</div>` : ''}`;
 
     CT.$('#companyDevicesArea').innerHTML = company.devices.length
       ? CT.deviceTable(company.devices)
@@ -58,10 +55,7 @@
     CT.$('#backCompanies').onclick = () => CT.navigate('companies');
     CT.$('#enrollBtn').onclick = () => CT.createEnrollmentToken(company.id, company.name);
     const boxBtn = CT.$('#gatewayBtn');
-    if (CT.isGlobalAdmin()) {
-      boxBtn.classList.remove('hidden');
-      boxBtn.onclick = () => CT.openGatewayEnrollmentOptions(company.id, company.name);
-    }
+    if (boxBtn) boxBtn.classList.add('hidden');
     const editCompanyBtn = CT.$('#editCompanyBtn');
     if (CT.isGlobalAdmin()) {
       editCompanyBtn.classList.remove('hidden');

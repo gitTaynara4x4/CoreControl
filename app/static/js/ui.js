@@ -47,7 +47,13 @@
   };
 
   CT.deviceTable = function deviceTable(devices) {
-    return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa / setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Remoto</th><th>Alertas</th></tr></thead><tbody>${devices.map((device) => `<tr data-device="${device.id}" class="${device.active === false ? 'entity-inactive' : ''}" style="cursor:pointer"><td><strong>${CT.esc(device.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.hostname)}</small></td><td><strong class="table-company-name">${CT.esc(device.company_name || `Empresa #${device.company_id}`)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.sector || 'Setor não informado')}</small></td><td>${device.active === false ? '<span class="pill critical">Desativado</span>' : `<span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span>`}</td><td>${CT.healthMarkup(device)}</td><td>${CT.fmtNum(device.telemetry?.cpu_percent)}%</td><td>${CT.fmtNum(device.telemetry?.memory_percent)}%</td><td>${CT.fmtNum(device.telemetry?.disk_percent)}%</td><td>${CT.remoteLabel(device)}</td><td>${device.alerts_open ? `<span class="pill critical">${device.alerts_open}</span>` : '—'}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="table-wrap"><table><thead><tr><th>Computador</th><th>Empresa / setor</th><th>Status</th><th>Saúde</th><th>CPU</th><th>Memória</th><th>Disco</th><th>Remoto</th><th>Alertas</th></tr></thead><tbody>${devices.map((device) => {
+      const economy = CT.deviceEconomyModeActive?.(device);
+      const status = economy
+        ? '<span class="status"><i class="dot economy"></i>Modo econômico</span>'
+        : `<span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span>`;
+      return `<tr data-device="${device.id}" class="${device.active === false ? 'entity-inactive' : ''}" style="cursor:pointer"><td><strong>${CT.esc(device.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.hostname)}</small></td><td><strong class="table-company-name">${CT.esc(device.company_name || `Empresa #${device.company_id}`)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${CT.esc(device.sector || 'Setor não informado')}</small></td><td>${device.active === false ? '<span class="pill critical">Desativado</span>' : status}</td><td>${CT.healthMarkup(device)}</td><td>${CT.fmtNum(device.telemetry?.cpu_percent)}%</td><td>${CT.fmtNum(device.telemetry?.memory_percent)}%</td><td>${CT.fmtNum(device.telemetry?.disk_percent)}%</td><td>${CT.remoteLabel(device)}</td><td>${device.alerts_open ? `<span class="pill critical">${device.alerts_open}</span>` : '—'}</td></tr>`;
+    }).join('')}</tbody></table></div>`;
   };
 
   CT.metric = function metric(label, value, suffix, percent, extra = '') {
@@ -240,11 +246,8 @@
   };
 
   CT.devicePowerIsOn = function devicePowerIsOn(device) {
-    if (device?.power?.managed_off_active || device?.managed_off) return false;
-
-    // O heartbeat do CoreControl Agent é a fonte principal. MeshCentral é
-    // somente fallback: um Mesh Agent offline/desvinculado não pode transformar
-    // um PC com Agent nativo online em "Desligado" no painel.
+    // Modo econômico NÃO é desligamento. O Windows e o Agent continuam vivos,
+    // então o painel deve continuar tratando a máquina como fisicamente ligada.
     if (device?.actual_online || device?.online) return true;
 
     const remote = device?.remote || {};
@@ -252,14 +255,22 @@
     return false;
   };
 
+  CT.deviceEconomyModeActive = function deviceEconomyModeActive(device) {
+    return Boolean(device?.power?.economy_mode_active ?? device?.power?.managed_off_active ?? device?.economy_mode ?? device?.managed_off);
+  };
+
   CT.powerPendingLabel = function powerPendingLabel(action) {
-    return String(action || '').toLowerCase() === 'wake' ? 'Ligando...' : 'Desligando...';
+    const value = String(action || '').toLowerCase();
+    if (value === 'activate' || value === 'wake') return 'Ativando...';
+    if (value === 'economy') return 'Ativando modo...';
+    return 'Desligando...';
   };
 
   CT.powerPendingFeedbackText = function powerPendingFeedbackText(action) {
-    return String(action || '').toLowerCase() === 'wake'
-      ? 'Aguardando resposta do computador'
-      : 'Aguardando confirmação do desligamento';
+    const value = String(action || '').toLowerCase();
+    if (value === 'activate' || value === 'wake') return 'Restaurando o computador';
+    if (value === 'economy') return 'Aplicando Modo econômico';
+    return 'Aguardando confirmação do desligamento';
   };
 
   CT.powerPendingButtonHtml = function powerPendingButtonHtml(action) {
@@ -309,39 +320,28 @@
     feedbackEl.innerHTML = '';
   };
 
-  CT.confirmDevicePowerOff = function confirmDevicePowerOff(device, readiness) {
+  CT.confirmDeviceShutdown = function confirmDeviceShutdown(device) {
     return new Promise((resolve) => {
       const name = CT.esc(device?.name || 'este computador');
-      const safeToPowerOff = Boolean(readiness?.safe_to_power_off);
-      const wakeVerified = Boolean(readiness?.wake_verified);
-      const boxAvailable = Boolean(readiness?.gateway_available);
-      const reason = CT.esc(readiness?.reason || 'A CoreControl Box ainda não está pronta nesta rede.');
-      const routeText = boxAvailable
-        ? `CoreControl Box online${readiness.gateway_names?.length ? `: ${CT.esc(readiness.gateway_names.join(', '))}` : '.'}`
-        : 'CoreControl Box não está online nesta rede.';
-      const canConfirm = Boolean(safeToPowerOff && wakeVerified && boxAvailable);
-
       CT.openModal(`
         <div class="danger-modal-head">
           <div class="danger-modal-icon" aria-hidden="true">!</div>
           <div>
-            <h2>Desligar computador?</h2>
+            <h2>Desligar completamente?</h2>
             <p>Você está prestes a desligar <strong>${name}</strong> de verdade.</p>
           </div>
         </div>
         <div class="danger-summary">
-          <strong>${canConfirm ? 'Controle de energia pronto' : 'CoreControl Box necessária'}</strong>
-          <span>${canConfirm
-            ? 'A Box ficará ligada no local e será a única rota usada para religar este computador.'
-            : 'O suporte precisa deixar a CoreControl Box online. O cliente não configura roteador, UPnP ou Wake-on-WAN.'}</span>
+          <strong>O Modo econômico é a opção recomendada</strong>
+          <span>Depois de um desligamento completo, o Agent para de funcionar. O CoreControl não consegue garantir que este PC ligará remotamente sem hardware ou Wake-on-LAN compatível.</span>
         </div>
-        <div class="callout">
-          <strong style="display:block;margin-bottom:4px">Status</strong>
-          <span>${routeText}</span>${canConfirm ? '' : `<br><span style="display:block;margin-top:6px">${reason}</span>`}
-        </div>
+        <label class="checkbox-row" style="margin-top:14px">
+          <input type="checkbox" id="confirmFullShutdownCheck">
+          <span>Entendo que talvez seja necessário ligar este computador presencialmente.</span>
+        </label>
         <div class="modal-actions">
-          <button class="btn" type="button" id="cancelPowerOff">Cancelar</button>
-          <button class="btn danger" type="button" id="confirmPowerOff" ${canConfirm ? '' : 'disabled'}>${canConfirm ? 'Desligar computador' : 'CoreControl Box necessária'}</button>
+          <button class="btn" type="button" id="cancelFullShutdown">Cancelar</button>
+          <button class="btn danger" type="button" id="confirmFullShutdown" disabled>Desligar completamente</button>
         </div>`);
 
       let settled = false;
@@ -351,23 +351,36 @@
         CT.closeModal();
         resolve(Boolean(accepted));
       };
-      CT.$('#cancelPowerOff').onclick = () => finish(false);
-      CT.$('#confirmPowerOff').onclick = () => finish(canConfirm);
+      const check = CT.$('#confirmFullShutdownCheck');
+      const confirm = CT.$('#confirmFullShutdown');
+      check.onchange = () => { confirm.disabled = !check.checked; };
+      CT.$('#cancelFullShutdown').onclick = () => finish(false);
+      confirm.onclick = () => finish(check.checked);
     });
   };
 
+  // Compatibility name for any stale code path. It now confirms full shutdown,
+  // never the default software-only Economy Mode.
+  CT.confirmDevicePowerOff = CT.confirmDeviceShutdown;
+
   CT.requestDevicePower = async function requestDevicePower(device, action, options = {}) {
-    const normalized = String(action || '').toLowerCase();
-    if (!device?.id || !['wake', 'off'].includes(normalized)) throw new Error('Ação de energia inválida.');
+    let normalized = String(action || '').toLowerCase();
+    if (normalized === 'off') normalized = 'economy';
+    if (normalized === 'wake') normalized = 'activate';
+    if (!device?.id || !['economy', 'activate', 'shutdown'].includes(normalized)) throw new Error('Ação de energia inválida.');
+
     const readiness = await CT.api(`/devices/${device.id}/power-readiness?ts=${Date.now()}`);
-    if (normalized === 'off') {
-      if (!readiness.off_available) {
-        throw new Error('O desligamento remoto exige que este computador esteja vinculado ao MeshCentral.');
-      }
-      const accepted = await CT.confirmDevicePowerOff(device, readiness);
+    if (normalized === 'economy' && !readiness.economy_available) {
+      throw new Error(readiness.reason || 'O Modo econômico não está disponível neste computador.');
+    }
+    if (normalized === 'activate' && !readiness.activate_available && !readiness.economy_mode_active) {
+      if (CT.devicePowerIsOn(device)) return { ok: true, status: 'online', message: 'O computador já está no modo normal.' };
+      throw new Error(readiness.reason || 'Este computador está realmente offline e não pode ser ativado apenas por software.');
+    }
+    if (normalized === 'shutdown') {
+      if (!readiness.shutdown_available) throw new Error(readiness.reason || 'O desligamento completo não está disponível.');
+      const accepted = await CT.confirmDeviceShutdown(device);
       if (!accepted) return null;
-    } else if (!readiness.wake_available) {
-      throw new Error(readiness.reason || 'Não existe uma rota disponível para Wake-on-LAN.');
     }
     if (typeof options.onDispatch === 'function') options.onDispatch(readiness);
     return CT.api(`/devices/${device.id}/power?action=${encodeURIComponent(normalized)}`, { method: 'POST' });

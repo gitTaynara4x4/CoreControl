@@ -1,0 +1,39 @@
+CoreControl v10.42 — MODO ECONÔMICO POR SOFTWARE
+
+Objetivo
+- O controle principal de energia não depende mais de CoreControl Box, Wake-on-LAN, UPnP, CGNAT ou configuração de roteador.
+- O computador continua realmente ligado e conectado enquanto está em Modo econômico.
+
+Fluxo principal
+1. Modo econômico
+   - mantém Windows e CoreControl Agent ativos;
+   - apaga e mantém o monitor apagado;
+   - impede suspensão/hibernação real para o Agent não desaparecer;
+   - Agent 0.9.14 salva o plano de energia atual e tenta aplicar o plano Economia de energia.
+
+2. Ativar computador
+   - remove o Modo econômico;
+   - reacende o monitor;
+   - restaura o plano de energia anterior no Agent 0.9.14.
+
+3. Desligar completamente
+   - ação secundária e explícita;
+   - executa shutdown real do Windows;
+   - o painel avisa que o religamento remoto não é garantido sem hardware/Wake compatível.
+
+Compatibilidade
+- O backend v10.42 aceita Agent 0.9.10+ para entrar/sair do Modo econômico.
+- Portanto um PC que já está no Agent 0.9.13 NÃO precisa ser reinstalado só para testar o novo fluxo.
+- Para receber o gerenciamento melhorado do plano de energia, atualize depois para Agent 0.9.14 usando Setup 0.4.22.
+
+Versões
+- Power Engine: 10.42
+- CoreControl Agent: 0.9.14
+- CoreControl Setup: 0.4.22
+
+Validação
+- 26/26 testes focados de energia/gateway/compatibilidade passaram.
+- Python compilado sem erro.
+- JavaScript validado com node --check.
+- Agent validado com go test/go vet e compilado para Windows.
+- Setup compilado para Windows usando a URL de produção.

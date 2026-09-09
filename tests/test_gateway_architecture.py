@@ -40,21 +40,19 @@ def test_gateway_uses_outbound_agent_queue_and_local_magic_packet():
     assert 'CoreControlGateway.exe' in build
 
 
-def test_power_engine_prefers_gateway_and_does_not_depend_on_router():
+def test_gateway_remains_optional_and_is_not_required_by_default_power_engine():
     api = (ROOT / "app/api.py").read_text(encoding="utf-8")
     ui = (ROOT / "app/static/js/ui.js").read_text(encoding="utf-8")
     company = (ROOT / "app/static/pages/company.html").read_text(encoding="utf-8")
-    modals = (ROOT / "app/static/js/modals.js").read_text(encoding="utf-8")
 
     assert 'def find_power_gateways' in api
-    assert 'pc_wol_prepared' in api
-    assert '"gateway_available": box_available' in api
-    assert '"power_engine_version": "10.41"' in api
-    assert '"route_preflight_available": False' in api
-    assert 'corecontrol_box_wol' in api
-    assert 'CoreControl Box necessária' in ui
-    assert 'id="gatewayBtn"' in company
-    assert 'Adicionar CoreControl Box' in modals
+    assert '"power_engine_version": "10.42"' in api
+    endpoint = api[api.index('@router.post("/devices/{device_id}/power")'):api.index('@router.get("/alerts")')]
+    assert 'find_power_gateways' not in endpoint
+    assert 'corecontrol_box_wol' not in endpoint
+    assert '"software_only_power": True' in api
+    assert 'CT.confirmDeviceShutdown' in ui
+    assert 'Modo econômico remoto por software' in company
 
 
 def test_agents_report_multiple_lan_networks_for_relay_selection():
@@ -84,4 +82,4 @@ def test_gateway_does_not_pollute_computer_dashboards_or_update_lists():
 def test_gateway_frontend_assets_are_cache_busted_for_release():
     index = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
     for asset in ["ui.js", "modals.js", "pages/overview.js", "pages/companies.js", "pages/devices.js"]:
-        assert f"{asset}?v=20260909-box-only-v10-41" in index
+        assert f"{asset}?v=20260909-economy-v10-42" in index

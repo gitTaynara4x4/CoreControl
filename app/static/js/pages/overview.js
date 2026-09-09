@@ -164,11 +164,20 @@
     } else if (action === 'device.update') {
       title = 'Cadastro do computador atualizado';
       tone = 'blue';
+    } else if (action === 'power.economy.entered') {
+      title = 'Modo econômico ativado';
+      tone = 'blue';
+    } else if (action === 'power.economy.exited') {
+      title = 'Computador ativado';
+      tone = 'green';
+    } else if (action === 'power.shutdown.sent') {
+      title = 'Desligamento completo enviado';
+      tone = 'amber';
     } else if (action === 'power.wake.sent') {
-      title = 'Comando para ligar computador enviado';
+      title = 'Comando legado para ligar enviado';
       tone = 'green';
     } else if (action === 'power.off.sent') {
-      title = 'Comando para desligar computador enviado';
+      title = 'Comando legado para desligar enviado';
       tone = 'amber';
     }
 
@@ -229,31 +238,22 @@
       const t = device.telemetry || {};
       const activity = t.activity || {};
       const powerOn = CT.devicePowerIsOn(device);
-      const managedOff = Boolean(device.power?.managed_off_active);
-      const currentApp = managedOff ? 'Estado antigo CoreControl Off' : powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
-      const currentWindow = managedOff ? 'Use Ligar uma vez para recuperar este estado antigo.' : powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
+      const economyActive = CT.deviceEconomyModeActive(device);
+      const currentApp = economyActive ? 'Modo econômico' : powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
+      const currentWindow = economyActive ? 'Monitor desligado · Agent conectado · suspensão real bloqueada' : powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
       const temperature = tempInfo(t);
       const profile = cleanProfile(device.profile);
-      const remoteReady = Boolean(device.remote?.available) && !Boolean(device.power?.managed_off_active);
+      const remoteReady = Boolean(device.remote?.available) && !economyActive;
       const powerState = device.power || {};
-      const pendingAction = ['wake', 'off'].includes(powerState.pending_action) ? powerState.pending_action : null;
-      const shutdownRouteVerified = Boolean(powerState.safe_to_power_off);
-      const powerAvailable = !pendingAction && (powerOn
-        ? Boolean(powerState.off_available)
-        : Boolean(powerState.wake_available));
-      const powerAction = powerOn ? 'off' : 'wake';
-      const powerLabel = pendingAction ? CT.powerPendingButtonHtml(pendingAction) : (powerOn ? 'Desligar computador' : 'Ligar computador');
-      const powerTitle = pendingAction
-        ? (pendingAction === 'wake' ? 'Comando para ligar enviado pela CoreControl Box. Aguardando o Agent voltar online.' : 'Desligamento confirmado. Aguardando o Agent ficar offline.')
-        : powerAvailable
-          ? (managedOff
-              ? 'Recuperar uma vez o estado antigo CoreControl Off.'
-              : powerOn
-                ? 'Desligar o Windows de verdade usando a CoreControl Box como rota de religamento.'
-                : 'Ligar este computador pela CoreControl Box da rede local.')
-          : (powerState.reason || (powerOn
-              ? 'A CoreControl Box precisa estar online para permitir o desligamento.'
-              : 'A CoreControl Box precisa estar online para permitir o religamento.'))
+      const pendingAction = null;
+      const powerAvailable = economyActive ? Boolean(powerState.activate_available) : Boolean(powerState.economy_available);
+      const powerAction = economyActive ? 'activate' : 'economy';
+      const powerLabel = economyActive ? 'Ativar computador' : 'Modo econômico';
+      const powerTitle = powerAvailable
+        ? (economyActive
+            ? 'Restaurar o monitor e o plano de energia normal. O PC continua conectado durante todo o processo.'
+            : 'Reduzir consumo sem desligar o Windows. O CoreControl continua conectado e pode reativar o PC a qualquer momento.')
+        : (powerState.reason || (powerOn ? 'O Agent precisa estar online para alterar o modo de energia.' : 'Este computador está realmente offline.'))
       const healthAvailable = CT.healthAvailable(device);
       const stateTone = healthAvailable ? (device.health_score >= 80 ? 'good' : 'warn') : 'unavailable';
       return `
@@ -261,7 +261,7 @@
           <div class="ops-device-head">
             <div class="ops-device-ident">
               <span class="ops-device-icon">${icon('monitor')}</span>
-              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${pendingAction ? 'power-pending-status' : (powerOn ? 'online' : 'offline')}" ${pendingAction ? 'aria-busy="true"' : ''}><i class="${pendingAction ? 'power-pulse' : ''}"></i>${pendingAction ? CT.powerPendingLabel(pendingAction) : (powerOn ? 'Ligado' : 'Desligado')}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
+              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${economyActive ? 'economy' : (powerOn ? 'online' : 'offline')}"><i></i>${economyActive ? 'Modo econômico' : (powerOn ? 'Ligado' : 'Desligado')}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
             </div>
             <div class="ops-health-badge ${stateTone}" title="${CT.esc(healthAvailable ? 'Saúde calculada com telemetria atual.' : (powerOn ? 'Aguardando comunicação atual do CoreControl Agent.' : 'Computador desligado. Saúde indisponível.'))}"><strong>${healthAvailable ? device.health_score : '—'}</strong><span>Saúde</span></div>
           </div>
@@ -274,11 +274,11 @@
             <div><span>${CT.esc(temperature.label)}</span><strong>${CT.esc(temperature.value)}</strong></div>
           </div>
           <div class="ops-device-foot">
-            <div class="ops-device-meta"><span>${profile ? `Perfil: <b>${CT.esc(profile)}</b>` : 'Sem perfil de otimização ativo'}</span><span>Agente ${CT.esc(device.agent_version || '—')} · ${powerOn && device.online ? `atualizado ${ago(device.last_seen)}` : `último contato ${ago(device.last_seen)}`}</span>${pendingAction ? `<span class="power-card-feedback">${CT.powerPendingFeedbackHtml(pendingAction)}</span>` : ''}</div>
+            <div class="ops-device-meta"><span>${profile ? `Perfil: <b>${CT.esc(profile)}</b>` : 'Sem perfil de otimização ativo'}</span><span>Agente ${CT.esc(device.agent_version || '—')} · ${powerOn && device.online ? `atualizado ${ago(device.last_seen)}` : `último contato ${ago(device.last_seen)}`}</span></div>
             <div class="ops-device-actions">
               <button class="btn small" data-ops="device" data-device="${device.id}">Ver atividade</button>
               <button class="btn small" data-ops="remote" data-device="${device.id}" ${remoteReady ? '' : 'disabled'}>Acessar</button>
-              <button class="btn small ${pendingAction === 'off' || (!pendingAction && powerOn) ? 'danger' : 'primary'}${pendingAction ? ' power-pending-button' : ''}" data-ops="power" data-power-action="${powerAction}" data-device="${device.id}" title="${CT.esc(powerTitle)}" ${pendingAction ? 'aria-busy="true"' : ''} ${powerAvailable ? '' : 'disabled'}>${powerLabel}</button>
+              <button class="btn small ${economyActive ? 'primary' : ''}" data-ops="power" data-power-action="${powerAction}" data-device="${device.id}" title="${CT.esc(powerTitle)}" ${powerAvailable ? '' : 'disabled'}>${powerLabel}</button>
               <button class="btn small primary" data-ops="optimize" data-device="${device.id}" ${powerOn && device.online ? '' : 'disabled'}>Otimizar</button>
             </div>
           </div>
@@ -361,63 +361,21 @@
           if (!target) return;
           const powerAction = button.dataset.powerAction;
           const originalHtml = button.innerHTML;
-          const card = button.closest('[data-device-card]');
-          const liveStatus = card?.querySelector('.ops-live');
-          const originalLiveHtml = liveStatus?.innerHTML || '';
-          const originalLiveClass = liveStatus?.className || 'ops-live';
-          const meta = card?.querySelector('.ops-device-meta');
           try {
-            let dispatched = false;
-            const showPending = () => {
-              dispatched = true;
-              CT.setPowerPendingButton(button, powerAction);
-              if (liveStatus) {
-                liveStatus.classList.remove('online', 'offline');
-                liveStatus.classList.add('power-pending-status');
-                liveStatus.setAttribute('aria-busy', 'true');
-                liveStatus.innerHTML = `<i class="power-pulse"></i>${CT.powerPendingLabel(powerAction)}`;
-              }
-              if (meta && !meta.querySelector('.power-card-feedback')) {
-                meta.insertAdjacentHTML('beforeend', `<span class="power-card-feedback">${CT.powerPendingFeedbackHtml(powerAction)}</span>`);
-              }
-            };
-            // Wake deve dar retorno visual imediatamente, sem esperar a primeira resposta da API.
-            if (powerAction === 'wake') showPending();
-            const response = await CT.requestDevicePower(target, powerAction, { onDispatch: () => { if (!dispatched) showPending(); } });
-            if (!response) return;
-            if (!dispatched) showPending();
-            CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
-            const watched = await CT.waitForDevicePower(deviceId, powerAction === 'wake', { retryWake: powerAction === 'wake', retryEveryAttempts: 10, maxWakeRetries: 8 });
-            if (watched.changed) {
-              CT.clearPowerPendingButton(button);
-              button.classList.remove('primary', 'danger');
-              button.classList.add(powerAction === 'wake' ? 'danger' : 'primary');
-              button.textContent = powerAction === 'wake' ? 'Desligar computador' : 'Ligar computador';
-              if (liveStatus) {
-                liveStatus.classList.remove('power-pending-status');
-                liveStatus.removeAttribute('aria-busy');
-                liveStatus.classList.add(powerAction === 'wake' ? 'online' : 'offline');
-                liveStatus.innerHTML = `<i></i>${powerAction === 'wake' ? 'Ligado' : 'Desligado'}`;
-              }
-              meta?.querySelector('.power-card-feedback')?.remove();
-              CT.toast(powerAction === 'wake' ? 'Computador online.' : 'Computador desligado.');
-            } else {
-              CT.toast(powerAction === 'wake'
-                ? 'O Wake-on-LAN foi enviado, mas o computador ainda não ficou online. Verifique se o WOL está habilitado na BIOS/UEFI e na placa de rede.'
-                : 'O comando foi enviado, mas o CoreControl ainda não confirmou que o computador ficou offline.', true);
+            button.disabled = true;
+            button.innerHTML = CT.powerPendingButtonHtml(powerAction);
+            const response = await CT.requestDevicePower(target, powerAction);
+            if (!response) {
+              button.disabled = false;
+              button.innerHTML = originalHtml;
+              return;
             }
+            CT.toast(response.message || (powerAction === 'activate' ? 'Computador ativado.' : 'Modo econômico ativado.'));
             return CT.navigate('overview');
           } catch (error) {
-            CT.clearPowerPendingButton(button);
             button.disabled = false;
             button.innerHTML = originalHtml;
-            if (liveStatus) {
-              liveStatus.className = originalLiveClass;
-              liveStatus.removeAttribute('aria-busy');
-              liveStatus.innerHTML = originalLiveHtml;
-            }
-            meta?.querySelector('.power-card-feedback')?.remove();
-            return CT.toast(error.message || 'Não foi possível executar a ação de energia.', true);
+            return CT.toast(error.message || 'Não foi possível alterar o modo de energia.', true);
           }
         }
         if (action === 'optimize' && deviceId) {

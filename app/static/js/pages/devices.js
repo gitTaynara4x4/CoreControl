@@ -1112,23 +1112,17 @@
     CT.$('#pageTitle').textContent = device.name;
     const telemetry = device.telemetry || {};
     const devicePowerOn = CT.devicePowerIsOn(device);
-    const initialPendingAction = ['wake', 'off'].includes(device?.power?.pending_action) ? device.power.pending_action : null;
-    const deviceOnlineLabel = initialPendingAction === 'wake'
-      ? 'Ligando...'
-      : initialPendingAction === 'off'
-        ? 'Desligando...'
-        : devicePowerOn
-          ? (device.online ? 'Online' : 'Ligado · Agent sem comunicação')
-          : 'Desligado';
-    const deviceOnlineTone = initialPendingAction ? '' : (devicePowerOn ? 'online' : 'offline');
+    const economyActive = CT.deviceEconomyModeActive(device);
+    const deviceOnlineLabel = economyActive
+      ? 'Modo econômico'
+      : devicePowerOn
+        ? (device.online ? 'Online' : 'Ligado · Agent sem comunicação')
+        : 'Desligado';
+    const deviceOnlineTone = economyActive ? 'economy' : (devicePowerOn ? 'online' : 'offline');
 
     const deviceOnlineStatusEl = CT.$('#deviceOnlineStatus');
-    if (initialPendingAction) {
-      CT.setPowerPendingStatus(deviceOnlineStatusEl, initialPendingAction);
-    } else {
-      CT.clearPowerPendingStatus(deviceOnlineStatusEl);
-      deviceOnlineStatusEl.innerHTML = `<i class="dot ${deviceOnlineTone}"></i>${deviceOnlineLabel}`;
-    }
+    CT.clearPowerPendingStatus(deviceOnlineStatusEl);
+    deviceOnlineStatusEl.innerHTML = `<i class="dot ${deviceOnlineTone}"></i>${deviceOnlineLabel}`;
     const healthStatusEl = CT.$('#deviceHealthStatus');
     const healthAvailable = CT.healthAvailable(device);
     healthStatusEl.className = healthAvailable ? `health ${CT.healthClass(device.health_score)}` : 'health unavailable';
@@ -1180,19 +1174,7 @@
     ].join('');
 
     const powerState = device.power || {};
-    const wolStatus = powerState.managed_off_active
-      ? 'Estado legado · use Ligar uma vez para recuperar'
-      : !powerState.capability_checked
-        ? 'Aguardando diagnóstico do Agent'
-        : powerState.pc_wol_prepared
-          ? 'Preparado no Windows'
-          : 'Ainda não preparado';
-    const wakeRouteStatus = powerState.managed_off_active
-      ? 'Recuperação do estado antigo pelo Agent'
-      : powerState.gateway_available
-        ? `CoreControl Box${powerState.gateway_names?.length ? ` · ${powerState.gateway_names.join(', ')}` : ''}`
-        : 'CoreControl Box necessária';
-
+    const economyMode = CT.deviceEconomyModeActive(device);
 
     CT.$('#deviceProtection').innerHTML = [
       CT.info('Memória instalada', telemetry.memory_total_gb == null ? '—' : `${CT.fmtNum(telemetry.memory_total_gb, 1)} GB`),
@@ -1201,17 +1183,13 @@
       CT.info('Espaço livre', telemetry.disk_free_gb == null ? '—' : `${CT.fmtNum(telemetry.disk_free_gb, 1)} GB`),
       CT.info('Microsoft Defender', telemetry.defender_active == null ? 'Não informado' : telemetry.defender_active ? 'Ativo' : 'Desativado'),
       CT.info('Firewall', telemetry.firewall_active == null ? 'Não informado' : telemetry.firewall_active ? 'Ativo' : 'Desativado'),
-      CT.info('Wake-on-LAN', wolStatus),
-      CT.info('Placa de rede', powerState.interface_description || powerState.adapter_name || 'Não identificada'),
-      CT.info('Magic Packet', powerState.magic_packet_enabled ? 'Habilitado' : powerState.capability_checked ? 'Não habilitado' : 'Verificando'),
-      CT.info('Placa armada para wake', powerState.wake_armed ? 'Sim' : powerState.capability_checked ? 'Não' : 'Verificando'),
-      CT.info('Intel AMT / vPro', powerState.intel_amt_detected ? 'Detectado · falta validar gerenciamento' : 'Não detectado'),
-      CT.info('Rota para ligar após desligar', wakeRouteStatus),
+      CT.info('Modo de energia', economyMode ? 'Modo econômico ativo' : 'Modo normal'),
+      CT.info('Controle principal', powerState.software_only_power ? 'Software · sem configuração de roteador' : 'Não disponível'),
+      CT.info('Desligamento completo', powerState.shutdown_available ? 'Disponível · religamento remoto não garantido' : 'Indisponível no estado atual'),
+      CT.info('Wake-on-LAN opcional', powerState.pc_wol_prepared ? 'Detectado/preparado' : 'Não necessário para o Modo econômico'),
     ].join('');
 
-    // v10.40: o caminho suportado é CoreControl Box local. O teste de
-    // Wake-on-WAN/UPnP ficou apenas como compatibilidade de backend e não é
-    // mais oferecido ao usuário para evitar configuração específica de roteador.
+    // Router/Wake diagnostics are no longer part of the normal customer flow.
     const wakeRouteButton = CT.$('#wakeRouteTestBtn');
     if (wakeRouteButton) {
       wakeRouteButton.classList.add('hidden');
@@ -1220,131 +1198,72 @@
 
     CT.$('#deviceRemoteLabel').innerHTML = CT.remoteLabel(device);
     CT.$('#deviceRemoteText').textContent = device.remote?.running
-      ? 'O agente remoto está conectado e pronto para suporte.'
+      ? (economyMode ? 'O acesso remoto está disponível após sair do Modo econômico.' : 'O agente remoto está conectado e pronto para suporte.')
       : device.remote?.installed
         ? 'O módulo está instalado, mas não está conectado.'
         : 'Instale novamente pelo CoreControl Setup autorizando o acesso remoto.';
 
     const remoteButton = CT.$('#remoteAccessBtn');
-    remoteButton.disabled = !device.remote?.available || Boolean(powerState.managed_off_active);
+    remoteButton.disabled = !device.remote?.available || economyMode;
     remoteButton.addEventListener('click', () => CT.openRemoteSession(device.id));
 
     const devicePowerBtn = CT.$('#devicePowerBtn');
+    const deviceShutdownBtn = CT.$('#deviceShutdownBtn');
     const devicePowerFeedback = CT.$('#devicePowerFeedback');
     if (['global_admin', 'platform_admin', 'company_admin', 'technician'].includes(CT.state.user.role)) {
-      const powerOn = CT.devicePowerIsOn(device);
-      const pendingAction = ['wake', 'off'].includes(powerState.pending_action) ? powerState.pending_action : null;
-      const powerAction = powerOn ? 'off' : 'wake';
-      const shutdownRouteVerified = Boolean(powerState.safe_to_power_off);
-      const powerAvailable = powerOn
-        ? Boolean(powerState.off_available)
-        : Boolean(powerState.wake_available);
-      devicePowerBtn.classList.remove('hidden', 'primary', 'danger');
+      const powerAction = economyMode ? 'activate' : 'economy';
+      const powerAvailable = economyMode ? Boolean(powerState.activate_available) : Boolean(powerState.economy_available);
+      devicePowerBtn.classList.remove('hidden', 'danger');
+      devicePowerBtn.classList.toggle('primary', economyMode);
+      devicePowerBtn.textContent = economyMode ? 'Ativar computador' : 'Modo econômico';
+      devicePowerBtn.disabled = !powerAvailable;
+      devicePowerBtn.title = powerAvailable
+        ? (economyMode
+            ? 'Restaurar o monitor e o plano de energia normal.'
+            : 'Reduzir o consumo mantendo Windows e CoreControl conectados. Não depende de Wake-on-LAN, roteador ou Box.')
+        : (powerState.reason || 'O Agent precisa estar online para alterar o modo de energia.');
 
-      if (pendingAction) {
-        const pendingWake = pendingAction === 'wake';
-        devicePowerBtn.classList.add(pendingWake ? 'primary' : 'danger');
-        CT.setPowerPendingButton(devicePowerBtn, pendingAction);
-        CT.setPowerPendingFeedback(devicePowerFeedback, pendingAction);
-        devicePowerBtn.title = pendingWake
-          ? 'O comando para ligar já foi enviado pela CoreControl Box. Aguardando o Agent voltar online.'
-          : 'O comando de desligamento já foi confirmado. Aguardando o Agent ficar offline.';
-
-        // O estado pendente vem do backend (audit_logs), portanto sobrevive a F5.
-        // Ao reabrir a página, retomamos a observação até chegar a resposta real.
-        const remainingSeconds = Math.max(1, Number(powerState.pending_seconds_remaining || (pendingWake ? 300 : 180)));
-        const attempts = Math.max(1, Math.ceil((remainingSeconds * 1000) / 1500));
-        window.setTimeout(async () => {
-          const watched = await CT.waitForDevicePower(device.id, pendingWake, {
-            attempts,
-            delayMs: 1500,
-            retryWake: pendingWake,
-            retryEveryAttempts: 10,
-            maxWakeRetries: 8,
-            maxElapsedMs: pendingWake ? Math.min(remainingSeconds * 1000, 300000) : Math.min(remainingSeconds * 1000, 90000),
-          });
-          if (!document.body.contains(devicePowerBtn)) return;
-          if (watched.changed) {
-            CT.toast(pendingWake ? 'Computador online.' : 'Computador desligado.');
-          } else {
-            CT.toast(pendingWake
-              ? 'A tentativa de ligar expirou sem o Agent voltar online.'
-              : 'O comando foi enviado, mas a confirmação do desligamento está demorando. O CoreControl continuará verificando.', true);
-          }
+      devicePowerBtn.onclick = async () => {
+        const originalHtml = devicePowerBtn.innerHTML;
+        try {
+          devicePowerBtn.disabled = true;
+          devicePowerBtn.innerHTML = CT.powerPendingButtonHtml(powerAction);
+          CT.setPowerPendingFeedback(devicePowerFeedback, powerAction);
+          const response = await CT.requestDevicePower(device, powerAction);
+          if (!response) return;
+          CT.toast(response.message || (powerAction === 'activate' ? 'Computador ativado.' : 'Modo econômico ativado.'));
           return CT.navigate('device', device.id);
-        }, 0);
-      } else {
-        CT.clearPowerPendingButton(devicePowerBtn);
-        CT.clearPowerPendingFeedback(devicePowerFeedback);
-        devicePowerBtn.classList.add(powerOn ? 'danger' : 'primary');
-        devicePowerBtn.textContent = powerOn ? 'Desligar computador' : 'Ligar computador';
-        devicePowerBtn.disabled = !powerAvailable;
-        devicePowerBtn.title = powerAvailable
-          ? (powerState.managed_off_active
-              ? 'Recuperar uma vez o estado antigo CoreControl Off.'
-              : powerOn
-                ? 'Desligar o Windows de verdade. A CoreControl Box permanecerá online para religar este PC.'
-                : 'Ligar este computador pela CoreControl Box da rede local.')
-          : (powerState.reason || (powerOn
-              ? 'A CoreControl Box precisa estar online para permitir o desligamento.'
-              : 'A CoreControl Box precisa estar online para permitir o religamento.'))
-        devicePowerBtn.onclick = async () => {
-          const originalHtml = devicePowerBtn.innerHTML;
-          const statusEl = CT.$('#deviceOnlineStatus');
-          const originalStatusHtml = statusEl?.innerHTML || '';
-          const originalStatusClass = statusEl?.className || 'status';
-          let dispatched = false;
-          const showPending = () => {
-            dispatched = true;
-            CT.setPowerPendingButton(devicePowerBtn, powerAction);
-            CT.setPowerPendingStatus(statusEl, powerAction);
-            CT.setPowerPendingFeedback(devicePowerFeedback, powerAction);
-          };
+        } catch (error) {
+          devicePowerBtn.disabled = false;
+          devicePowerBtn.innerHTML = originalHtml;
+          CT.clearPowerPendingFeedback(devicePowerFeedback);
+          CT.toast(error.message || 'Não foi possível alterar o modo de energia.', true);
+        }
+      };
+
+      if (deviceShutdownBtn) {
+        deviceShutdownBtn.classList.remove('hidden');
+        deviceShutdownBtn.disabled = !Boolean(powerState.shutdown_available) || economyMode;
+        deviceShutdownBtn.title = economyMode
+          ? 'Ative o computador antes de desligá-lo completamente.'
+          : powerState.shutdown_available
+            ? 'Desliga o Windows completamente. O religamento remoto não é garantido sem hardware/Wake compatível.'
+            : (powerState.reason || 'Desligamento completo indisponível.');
+        deviceShutdownBtn.onclick = async () => {
+          const originalHtml = deviceShutdownBtn.innerHTML;
           try {
-            // Wake deve dar retorno visual no mesmo clique, antes até da checagem de prontidão responder.
-            if (powerAction === 'wake') showPending();
-            const response = await CT.requestDevicePower(device, powerAction, { onDispatch: () => { if (!dispatched) showPending(); } });
+            const response = await CT.requestDevicePower(device, 'shutdown');
             if (!response) return;
-            if (!dispatched) showPending();
-            CT.toast(response?.message || (powerAction === 'wake' ? 'Sinal para ligar enviado.' : 'Comando de desligamento enviado.'));
-            const watched = await CT.waitForDevicePower(device.id, powerAction === 'wake', {
-              attempts: powerAction === 'wake' ? 200 : 120,
-              delayMs: 1500,
-              retryWake: powerAction === 'wake',
-              retryEveryAttempts: 10,
-              maxWakeRetries: 8,
-              maxElapsedMs: powerAction === 'wake' ? 300000 : 90000,
-            });
-            if (watched.changed) {
-              const nowOn = powerAction === 'wake';
-              if (statusEl) {
-                CT.clearPowerPendingStatus(statusEl);
-                statusEl.innerHTML = `<i class="dot ${nowOn ? 'online' : 'offline'}"></i>${nowOn ? 'Online' : 'Desligado'}`;
-              }
-              CT.clearPowerPendingFeedback(devicePowerFeedback);
-              CT.clearPowerPendingButton(devicePowerBtn);
-              devicePowerBtn.classList.remove('primary', 'danger');
-              devicePowerBtn.classList.add(nowOn ? 'danger' : 'primary');
-              devicePowerBtn.textContent = nowOn ? 'Desligar computador' : 'Ligar computador';
-              CT.toast(nowOn ? 'Computador online.' : 'Computador desligado.');
-            } else {
-              CT.toast(powerAction === 'wake'
-                ? 'A tentativa de ligar expirou sem o MeshCentral detectar o computador online.'
-                : 'O comando foi enviado, mas a confirmação do MeshCentral está demorando. O CoreControl continuará verificando.', true);
-            }
-            if (!document.body.contains(devicePowerBtn)) return;
+            CT.setPowerPendingButton(deviceShutdownBtn, 'shutdown');
+            CT.toast(response.message || 'Desligamento completo enviado.');
+            const watched = await CT.waitForDevicePower(device.id, false, { attempts: 60, delayMs: 1500, maxElapsedMs: 90000 });
+            CT.toast(watched.changed ? 'Computador desligado completamente.' : 'O comando foi enviado, mas o desligamento ainda não foi confirmado.', !watched.changed);
             return CT.navigate('device', device.id);
           } catch (error) {
-            CT.clearPowerPendingButton(devicePowerBtn);
-            CT.clearPowerPendingFeedback(devicePowerFeedback);
-            devicePowerBtn.disabled = false;
-            devicePowerBtn.innerHTML = originalHtml;
-            if (statusEl) {
-              statusEl.className = originalStatusClass;
-              statusEl.removeAttribute('aria-busy');
-              statusEl.innerHTML = originalStatusHtml;
-            }
-            CT.toast(error.message || 'Não foi possível executar a ação de energia.', true);
+            CT.clearPowerPendingButton(deviceShutdownBtn);
+            deviceShutdownBtn.disabled = false;
+            deviceShutdownBtn.innerHTML = originalHtml;
+            CT.toast(error.message || 'Não foi possível desligar completamente.', true);
           }
         };
       }

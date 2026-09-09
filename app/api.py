@@ -854,13 +854,13 @@ POWER_OFF_PENDING_FOR = timedelta(minutes=3)
 
 
 def device_managed_off_state(db: Session, device: Device) -> dict:
-    """Return the software-only CoreControl Off state for this device.
+    """Return the software-only Economy Mode state for this device.
 
-    The marker lives in the audit trail, so no schema migration is required.
-    In this mode Windows and the Mesh/CoreControl services remain running; the
-    user session is disconnected and the machine is kept reachable so a later
-    remote "Ligar" never depends on Wake-on-LAN, router settings or another
-    PC on the LAN.
+    The audit trail remains the source of truth so the change needs no schema
+    migration.  ``power.managed_off.*`` is kept as the internal compatibility
+    action name because Agents 0.9.10+ already understand it; the product-facing
+    name from v10.42 is **Modo econômico**.  Windows and the CoreControl Agent
+    remain alive and reachable while the display is kept off.
     """
     last = db.scalar(
         select(AuditLog)
@@ -882,8 +882,8 @@ def device_managed_off_state(db: Session, device: Device) -> dict:
 
 
 def device_effectively_online(db: Session, device: Device) -> bool:
-    """Operator-facing state: managed-off machines appear desligado."""
-    return bool(device_online(device) and not device_managed_off_state(db, device)["active"])
+    """Economy Mode is still online; never present it as a powered-off PC."""
+    return bool(device_online(device))
 
 
 def device_power_currently_on(device: Device) -> bool:
@@ -999,51 +999,34 @@ def device_power_pending_state(db: Session, device: Device, *, currently_on: boo
 def device_power_readiness(db: Session, device: Device) -> dict:
     target_info = device_wol_info(db, device)
     gateways = find_power_gateways(db, device)
-    pc_wol_prepared = bool(target_info.get("windows_prepared"))
     windows_device = "windows" in str(device.os_name or "").lower()
-    managed_off = device_managed_off_state(db, device)
-
+    economy = device_managed_off_state(db, device)
     native_agent_online = bool(device_online(device))
+
+    # The software-only flow uses commands already supported since Agent 0.9.10.
+    # Agent 0.9.14 improves the mode by saving/restoring the Windows power plan,
+    # but old 0.9.10+ Agents can still enter/exit it safely.
+    economy_agent_available = bool(
+        windows_device and native_agent_online and _version_at_least(device.agent_version, (0, 9, 10))
+    )
     shutdown_agent_available = bool(
-        native_agent_online and _version_at_least(device.agent_version, (0, 9, 13))
+        windows_device and native_agent_online and _version_at_least(device.agent_version, (0, 9, 11))
     )
-    legacy_managed_agent_available = bool(
-        native_agent_online and _version_at_least(device.agent_version, (0, 9, 10))
-    )
-    managed_mode_available = bool(managed_off["active"] and legacy_managed_agent_available)
 
-    # v10.41 invariant: physical shutdown is allowed only with a dedicated
-    # CoreControl Box online on the same LAN. No ordinary-PC relay, UPnP,
-    # Wake-on-WAN or MeshCentral fallback participates in this decision.
-    box_available = bool(gateways)
-    full_shutdown_safe = bool(
-        windows_device and shutdown_agent_available and pc_wol_prepared and box_available
-    )
-    wake_verified = bool(pc_wol_prepared and box_available)
-    wake_available = bool((managed_off["active"] and legacy_managed_agent_available) or wake_verified)
-    off_available = full_shutdown_safe
-    safe_to_power_off = full_shutdown_safe
+    economy_available = bool(economy_agent_available and not economy["active"])
+    activate_available = bool(economy_agent_available and economy["active"])
+    shutdown_available = bool(shutdown_agent_available and not economy["active"])
 
-    if managed_off["active"] and legacy_managed_agent_available:
-        reason = (
-            "Este PC ainda está no modo antigo CoreControl Off. Use Ligar uma vez; depois o fluxo padrão usará desligamento real com a CoreControl Box."
-        )
+    if economy["active"]:
+        reason = "Modo econômico ativo. O Agent continua conectado; use Ativar computador para voltar ao modo normal."
     elif not windows_device:
-        reason = "O desligamento físico padronizado da v10.41 está disponível para computadores Windows."
-    elif native_agent_online and not shutdown_agent_available:
-        reason = (
-            f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize para o Agent 0.9.13 ou superior."
-        )
-    elif not target_info.get("mac_address"):
-        reason = "O Agent ainda não informou o endereço MAC físico deste computador."
-    elif not target_info.get("capability_checked"):
-        reason = "Aguardando o diagnóstico automático de Wake-on-LAN do Agent."
-    elif not pc_wol_prepared:
-        reason = target_info.get("capability_reason") or "A placa de rede não ficou preparada para Wake-on-LAN."
-    elif box_available:
-        reason = "CoreControl Box online e pronta. Desligar e Ligar usam sempre a mesma rota local, sem configurar o roteador."
+        reason = "O Modo econômico remoto está disponível para computadores Windows."
+    elif not native_agent_online:
+        reason = "O CoreControl Agent precisa estar online para alterar o modo de energia."
+    elif not economy_agent_available:
+        reason = f"CoreControl Agent {device.agent_version or 'antigo'} detectado. Atualize para a versão 0.9.10 ou superior."
     else:
-        reason = "CoreControl Box não está online nesta rede. A Box é a rota padrão obrigatória para ligar o PC depois do desligamento."
+        reason = "Modo econômico disponível por software. Não depende de roteador, Wake-on-LAN ou CoreControl Box."
 
     pending = device_power_pending_state(db, device, currently_on=device_power_currently_on(device))
     return {
@@ -1058,43 +1041,51 @@ def device_power_readiness(db: Session, device: Device) -> dict:
         "magic_packet_enabled": bool(target_info.get("magic_packet_enabled")),
         "wake_programmable": bool(target_info.get("wake_programmable")),
         "wake_armed": bool(target_info.get("wake_armed")),
-        "pc_wol_prepared": pc_wol_prepared,
+        "pc_wol_prepared": bool(target_info.get("windows_prepared")),
         "s5_driver_hint": bool(target_info.get("s5_driver_hint")),
         "intel_amt_detected": bool(target_info.get("intel_amt_detected")),
         "auto_configured": bool(target_info.get("auto_configured")),
         "firmware_needs_check": bool(target_info.get("firmware_needs_check")),
-        "capability_reason": target_info.get("capability_reason") or None,
-        "capability_error": target_info.get("capability_error") or None,
-        # Compatibility fields: relay == dedicated Box from v10.41.
-        "relay_available": box_available,
+        "capability_reason": target_info.get("capability_reason"),
+        # Gateway/WOL remain diagnostic/optional capabilities. They are not part
+        # of the default v10.42 software-only energy path.
+        "relay_available": bool(gateways),
         "relay_count": len(gateways),
         "relay_names": [gateway.name for gateway in gateways[:5]],
-        "gateway_available": box_available,
+        "gateway_available": bool(gateways),
         "gateway_count": len(gateways),
         "gateway_names": [gateway.name for gateway in gateways[:5]],
         "wan_route_verified": False,
-        "wan_route_status": "disabled",
-        "wan_route_message": "Wake-on-WAN/UPnP não faz parte do fluxo de energia v10.41.",
+        "wan_route_status": "optional",
+        "wan_route_message": "Wake-on-LAN é opcional e não participa do Modo econômico padrão.",
         "wan_route_method": None,
         "wan_route_verified_at": None,
         "mesh_fallback": False,
-        "wake_available": wake_available,
-        "wake_verified": wake_verified,
-        "full_shutdown_safe": full_shutdown_safe,
+        # Compatibility fields for older frontends. ``off`` now means entering
+        # Economy Mode and ``wake`` means exiting it while the Agent is alive.
+        "wake_available": activate_available,
+        "wake_verified": activate_available,
+        "full_shutdown_safe": False,
         "route_preflight_available": False,
         "shutdown_agent_available": shutdown_agent_available,
-        "managed_mode_available": managed_mode_available,
-        "managed_off_active": bool(managed_off["active"]),
-        "managed_off_since": managed_off.get("since"),
-        "software_only_power": False,
-        "power_engine_version": "10.41",
-        "power_off_mode": "shutdown" if full_shutdown_safe else "blocked",
-        "off_available": off_available,
-        "safe_to_power_off": safe_to_power_off,
-        "requires_verified_wake": True,
+        "managed_mode_available": economy_agent_available,
+        "managed_off_active": bool(economy["active"]),
+        "managed_off_since": economy.get("since"),
+        "economy_mode_active": bool(economy["active"]),
+        "economy_mode_since": economy.get("since"),
+        "economy_available": economy_available,
+        "activate_available": activate_available,
+        "shutdown_available": shutdown_available,
+        "software_only_power": True,
+        "power_engine_version": "10.42",
+        "power_off_mode": "economy",
+        "off_available": economy_available,
+        "safe_to_power_off": economy_available,
+        "requires_verified_wake": False,
         "reason": reason,
         **pending,
     }
+
 
 def remote_state(device: Device, sample: Telemetry | None) -> dict:
     extra = sample_extra(sample)
@@ -1160,7 +1151,7 @@ def serialize_sample(sample: Telemetry | None) -> dict | None:
 def serialize_device(db: Session, device: Device, include_sample: bool = True) -> dict:
     actual_online = device_online(device)
     managed_off = device_managed_off_state(db, device)
-    online = bool(actual_online and not managed_off["active"])
+    online = bool(actual_online)
     sample = latest_telemetry(db, device.id) if include_sample else None
     open_alerts = db.scalar(
         select(func.count(Alert.id)).where(Alert.device_id == device.id, Alert.status.in_(["open", "acknowledged"]))
@@ -1188,6 +1179,7 @@ def serialize_device(db: Session, device: Device, include_sample: bool = True) -
         "online": online,
         "actual_online": actual_online,
         "managed_off": bool(managed_off["active"]),
+        "economy_mode": bool(managed_off["active"]),
         "health_score": health_score(sample, online),
         "alerts_open": int(open_alerts),
         "telemetry": serialize_sample(sample),
@@ -2314,7 +2306,8 @@ def get_remote_status(device_id: int, user: CurrentUser, db: Db):
         "available": state["available"],
         "checked_at": state["checked_at"],
         "managed_off_active": bool(managed_off["active"]),
-        "power_on": bool(actual_on and not managed_off["active"]),
+        "economy_mode_active": bool(managed_off["active"]),
+        "power_on": bool(actual_on),
         "actual_power_reachable": bool(actual_on),
         "warning": sync_error,
     }
@@ -2527,232 +2520,127 @@ def control_device_power(device_id: int, action: str, user: CurrentUser, db: Db)
     assert_device_access(user, device)
 
     requested = (action or "").strip().lower()
-    if requested not in {"wake", "off"}:
+    # Compatibility with v10.41 browser caches: old OFF becomes Economy Mode
+    # and old WAKE becomes Activate. Physical shutdown is explicit only.
+    aliases = {"off": "economy", "wake": "activate"}
+    requested = aliases.get(requested, requested)
+    if requested not in {"economy", "activate", "shutdown"}:
         raise HTTPException(status_code=400, detail="Ação de energia inválida")
 
-    currently_on = device_power_currently_on(device)
-    managed_state = device_managed_off_state(db, device)
-    managed_off_active = bool(managed_state["active"])
-    existing_pending = device_power_pending_state(db, device, currently_on=currently_on)
-    is_retry = bool(requested == "wake" and existing_pending.get("pending_action") == "wake" and not managed_off_active)
-
-    if requested == "off" and existing_pending.get("pending_action") == "off":
-        return {
-            "ok": True,
-            "device_id": device.id,
-            "device_name": device.name,
-            "action": requested,
-            "status": "pending",
-            **existing_pending,
-            "message": "O desligamento já está em andamento.",
-        }
-
-    # One-time recovery from the old software-only state. New power operations
-    # never enter managed-off again.
-    if requested == "off" and managed_off_active:
-        if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 10))):
-            raise HTTPException(status_code=503, detail="O Agent precisa estar online para sair do modo desligado antigo.")
-        legacy_result = _run_agent_command_sync(db, device, "power.managed_on", created_by=user.id)
-        if bool(legacy_result.get("managed_off")):
-            raise HTTPException(status_code=503, detail="O Agent não conseguiu sair do modo desligado antigo.")
-        db.add(AuditLog(
-            company_id=device.company_id,
-            actor_user_id=user.id,
-            device_id=device.id,
-            action="power.managed_off.exited",
-            details=json.dumps({"hostname": device.hostname, "mode": "legacy_recovery", "engine": "10.41"}, ensure_ascii=False),
-        ))
-        db.commit()
-        managed_off_active = False
-        currently_on = device_power_currently_on(device)
-
-    if requested == "off" and not currently_on:
-        raise HTTPException(status_code=409, detail="O computador já aparece desligado/offline.")
-
-    if requested == "wake" and managed_off_active:
-        if not (device_online(device) and _version_at_least(device.agent_version, (0, 9, 10))):
-            raise HTTPException(status_code=503, detail="O Agent precisa estar online para sair do modo desligado antigo.")
-        legacy_result = _run_agent_command_sync(db, device, "power.managed_on", created_by=user.id)
-        if bool(legacy_result.get("managed_off")):
-            raise HTTPException(status_code=503, detail="O Agent não confirmou a saída do modo desligado antigo.")
-        db.add(AuditLog(
-            company_id=device.company_id,
-            actor_user_id=user.id,
-            device_id=device.id,
-            action="power.managed_off.exited",
-            details=json.dumps({"hostname": device.hostname, "mode": "legacy_recovery", "engine": "10.41"}, ensure_ascii=False),
-        ))
-        db.commit()
-        return {
-            "ok": True,
-            "device_id": device.id,
-            "device_name": device.name,
-            "action": requested,
-            "status": "online",
-            "methods": ["corecontrol_agent_legacy_wake"],
-            "wake_verified": True,
-            "managed_off_active": False,
-            "message": "Estado antigo recuperado. O computador voltou ao modo normal do CoreControl.",
-        }
-
-    if requested == "wake" and currently_on and not managed_off_active:
-        return {
-            "ok": True,
-            "device_id": device.id,
-            "device_name": device.name,
-            "action": requested,
-            "status": "online",
-            "methods": [],
-            "wake_verified": True,
-            "managed_off_active": False,
-            "message": "O computador já está online.",
-        }
-
+    economy = device_managed_off_state(db, device)
+    economy_active = bool(economy["active"])
     readiness = device_power_readiness(db, device)
-    gateways = find_power_gateways(db, device)
-    methods: list[str] = []
-    gateway_ids: list[int] = []
 
-    # The box-only architecture is intentionally strict. It prevents the same
-    # product from behaving differently for each router/customer.
-    if not gateways:
-        raise HTTPException(
-            status_code=409,
-            detail="CoreControl Box offline ou não instalada nesta rede. O CoreControl usa somente a Box para o caminho de religamento; não configura roteador, UPnP ou Wake-on-WAN.",
-        )
-
-    if requested == "off":
-        if "windows" not in str(device.os_name or "").lower():
-            raise HTTPException(status_code=409, detail="O desligamento físico padronizado está disponível para Windows.")
-        if not device_online(device):
-            raise HTTPException(status_code=503, detail="O CoreControl Agent não está online para executar o desligamento.")
-        if not _version_at_least(device.agent_version, (0, 9, 13)):
-            raise HTTPException(
-                status_code=409,
-                detail=f"Atualize este computador para o CoreControl Agent 0.9.13 ou superior. Versão atual: {device.agent_version or 'não informada'}.",
-            )
-        if not readiness.get("pc_wol_prepared"):
-            raise HTTPException(
-                status_code=409,
-                detail=str(readiness.get("capability_reason") or readiness.get("reason") or "A placa de rede não está preparada para Wake-on-LAN."),
-            )
-    else:
-        if not readiness.get("mac_known"):
-            raise HTTPException(status_code=409, detail="O CoreControl ainda não conhece o endereço MAC deste computador.")
-
-    if not is_retry:
+    if requested == "economy":
+        if economy_active:
+            return {
+                "ok": True, "device_id": device.id, "device_name": device.name,
+                "action": requested, "status": "economy",
+                "economy_mode_active": True, "managed_off_active": True,
+                "message": "O computador já está em Modo econômico.",
+            }
+        if not readiness.get("economy_available"):
+            raise HTTPException(status_code=409, detail=readiness.get("reason") or "Modo econômico indisponível.")
+        try:
+            result = _run_agent_command_sync(db, device, "power.managed_off", created_by=user.id, timeout_seconds=20.0)
+            if not bool(result.get("managed_off")):
+                raise HTTPException(status_code=503, detail="O Agent não confirmou a entrada no Modo econômico.")
+        except Exception as exc:
+            db.add(AuditLog(
+                company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
+                action="power.economy.failed",
+                details=json.dumps({"hostname": device.hostname, "engine": "10.42", "error": str(getattr(exc, "detail", exc))}, ensure_ascii=False),
+            ))
+            db.commit()
+            raise
         db.add(AuditLog(
-            company_id=device.company_id,
-            actor_user_id=user.id,
-            device_id=device.id,
-            action=f"power.{requested}.pending",
-            details=json.dumps({
-                "hostname": device.hostname,
-                "requested_action": requested,
-                "engine": "10.41",
-                "route": "corecontrol_box_only",
-            }, ensure_ascii=False),
+            company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
+            action="power.managed_off.entered",
+            details=json.dumps({"hostname": device.hostname, "mode": "economy", "engine": "10.42", "software_only": True}, ensure_ascii=False),
+        ))
+        db.add(AuditLog(
+            company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
+            action="power.economy.entered",
+            details=json.dumps({"hostname": device.hostname, "engine": "10.42"}, ensure_ascii=False),
         ))
         db.commit()
+        return {
+            "ok": True, "device_id": device.id, "device_name": device.name,
+            "action": requested, "status": "economy",
+            "methods": ["corecontrol_agent_economy"],
+            "economy_mode_active": True, "managed_off_active": True,
+            "power_off_mode": "economy",
+            "message": "Modo econômico ativado. O Windows continua ligado e o CoreControl permanece conectado.",
+        }
 
-    try:
-        if requested == "off":
-            result = _run_agent_command_sync(
-                db,
-                device,
-                "power.shutdown",
-                created_by=user.id,
-                timeout_seconds=20.0,
+    if requested == "activate":
+        if not economy_active:
+            if device_online(device):
+                return {
+                    "ok": True, "device_id": device.id, "device_name": device.name,
+                    "action": requested, "status": "online",
+                    "economy_mode_active": False, "managed_off_active": False,
+                    "message": "O computador já está no modo normal.",
+                }
+            raise HTTPException(
+                status_code=409,
+                detail="Este computador está realmente offline/desligado. Ativar por software só funciona quando ele está em Modo econômico.",
             )
-            if not bool(result.get("shutdown_scheduled")):
-                raise HTTPException(status_code=503, detail="O Agent não confirmou o desligamento do Windows.")
-            methods.extend(["corecontrol_agent_shutdown", "corecontrol_box_ready"])
-            gateway_ids = [gateway.id for gateway in gateways]
-        else:
-            mac_address = str(device_wol_info(db, device).get("mac_address") or "").strip()
-            last_error: Exception | None = None
-            for gateway in gateways[:3]:
-                try:
-                    result = _run_agent_command_sync(
-                        db,
-                        gateway,
-                        "power.wake_peer",
-                        created_by=user.id,
-                        payload={
-                            "mac_address": mac_address,
-                            "target_device_id": device.id,
-                            "target_name": device.name,
-                        },
-                        timeout_seconds=14.0,
-                    )
-                    if int(result.get("packets_sent") or 0) <= 0:
-                        raise HTTPException(status_code=503, detail="A CoreControl Box não confirmou o envio do Magic Packet.")
-                    gateway_ids.append(gateway.id)
-                    methods.append("corecontrol_box_wol")
-                    break
-                except Exception as exc:
-                    last_error = exc
-                    continue
-            if not methods:
-                if isinstance(last_error, HTTPException):
-                    raise last_error
-                raise HTTPException(status_code=503, detail="Nenhuma CoreControl Box conseguiu enviar o comando para ligar.")
-    except Exception as exc:
-        failed_action = "power.wake.retry_failed" if is_retry else f"power.{requested}.failed"
+        if not device_online(device):
+            raise HTTPException(status_code=503, detail="O Agent não está conectado para sair do Modo econômico.")
+        result = _run_agent_command_sync(db, device, "power.managed_on", created_by=user.id, timeout_seconds=20.0)
+        if bool(result.get("managed_off")):
+            raise HTTPException(status_code=503, detail="O Agent não confirmou a saída do Modo econômico.")
         db.add(AuditLog(
-            company_id=device.company_id,
-            actor_user_id=user.id,
-            device_id=device.id,
-            action=failed_action,
-            details=json.dumps({
-                "hostname": device.hostname,
-                "requested_action": requested,
-                "engine": "10.41",
-                "error": str(getattr(exc, "detail", exc)),
-            }, ensure_ascii=False),
+            company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
+            action="power.managed_off.exited",
+            details=json.dumps({"hostname": device.hostname, "mode": "economy", "engine": "10.42", "software_only": True}, ensure_ascii=False),
+        ))
+        db.add(AuditLog(
+            company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
+            action="power.economy.exited",
+            details=json.dumps({"hostname": device.hostname, "engine": "10.42"}, ensure_ascii=False),
+        ))
+        db.commit()
+        return {
+            "ok": True, "device_id": device.id, "device_name": device.name,
+            "action": requested, "status": "online",
+            "methods": ["corecontrol_agent_activate"],
+            "economy_mode_active": False, "managed_off_active": False,
+            "message": "Computador ativado. O plano de energia e o monitor foram restaurados.",
+        }
+
+    # Physical shutdown is deliberately secondary. It never pretends that a
+    # software-only path can power the machine back on after Windows is gone.
+    if economy_active:
+        raise HTTPException(status_code=409, detail="Ative o computador antes de desligá-lo completamente.")
+    if not readiness.get("shutdown_available"):
+        raise HTTPException(status_code=409, detail=readiness.get("reason") or "Desligamento completo indisponível.")
+    try:
+        result = _run_agent_command_sync(db, device, "power.shutdown", created_by=user.id, timeout_seconds=20.0)
+        if not bool(result.get("shutdown_scheduled")):
+            raise HTTPException(status_code=503, detail="O Agent não confirmou o desligamento completo do Windows.")
+    except Exception as exc:
+        db.add(AuditLog(
+            company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
+            action="power.shutdown.failed",
+            details=json.dumps({"hostname": device.hostname, "engine": "10.42", "error": str(getattr(exc, "detail", exc))}, ensure_ascii=False),
         ))
         db.commit()
         raise
-
-    action_name = "power.wake.retry" if is_retry else ("power.wake.sent" if requested == "wake" else "power.off.sent")
     db.add(AuditLog(
-        company_id=device.company_id,
-        actor_user_id=user.id,
-        device_id=device.id,
-        action=action_name,
-        details=json.dumps({
-            "hostname": device.hostname,
-            "requested_action": requested,
-            "methods": methods,
-            "gateway_device_ids": gateway_ids,
-            "engine": "10.41",
-            "route": "corecontrol_box_only",
-        }, ensure_ascii=False),
+        company_id=device.company_id, actor_user_id=user.id, device_id=device.id,
+        action="power.shutdown.sent",
+        details=json.dumps({"hostname": device.hostname, "engine": "10.42", "remote_power_on_guaranteed": False}, ensure_ascii=False),
     ))
     db.commit()
-
-    pending = device_power_pending_state(db, device, currently_on=currently_on)
-    if requested == "off":
-        message = "Desligamento real confirmado. A CoreControl Box continuará online para ligar este PC novamente."
-    elif is_retry:
-        message = "Novo sinal para ligar enviado pela CoreControl Box. Continuando a aguardar o computador voltar online."
-    else:
-        message = "Sinal para ligar enviado e confirmado pela CoreControl Box. Aguardando o Agent voltar online."
-
     return {
-        "ok": True,
-        "device_id": device.id,
-        "device_name": device.name,
-        "action": requested,
-        "status": "pending" if pending.get("pending_action") else "sent",
-        "methods": methods,
-        "gateway_device_ids": gateway_ids,
-        "wake_verified": bool(readiness.get("wake_verified")),
-        "full_shutdown_safe": bool(readiness.get("full_shutdown_safe")),
+        "ok": True, "device_id": device.id, "device_name": device.name,
+        "action": requested, "status": "pending",
+        "methods": ["corecontrol_agent_shutdown"],
+        "economy_mode_active": False, "managed_off_active": False,
         "power_off_mode": "shutdown",
-        "managed_off_active": False,
-        **pending,
-        "message": message,
+        "message": "Desligamento completo agendado. Depois que o Windows desligar, o CoreControl não garante religamento remoto sem hardware/Wake compatível.",
     }
 
 

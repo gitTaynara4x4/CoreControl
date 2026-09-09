@@ -1,7 +1,6 @@
-a7c68a2 CoreControl v10.41: padroniza energia com CoreControl Box
+96f24e9 CoreControl v10.42: adiciona Modo Econômico por software
 
-Para aplicar no seu repositório após substituir os arquivos:
-
+Comandos para o repositório do cliente:
 git add .
-git commit -m "CoreControl v10.41: padroniza energia com CoreControl Box"
+git commit -m "CoreControl v10.42: adiciona Modo Econômico por software"
 git push

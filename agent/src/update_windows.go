@@ -191,23 +191,31 @@ func executeRealShutdownCommand() (map[string]interface{}, error) {
 }
 
 func executeManagedOffCommand() (map[string]interface{}, error) {
-	// CoreControl Off 10.37 é executado pelo próprio Agent na sessão do usuário.
-	// Não desconecta/bloqueia a sessão: mantém o Windows e o Agent vivos, impede
-	// suspensão do sistema e força os monitores para o estado desligado até o
-	// comando power.managed_on chegar pela fila autenticada da VPS.
+	// v10.42 product name: Modo econômico.  Keep the legacy command/type and
+	// marker names so already-installed Agents/servers remain compatible.
+	// The PC stays fully reachable: we save the active Windows power plan,
+	// switch to Power Saver when available, prevent real sleep/hibernate and
+	// keep the displays off until power.managed_on arrives.
 	script := `$ErrorActionPreference='Stop';
 $ProgressPreference='SilentlyContinue';
 $dir=Join-Path $env:ProgramData 'CoreControl';
 New-Item -ItemType Directory -Path $dir -Force | Out-Null;
 $keeper=Join-Path $dir 'managed-off-keeper.ps1';
 $flag=Join-Path $dir 'managed-off.active';
+$schemeFile=Join-Path $dir 'economy-previous-scheme.txt';
+try {
+  $activeText=& powercfg.exe /getactivescheme 2>$null | Out-String;
+  $m=[regex]::Match($activeText,'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
+  if($m.Success){Set-Content -Path $schemeFile -Value $m.Value -Encoding ASCII -Force}
+} catch {}
+try { & powercfg.exe /setactive 'a1841308-3541-4fab-bc81-f71556f20b4a' 2>$null | Out-Null } catch {}
 Set-Content -Path $flag -Value ([DateTime]::UtcNow.ToString('o')) -Encoding ASCII -Force;
 $body=@'
 $ErrorActionPreference='SilentlyContinue'
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public static class CoreControlManagedDisplay {
+public static class CoreControlEconomyDisplay {
   [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);
   [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }
@@ -217,13 +225,14 @@ $HWND_BROADCAST=[IntPtr]0xffff; $WM_SYSCOMMAND=0x0112; $SC_MONITORPOWER=0xF170;
 $flag=Join-Path (Join-Path $env:ProgramData 'CoreControl') 'managed-off.active';
 try {
   while(Test-Path $flag){
-    [CoreControlManagedDisplay]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) | Out-Null;
-    [CoreControlManagedDisplay]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr]2) | Out-Null;
-    Start-Sleep -Milliseconds 700;
+    # Never allow Windows to enter real sleep: the Agent must remain reachable.
+    [CoreControlEconomyDisplay]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED) | Out-Null;
+    [CoreControlEconomyDisplay]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr]2) | Out-Null;
+    Start-Sleep -Milliseconds 900;
   }
 } finally {
-  [CoreControlManagedDisplay]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null;
-  [CoreControlManagedDisplay]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr](-1)) | Out-Null;
+  [CoreControlEconomyDisplay]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null;
+  [CoreControlEconomyDisplay]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr](-1)) | Out-Null;
 }
 '@;
 Set-Content -Path $keeper -Value $body -Encoding UTF8 -Force;
@@ -232,16 +241,22 @@ $existing=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -Error
 if(-not $existing){
   Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$keeper) | Out-Null;
 }
-Start-Sleep -Milliseconds 800;
-'CORECONTROL_MANAGED_OFF_CONFIRMED'`
+Start-Sleep -Milliseconds 900;
+'CORECONTROL_ECONOMY_CONFIRMED'`
 	out, err := runManagedPowerShell(script, 15*time.Second)
 	if err != nil {
-		return map[string]interface{}{"managed_off": false, "output": out}, err
+		return map[string]interface{}{"managed_off": false, "economy_mode": false, "output": out}, err
 	}
-	if !strings.Contains(out, "CORECONTROL_MANAGED_OFF_CONFIRMED") {
-		return map[string]interface{}{"managed_off": false, "output": out}, errors.New("o Windows não confirmou o CoreControl Off")
+	if !strings.Contains(out, "CORECONTROL_ECONOMY_CONFIRMED") {
+		return map[string]interface{}{"managed_off": false, "economy_mode": false, "output": out}, errors.New("o Windows não confirmou o Modo econômico")
 	}
-	return map[string]interface{}{"managed_off": true, "display_off": true}, nil
+	return map[string]interface{}{
+		"managed_off":   true,
+		"economy_mode":  true,
+		"display_off":   true,
+		"sleep_blocked": true,
+		"power_plan":    "power_saver_if_available",
+	}, nil
 }
 
 func executeManagedOnCommand() (map[string]interface{}, error) {
@@ -249,30 +264,43 @@ func executeManagedOnCommand() (map[string]interface{}, error) {
 $dir=Join-Path $env:ProgramData 'CoreControl';
 $keeper=Join-Path $dir 'managed-off-keeper.ps1';
 $flag=Join-Path $dir 'managed-off.active';
+$schemeFile=Join-Path $dir 'economy-previous-scheme.txt';
 Remove-Item -Path $flag -Force -ErrorAction SilentlyContinue;
 $escaped=[Regex]::Escape($keeper);
 $procs=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -match $escaped});
 foreach($p in $procs){try{Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue}catch{}}
 Remove-Item -Path $keeper -Force -ErrorAction SilentlyContinue;
+if(Test-Path $schemeFile){
+  try {
+    $scheme=(Get-Content -Path $schemeFile -Raw -ErrorAction SilentlyContinue).Trim();
+    if($scheme -match '^[0-9a-fA-F-]{36}$'){ & powercfg.exe /setactive $scheme 2>$null | Out-Null }
+  } catch {}
+  Remove-Item -Path $schemeFile -Force -ErrorAction SilentlyContinue;
+}
 $display=@'
 using System;
 using System.Runtime.InteropServices;
-public static class CoreControlManagedDisplayWake {
+public static class CoreControlEconomyDisplayWake {
   [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }
 '@;
 Add-Type -TypeDefinition $display -ErrorAction SilentlyContinue;
 $HWND_BROADCAST=[IntPtr]0xffff; $WM_SYSCOMMAND=0x0112; $SC_MONITORPOWER=0xF170;
-try{[CoreControlManagedDisplayWake]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr](-1)) | Out-Null}catch{}
-'CORECONTROL_MANAGED_ON_CONFIRMED'`
+try{[CoreControlEconomyDisplayWake]::SendMessage($HWND_BROADCAST,$WM_SYSCOMMAND,[IntPtr]$SC_MONITORPOWER,[IntPtr](-1)) | Out-Null}catch{}
+'CORECONTROL_ECONOMY_OFF_CONFIRMED'`
 	out, err := runManagedPowerShell(script, 12*time.Second)
 	if err != nil {
-		return map[string]interface{}{"managed_off": true, "output": out}, err
+		return map[string]interface{}{"managed_off": true, "economy_mode": true, "output": out}, err
 	}
-	if !strings.Contains(out, "CORECONTROL_MANAGED_ON_CONFIRMED") {
-		return map[string]interface{}{"managed_off": true, "output": out}, errors.New("o Windows não confirmou a saída do CoreControl Off")
+	if !strings.Contains(out, "CORECONTROL_ECONOMY_OFF_CONFIRMED") {
+		return map[string]interface{}{"managed_off": true, "economy_mode": true, "output": out}, errors.New("o Windows não confirmou a saída do Modo econômico")
 	}
-	return map[string]interface{}{"managed_off": false, "display_off": false}, nil
+	return map[string]interface{}{
+		"managed_off":         false,
+		"economy_mode":        false,
+		"display_off":         false,
+		"power_plan_restored": true,
+	}, nil
 }
 
 func mapFromStruct(value interface{}) (map[string]interface{}, error) {

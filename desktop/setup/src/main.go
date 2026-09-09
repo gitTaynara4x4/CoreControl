@@ -23,8 +23,8 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.21"
-const bundledAgentVersion = "0.9.13"
+const appVersion = "0.4.22"
+const bundledAgentVersion = "0.9.14"
 
 var defaultServerURL = "https://apps-corecontrol.9ywrah.easypanel.host"
 
