@@ -338,6 +338,37 @@
     return source === 'app' ? 'Windows Package Manager' : 'Windows Update';
   }
 
+  function updateOperationNotice(device) {
+    const command = device.command || null;
+    const commandType = String(command?.type || '');
+    const commandStatus = String(command?.status || '');
+
+    if (commandStatus === 'running' && commandType === 'updates.install') {
+      return `<div class="update-operation-notice working"><span class="update-operation-icon">${icon('download')}</span><div><strong>Instalando atualizações agora</strong><span>O CoreControl Agent está executando a instalação neste computador. Aguarde a conclusão antes de iniciar outra operação.</span></div></div>`;
+    }
+    if (commandStatus === 'running' && commandType === 'updates.scan') {
+      return `<div class="update-operation-notice working"><span class="update-operation-icon">${icon('search')}</span><div><strong>Verificando atualizações agora</strong><span>O computador está consultando Windows Update e aplicativos instalados.</span></div></div>`;
+    }
+    if (commandStatus === 'queued' && commandType === 'updates.install') {
+      const title = device.online ? 'Instalação aguardando execução' : 'Instalação aguardando o computador ficar online';
+      const text = device.online
+        ? 'As atualizações escolhidas já estão na fila e serão recebidas pelo Agent em seguida.'
+        : 'As atualizações escolhidas já estão guardadas. Quando o CoreControl Agent voltar a ficar online, a instalação começa automaticamente.';
+      return `<div class="update-operation-notice queued"><span class="update-operation-icon">${icon('clock')}</span><div><strong>${title}</strong><span>${text}</span></div></div>`;
+    }
+    if (commandStatus === 'queued' && commandType === 'updates.scan') {
+      const title = device.online ? 'Verificação aguardando execução' : 'Verificação aguardando o computador ficar online';
+      const text = device.online
+        ? 'A solicitação de verificação já está na fila e será recebida pelo Agent em seguida.'
+        : 'A solicitação foi guardada. A nova verificação será executada assim que o computador voltar a ficar online.';
+      return `<div class="update-operation-notice queued"><span class="update-operation-icon">${icon('clock')}</span><div><strong>${title}</strong><span>${text}</span></div></div>`;
+    }
+    if (!device.online) {
+      return `<div class="update-operation-notice offline"><span class="update-operation-icon">${icon('computer')}</span><div><strong>Computador offline</strong><span>Você pode escolher o que deseja atualizar. Ao confirmar, o CoreControl guarda o pedido e instala automaticamente quando este computador voltar a ficar online.</span></div></div>`;
+    }
+    return `<div class="update-operation-notice ready"><span class="update-operation-icon">${icon('check')}</span><div><strong>Computador pronto para atualizar</strong><span>Selecione somente as atualizações que deseja instalar e confirme no botão abaixo.</span></div></div>`;
+  }
+
   function updateDetailHtml(device) {
     const groups = ['windows', 'driver', 'app'].map((source) => {
       const items = (device.items || []).filter((item) => item.source === source);
@@ -348,32 +379,51 @@
           ${item.severity ? statusPill(item.severity, String(item.severity).toLowerCase() === 'critical' ? 'critical' : '') : ''}
         </label>`).join('');
       const sourceIcon = source === 'windows' ? 'windows' : source === 'driver' ? 'driver' : 'app';
+      const availableLabel = `${items.length} disponíve${items.length === 1 ? 'l' : 'is'}`;
       return `
         <section class="update-group">
           <div class="update-group-head">
             <div class="update-group-title"><span>${icon(sourceIcon)}</span><div><strong>${sourceTitle(source)}</strong><small>${sourceSubtitle(source)}</small></div></div>
-            <span class="updates-count-badge">${items.length}</span>
+            <span class="updates-count-badge">${availableLabel}</span>
           </div>
-          ${rows || '<div class="update-group-empty"><span>✓</span><div><strong>Nenhuma atualização pendente</strong><small>Esta categoria está em dia na última verificação.</small></div></div>'}
+          ${rows || '<div class="update-group-empty"><span>✓</span><div><strong>Nenhuma atualização disponível</strong><small>Esta categoria está em dia na última verificação.</small></div></div>'}
         </section>`;
     }).join('');
 
     return `
       <div class="update-modal-head">
         <div><span class="updates-eyebrow">ATUALIZAÇÕES DO COMPUTADOR</span><h2>${CT.esc(device.device_name)}</h2><p>${CT.esc(device.company_name || '')}${device.hostname ? ` · ${CT.esc(device.hostname)}` : ''}</p></div>
-        <div class="update-modal-state">${commandLabel(device)}<span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span></div>
+        <div class="update-modal-state"><span class="status"><i class="dot ${device.online ? 'online' : 'offline'}"></i>${device.online ? 'Online' : 'Offline'}</span></div>
       </div>
-      <div class="update-modal-summary">
-        <span><small>Pendentes</small><b>${device.pending_total}</b></span>
-        <span><small>Críticas</small><b>${device.critical_pending}</b></span>
-        <span><small>Reinício</small><b>${device.reboot_required ? 'Necessário' : 'Não'}</b></span>
-        <span><small>Última verificação</small><b>${device.last_scan_at ? CT.fmtDate(device.last_scan_at) : 'Nunca'}</b></span>
+
+      ${updateOperationNotice(device)}
+
+      <div class="update-modal-summary update-modal-summary-sources">
+        <span class="total"><small>Disponíveis</small><b>${device.pending_total}</b></span>
+        <span><small>Windows</small><b>${device.windows_pending}</b></span>
+        <span><small>Drivers</small><b>${device.driver_pending}</b></span>
+        <span><small>Aplicativos</small><b>${device.app_pending}</b></span>
       </div>
+      <div class="update-modal-meta">
+        <span><b>${device.critical_pending}</b> crítica${device.critical_pending === 1 ? '' : 's'}</span>
+        <span>Reinício: <b>${device.reboot_required ? 'necessário' : 'não'}</b></span>
+        <span>Última verificação: <b>${device.last_scan_at ? CT.fmtDate(device.last_scan_at) : 'nunca'}</b></span>
+      </div>
+
       ${!device.agent_supports_updates ? `<div class="update-warning"><strong>CoreControl Agent precisa ser atualizado</strong><span>Este computador está usando ${CT.esc(device.agent_version || 'uma versão antiga')}. Reinstale/atualize o CoreControl Agent antes de gerenciar atualizações.</span></div>` : ''}
       ${device.last_error ? `<div class="update-warning"><strong>Última verificação com aviso</strong><span>${CT.esc(device.last_error)}</span></div>` : ''}
-      <div class="update-select-bar"><label><input id="selectAllUpdates" type="checkbox"> Selecionar todas</label><small>As instalações são executadas pelo Agent neste computador.</small></div>
+
+      <div class="update-choice-help">
+        <div><strong>1. Escolha o que deseja atualizar</strong><span>Marque os itens abaixo. Nada é instalado apenas por marcar uma caixa.</span></div>
+        <div><strong>2. Confirme no botão</strong><span>${device.online ? 'Como o PC está online, a instalação será enviada imediatamente.' : 'Como o PC está offline, o pedido ficará guardado até ele voltar online.'}</span></div>
+      </div>
+
+      <div class="update-select-bar">
+        <label><input id="selectAllUpdates" type="checkbox"> Selecionar todas</label>
+        <strong id="updateSelectionCount" class="update-selection-count">0 selecionadas</strong>
+      </div>
       <div class="update-groups">${groups}</div>
-      <div class="modal-actions update-modal-actions"><button id="cancelModal" class="btn" type="button">Fechar</button><button id="checkAgainBtn" class="btn" type="button" ${!device.agent_supports_updates || ['queued','scanning','installing'].includes(device.status) ? 'disabled' : ''}>Verificar novamente</button><button id="installSelectedBtn" class="btn primary" type="button" disabled>Instalar selecionadas</button></div>`;
+      <div class="modal-actions update-modal-actions"><button id="cancelModal" class="btn" type="button">Fechar</button><button id="checkAgainBtn" class="btn" type="button" ${!device.agent_supports_updates || ['queued','scanning','installing'].includes(device.status) ? 'disabled' : ''}>Verificar novamente</button><button id="installSelectedBtn" class="btn primary" type="button" disabled>${device.online ? 'Instalar agora' : 'Colocar na fila'}</button></div>`;
   }
 
   async function openUpdateDetail(deviceId) {
@@ -384,7 +434,14 @@
       const checks = () => CT.$$('[data-update-item]', CT.$('#modal'));
       const sync = () => {
         const selected = checks().filter((input) => input.checked);
-        CT.$('#installSelectedBtn').disabled = selected.length === 0 || ['queued','scanning','installing'].includes(device.status);
+        const count = selected.length;
+        const busy = ['queued','scanning','installing'].includes(device.status);
+        CT.$('#installSelectedBtn').disabled = count === 0 || busy;
+        CT.$('#installSelectedBtn').textContent = count
+          ? (device.online ? `Instalar ${count} agora` : `Colocar ${count} na fila`)
+          : (device.online ? 'Instalar agora' : 'Colocar na fila');
+        const counter = CT.$('#updateSelectionCount');
+        if (counter) counter.textContent = `${count} selecionada${count === 1 ? '' : 's'}`;
         const all = checks();
         CT.$('#selectAllUpdates').checked = all.length > 0 && selected.length === all.length;
       };
@@ -404,11 +461,16 @@
       CT.$('#installSelectedBtn').onclick = async () => {
         const itemKeys = checks().filter((input) => input.checked).map((input) => input.value);
         if (!itemKeys.length) return;
-        if (!window.confirm(`Instalar ${itemKeys.length} atualização(ões) neste computador? O CoreControl não reiniciará o Windows automaticamente.`)) return;
+        const confirmText = device.online
+          ? `Instalar ${itemKeys.length} atualização${itemKeys.length === 1 ? '' : 'ões'} agora neste computador? O CoreControl não reiniciará o Windows automaticamente.`
+          : `Este computador está offline. Guardar ${itemKeys.length} atualização${itemKeys.length === 1 ? '' : 'ões'} na fila para instalar automaticamente quando ele voltar online?`;
+        if (!window.confirm(confirmText)) return;
         try {
           await CT.api('/updates/install', { method: 'POST', body: JSON.stringify({ device_id: deviceId, item_keys: itemKeys }) });
           CT.closeModal();
-          CT.toast('Instalação enviada para o computador.');
+          CT.toast(device.online
+            ? `${itemKeys.length} atualização${itemKeys.length === 1 ? '' : 'ões'} enviada${itemKeys.length === 1 ? '' : 's'} para instalação.`
+            : `${itemKeys.length} atualização${itemKeys.length === 1 ? '' : 'ões'} aguardando o computador ficar online.`);
           await refreshView();
         } catch (error) { CT.toast(error.message, true); }
       };

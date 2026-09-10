@@ -35,4 +35,4 @@ def test_dark_theme_has_sidebar_appearance_styles():
 
 
 def test_index_busts_sidebar_appearance_cache():
-    assert 'styles.css?v=20260909-sidebar-appearance-v10-51' in INDEX
+    assert 'styles.css?v=20260910-updates-clarity-v10-52' in INDEX

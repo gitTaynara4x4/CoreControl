@@ -39,8 +39,8 @@ def test_updates_styles_are_scoped_and_responsive():
 
 def test_cache_busting_points_to_v1045():
     html = read("app/static/index.html")
-    assert '/static/styles.css?v=20260909-sidebar-appearance-v10-51' in html
-    assert '/static/js/pages/updates.js?v=20260909-route-persistence-v10-46' in html
+    assert '/static/styles.css?v=20260910-updates-clarity-v10-52' in html
+    assert '/static/js/pages/updates.js?v=20260910-updates-clarity-v10-52' in html
     assert '/static/js/router.js?v=20260909-settings-ui-v10-50' in html
 
 
