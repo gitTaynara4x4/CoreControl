@@ -1,5 +1,3 @@
-git add app/static/pages/settings.html app/static/js/pages/settings.js app/static/js/router.js app/static/index.html app/static/styles.css tests/test_settings_front_v1050.py tests/test_reports_front_v1049.py tests/test_network_front_v1048.py tests/test_updates_front_v1045.py tests/test_route_persistence_v1046.py
-
-git commit -m "CoreControl v10.50: reformula interface de Configuracoes"
-
+git add app/static/js/pages/updates.js app/static/styles.css app/static/index.html tests/test_updates_clarity_v1052.py tests/test_updates_front_v1045.py tests/test_sidebar_appearance_v1051.py
+git commit -m "CoreControl v10.52: deixa fluxo de atualizacoes mais claro"
 git push

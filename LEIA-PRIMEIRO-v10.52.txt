@@ -1,0 +1,26 @@
+CoreControl v10.52 — Atualizações mais claras
+
+Arquivos alterados:
+- app/static/js/pages/updates.js
+- app/static/styles.css
+- app/static/index.html
+- tests/test_updates_clarity_v1052.py
+- tests/test_updates_front_v1045.py
+- tests/test_sidebar_appearance_v1051.py
+
+O que mudou no modal de Atualizações:
+- O resumo agora mostra Disponíveis / Windows / Drivers / Aplicativos.
+- O estado offline explica exatamente o que acontece.
+- "Na fila" foi contextualizado em Verificação ou Instalação.
+- Selecionar checkbox NÃO parece mais que já iniciou instalação.
+- Contador de itens selecionados em tempo real.
+- PC online: botão "Instalar N agora".
+- PC offline: botão "Colocar N na fila".
+- Confirmação e toast mudam conforme o estado online/offline.
+- Mantém o comportamento existente do backend: pedidos offline ficam na fila do Agent.
+
+Validação:
+- node --check updates.js: OK
+- 40 testes de front acumulados: OK
+
+Não é necessário reinstalar o Agent. É alteração do painel web.

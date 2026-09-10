@@ -1,0 +1,25 @@
+CoreControl v10.53 — Professional UI
+
+Objetivo:
+Deixar o CoreControl com a mesma sensacao de produto serio e maduro do Valora,
+sem copiar a identidade visual e sem alterar a logica operacional.
+
+Arquivos alterados/adicionados:
+- app/static/index.html
+- app/static/professional-ui.css (novo)
+
+Principais mudancas:
+- Sidebar mais compacta e profissional, agora com icones visiveis.
+- Hierarquia visual de navegacao mais clara e menos chamativa.
+- Header interno no padrao SaaS, com identificacao discreta do produto.
+- Cards, KPIs, tabelas, botoes e campos com menos sombra e bordas mais limpas.
+- Abas de Atualizacoes, Scripts, Rede, Relatorios e Configuracoes transformadas
+  em tabs lineares, deixando de parecer botoes segmentados pesados.
+- Dark mode alinhado ao estilo neutro do Valora/ChatGPT.
+- Login convertido para uma tela centralizada, limpa e corporativa.
+- Identidade azul do CoreControl preservada.
+- Nenhum endpoint, regra de negocio, Agent, MeshCentral ou fluxo de energia foi alterado.
+
+Aplicacao:
+Substitua os arquivos mantendo a mesma estrutura e faca deploy normalmente.
+O query-string v10.53 no CSS novo evita cache do navegador.
