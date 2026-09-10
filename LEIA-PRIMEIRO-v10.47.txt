@@ -1,0 +1,21 @@
+CoreControl v10.47 — reformulação visual do módulo Scripts
+
+Arquivos alterados:
+- app/static/pages/scripts.html
+- app/static/js/pages/scripts.js
+- app/static/js/router.js
+- app/static/styles.css
+- app/static/index.html
+- tests/test_scripts_front_v1047.py
+
+O que mudou:
+- Abas Biblioteca / Execuções / Agendamentos redesenhadas.
+- KPIs compactos e coerentes com Atualizações.
+- Categorias de scripts em cards profissionais.
+- Biblioteca com busca, filtro e estado vazio organizado.
+- Histórico de execuções em tabela limpa.
+- Agendamentos com área própria.
+- Tema claro/escuro e responsividade.
+- F5 preserva a subaba atual de Scripts.
+
+Não exige reinstalação do Agent: alteração apenas do painel web.

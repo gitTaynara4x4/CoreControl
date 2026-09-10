@@ -1,0 +1,12 @@
+CoreControl v10.50 — Configurações Front
+
+Alterações:
+- Refaz a tela Configurações no padrão visual atual do CoreControl.
+- Corrige abas com aparência nativa do navegador.
+- Corrige textos/valores colados na aba Geral.
+- Organiza Geral, Permissões, Alertas, Segurança, Integrações, Aparência, Agente e Auditoria.
+- Mantém a aba atual de Configurações após F5.
+- Preserva as funções existentes e não simula persistência no backend onde ela ainda não existe.
+- Atualiza cache-busting do CSS, router e settings.js.
+
+Não é necessário reinstalar nenhum Agent.

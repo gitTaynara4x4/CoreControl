@@ -1,0 +1,22 @@
+CoreControl v10.48 — Rede
+
+Arquivos alterados:
+- app/static/pages/network.html
+- app/static/js/pages/network.js
+- app/static/js/router.js
+- app/static/index.html
+- app/static/styles.css
+- tests/test_network_front_v1048.py
+
+O que mudou:
+- Front completo da tela Rede no mesmo padrão de Atualizações e Scripts.
+- Abas Visão geral / Testes / Dispositivos redesenhadas.
+- F5 mantém a subaba atual de Rede.
+- KPIs compactos e status geral de conectividade.
+- Tabela com busca e filtro por status.
+- Tela de testes organizada e pronta para conexão futura ao executor do Agent.
+- Tela de dispositivos organizada, com descoberta ativa sinalizada como futura.
+- Responsivo e dark mode.
+- Cache-busting atualizado para v10.48.
+
+Não exige reinstalação do Agent.

@@ -1,0 +1,16 @@
+CoreControl v10.49 — Relatórios
+
+Arquivos deste pacote devem substituir os arquivos de mesmo caminho no projeto.
+
+Mudanças principais:
+- Central de Relatórios refeita no padrão visual do CoreControl.
+- Abas Central / Auditoria / Exportações estilizadas.
+- Busca funcional na biblioteca de relatórios.
+- Categorias: Computadores, Monitoramento, Administração e Operações.
+- Clique em um relatório abre Exportações com o tipo pré-selecionado.
+- Aba atual de Relatórios permanece após F5.
+- Auditoria e geração de arquivos não fingem backend: a interface informa quando a integração ainda não existe.
+- Responsivo e tema escuro.
+- Cache-busting atualizado para v10.49.
+
+Não requer reinstalação do Agent.
