@@ -1,3 +1,15 @@
+// CoreControl v10.56 - estilos exclusivos da Visão Geral.
+// Carrega um CSS separado para não alterar sidebar nem estilos globais.
+(function ensureCoreControlOverviewV1056Styles(){
+  const id = 'cc-overview-v1056-styles';
+  if (document.getElementById(id)) return;
+  const link = document.createElement('link');
+  link.id = id;
+  link.rel = 'stylesheet';
+  link.href = '/static/overview-v10.56.css?v=20260911-2';
+  document.head.appendChild(link);
+})();
+
 (function () {
   'use strict';
 

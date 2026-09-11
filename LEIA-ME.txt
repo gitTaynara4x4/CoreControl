@@ -1,20 +1,13 @@
-CoreControl v10.56 — Visão geral profissional
+CoreControl v10.56.1 — Visão Geral profissional SEM ALTERAR SIDEBAR
 
-Arquivos alterados:
+Arquivos:
 - app/static/js/pages/overview.js
-- app/static/styles.css
-- app/static/index.html
+- app/static/overview-v10.56.css (novo)
 
-O que mudou:
-- Visão geral refeita com hierarquia de SaaS profissional.
-- 4 KPIs principais: computadores, online, atenção e atualizações.
-- Computadores em tabela operacional com estado separado: ligado, acesso remoto e Agent.
-- Busca e filtro por status.
-- Saúde em indicador circular.
-- Painel lateral de atenção com atualizações pendentes.
-- Status do sistema baseado em dados reais disponíveis na tela.
-- Atividade das últimas 24 horas em cards compactos.
-- Layout responsivo e tema escuro compatível.
-- Cache-busting atualizado no index.html.
+IMPORTANTE:
+- NÃO substitui app/static/styles.css
+- NÃO substitui app/static/index.html
+- NÃO substitui app/static/professional-ui.css
+- Logo, o sidebar atual permanece exatamente como está.
 
-Não altera banco nem API.
+Depois de copiar, faça Ctrl+F5 no navegador para garantir que o overview.js atualizado seja carregado.
