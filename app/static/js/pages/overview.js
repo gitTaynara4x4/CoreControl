@@ -216,138 +216,215 @@
     const operations = summary.operations || {};
     const companyName = operations.company_name || CT.state.user?.company?.name || devices[0]?.company_name || 'Sua empresa';
     const onlineDevices = devices.filter((device) => device.online);
-    const healthDevices = onlineDevices.filter((device) => CT.healthAvailable(device));
-    const onlineHealth = healthDevices.map((device) => Number(device.health_score));
-    const avgHealth = onlineHealth.length ? Math.round(onlineHealth.reduce((sum, value) => sum + value, 0) / onlineHealth.length) : null;
-    const optimized = devices.filter((device) => cleanProfile(device.profile)).length;
     const issueRows = devices.flatMap((device) => deviceIssues(device).map((issue) => ({ ...issue, device })));
     const attentionDevices = new Set(issueRows.map((row) => row.device.id)).size;
-    const focusDevices = onlineDevices.filter((device) => device.telemetry?.activity?.process_name);
-    const securitySamples = onlineDevices.filter((device) => device.telemetry);
-    const securityProblems = securitySamples.filter((device) => device.telemetry.defender_active === false || device.telemetry.firewall_active === false).length;
     const updatesPending = Number(operations.updates?.pending || 0);
-    const rebootRequired = Number(operations.updates?.reboot_required || 0);
-    const allGood = summary.offline === 0 && attentionDevices === 0 && summary.alerts_open === 0;
-    const statusTitle = devices.length === 0 ? 'Nenhum computador monitorado ainda' : allGood ? 'Tudo funcionando normalmente' : 'Há pontos que precisam da sua atenção';
-    const statusText = devices.length === 0 ? 'Adicione o primeiro computador para começar a acompanhar a operação.' : allGood ? 'Todos os computadores estão comunicando e sem alertas críticos.' : `${attentionDevices || summary.offline} computador${(attentionDevices || summary.offline) === 1 ? '' : 'es'} merece${(attentionDevices || summary.offline) === 1 ? '' : 'm'} uma análise.`;
+    const last24 = operations.last_24h || {};
+    const remoteAvailableCount = devices.filter((device) => Boolean(device.remote?.available)).length;
+    const telemetryCount = devices.filter((device) => Boolean(device.telemetry) && device.online).length;
+    const allGood = summary.offline === 0 && attentionDevices === 0 && Number(summary.alerts_open || 0) === 0;
+    const refreshedAt = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     CT.$('#pageTitle').textContent = 'Visão geral';
-    CT.$('#pageSubtitle').textContent = `${companyName} · central de operação em tempo quase real.`;
+    CT.$('#pageSubtitle').textContent = 'Acompanhe o estado dos computadores e veja primeiro o que precisa de ação.';
 
-    const computerCards = devices.length ? devices.map((device) => {
+    const computerRows = devices.length ? devices.map((device) => {
       const t = device.telemetry || {};
-      const activity = t.activity || {};
       const powerOn = CT.devicePowerIsOn(device);
       const economyActive = CT.deviceEconomyModeActive(device);
-      const currentApp = economyActive ? 'Modo econômico' : powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado · aguardando telemetria' : 'Sem comunicação';
-      const currentWindow = economyActive ? 'Monitor desligado · Agent conectado · suspensão real bloqueada' : powerOn && device.online ? (activity.window_title || 'Nenhuma janela em foco identificada') : powerOn ? 'O acesso remoto indica que o computador está ligado.' : `Último contato ${ago(device.last_seen)}`;
-      const temperature = tempInfo(t);
-      const profile = cleanProfile(device.profile);
       const remoteReady = Boolean(device.remote?.available) && !economyActive;
-      const powerState = device.power || {};
-      const pendingAction = null;
-      const powerAvailable = economyActive ? Boolean(powerState.activate_available) : Boolean(powerState.economy_available);
-      const powerAction = economyActive ? 'activate' : 'economy';
-      const powerLabel = economyActive ? 'Ativar computador' : 'Modo econômico';
-      const powerTitle = powerAvailable
-        ? (economyActive
-            ? 'Restaurar o monitor e o plano de energia normal. O PC continua conectado durante todo o processo.'
-            : 'Reduzir consumo sem desligar o Windows. O CoreControl continua conectado e pode reativar o PC a qualquer momento.')
-        : (powerState.reason || (powerOn ? 'O Agent precisa estar online para alterar o modo de energia.' : 'Este computador está realmente offline.'))
       const healthAvailable = CT.healthAvailable(device);
-      const stateTone = healthAvailable ? (device.health_score >= 80 ? 'good' : 'warn') : 'unavailable';
+      const score = healthAvailable ? Math.max(0, Math.min(100, Number(device.health_score || 0))) : null;
+      const temperature = tempInfo(t);
+      const issues = deviceIssues(device);
+      const statusKey = !device.online ? 'offline' : issues.length ? 'attention' : 'online';
+      const statusText = economyActive ? 'Modo econômico' : powerOn ? 'Ligado' : 'Desligado';
+      const searchable = [device.name, device.hostname, device.sector, statusText, device.online ? 'conectado online' : 'sem comunicação offline'].filter(Boolean).join(' ').toLowerCase();
+
       return `
-        <article class="ops-device-card" data-device-card="${device.id}">
-          <div class="ops-device-head">
-            <div class="ops-device-ident">
-              <span class="ops-device-icon">${icon('monitor')}</span>
-              <div><div class="ops-device-title-row"><h3>${CT.esc(device.name || 'Computador sem nome')}</h3><span class="ops-live ${economyActive ? 'economy' : (powerOn ? 'online' : 'offline')}"><i></i>${economyActive ? 'Modo econômico' : (powerOn ? 'Ligado' : 'Desligado')}</span></div><p>Nome técnico: ${CT.esc(device.hostname || 'não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</p></div>
-            </div>
-            <div class="ops-health-badge ${stateTone}" title="${CT.esc(healthAvailable ? 'Saúde calculada com telemetria atual.' : (powerOn ? 'Aguardando comunicação atual do CoreControl Agent.' : 'Computador desligado. Saúde indisponível.'))}"><strong>${healthAvailable ? device.health_score : '—'}</strong><span>Saúde</span></div>
+        <article class="cc-overview-device-row" data-overview-device data-overview-status="${device.online ? 'online' : 'offline'}${issues.length ? ' attention' : ''}" data-overview-search="${CT.esc(searchable)}">
+          <div class="cc-overview-device-name">
+            <span class="cc-overview-device-icon">${icon('monitor')}</span>
+            <span class="cc-overview-device-copy">
+              <strong>${CT.esc(device.name || 'Computador sem nome')}</strong>
+              <small>${CT.esc(device.hostname || 'Nome técnico não informado')}${device.sector ? ` · ${CT.esc(device.sector)}` : ''}</small>
+            </span>
           </div>
-          <div class="ops-device-focus"><span class="ops-focus-label">Em foco agora</span><strong>${CT.esc(currentApp)}</strong><small title="${CT.esc(currentWindow)}">${CT.esc(currentWindow)}</small></div>
-          <div class="ops-device-metrics">
-            <div><span>CPU</span><strong>${metricValue(t.cpu_percent)}</strong></div>
-            <div><span>RAM</span><strong>${metricValue(t.memory_percent)}</strong></div>
-            <div><span>Disco</span><strong>${metricValue(t.disk_percent)}</strong></div>
-            <div><span>GPU</span><strong>${metricValue(t.gpu_usage_percent)}</strong></div>
-            <div><span>${CT.esc(temperature.label)}</span><strong>${CT.esc(temperature.value)}</strong></div>
+
+          <div class="cc-overview-state-stack">
+            <span class="cc-overview-state ${powerOn ? 'good' : 'neutral'}"><i></i>${CT.esc(statusText)}</span>
+            <span class="cc-overview-state ${remoteReady ? 'good' : 'neutral'}"><i></i>${remoteReady ? 'Acesso remoto disponível' : 'Acesso remoto indisponível'}</span>
+            <span class="cc-overview-state ${device.online ? 'good' : 'bad'}"><i></i>${device.online ? 'Agent conectado' : 'Agent sem comunicação'}</span>
           </div>
-          <div class="ops-device-foot">
-            <div class="ops-device-meta"><span>${profile ? `Perfil: <b>${CT.esc(profile)}</b>` : 'Sem perfil de otimização ativo'}</span><span>Agente ${CT.esc(device.agent_version || '—')} · ${powerOn && device.online ? `atualizado ${ago(device.last_seen)}` : `último contato ${ago(device.last_seen)}`}</span></div>
-            <div class="ops-device-actions">
-              <button class="btn small" data-ops="device" data-device="${device.id}">Ver atividade</button>
-              <button class="btn small" data-ops="remote" data-device="${device.id}" ${remoteReady ? '' : 'disabled'}>Acessar</button>
-              <button class="btn small ${economyActive ? 'primary' : ''}" data-ops="power" data-power-action="${powerAction}" data-device="${device.id}" title="${CT.esc(powerTitle)}" ${powerAvailable ? '' : 'disabled'}>${powerLabel}</button>
-              <button class="btn small primary" data-ops="optimize" data-device="${device.id}" ${powerOn && device.online ? '' : 'disabled'}>Otimizar</button>
-            </div>
+
+          <div class="cc-overview-health ${score == null ? 'unavailable' : (score >= 80 ? 'good' : score >= 60 ? 'warn' : 'bad')}" style="--health-score:${score == null ? 0 : score}">
+            <span class="cc-overview-health-ring"><b>${score == null ? '—' : score}</b></span>
+            <small>Saúde</small>
+          </div>
+
+          <div class="cc-overview-metric"><strong>${metricValue(t.cpu_percent)}</strong><small>CPU</small></div>
+          <div class="cc-overview-metric"><strong>${metricValue(t.memory_percent)}</strong><small>RAM</small></div>
+          <div class="cc-overview-metric"><strong>${metricValue(t.disk_percent)}</strong><small>Disco</small></div>
+          <div class="cc-overview-metric"><strong>${CT.esc(temperature.value)}</strong><small>Temp.</small></div>
+
+          <div class="cc-overview-last-seen">
+            <strong>${device.online ? 'Agora' : CT.esc(ago(device.last_seen))}</strong>
+            <small>Agent ${CT.esc(device.agent_version || '—')}</small>
+          </div>
+
+          <div class="cc-overview-row-actions">
+            <button class="btn small primary" data-ops="remote" data-device="${device.id}" ${remoteReady ? '' : 'disabled'}>${icon('remote')}<span>Acessar</span></button>
+            <button class="cc-overview-more" data-ops="device" data-device="${device.id}" title="Abrir detalhes" aria-label="Abrir detalhes de ${CT.esc(device.name || 'computador')}">•••</button>
           </div>
         </article>`;
-    }).join('') : '<div class="ops-empty-compact"><strong>Nenhum computador cadastrado</strong><span>Adicione um computador para começar a acompanhar a operação.</span></div>';
+    }).join('') : '<div class="cc-overview-empty"><strong>Nenhum computador cadastrado</strong><span>Adicione o primeiro computador para começar o monitoramento.</span></div>';
 
-    const attentionHtml = issueRows.length ? issueRows.slice(0, 6).map((row) => `
-      <button class="ops-attention-row ${row.level}" data-ops="device" data-device="${row.device.id}">
-        <span class="ops-attention-dot"></span><span><strong>${CT.esc(row.device.name)}</strong><b>${CT.esc(row.title)}</b><small>${CT.esc(row.text)}</small></span>${icon('chevron')}
-      </button>`).join('') : `
-      <div class="ops-ok-state"><span>${icon('check')}</span><strong>Tudo certo por aqui</strong><p>Nenhum computador exige atenção agora.</p></div>`;
+    const attentionItems = [];
+    issueRows.slice(0, 3).forEach((row) => {
+      attentionItems.push(`
+        <button class="cc-overview-attention-item ${row.level}" data-ops="device" data-device="${row.device.id}">
+          <span class="cc-overview-alert-icon">${icon('alert')}</span>
+          <span><strong>${CT.esc(row.title)}</strong><small>${CT.esc(row.device.name || 'Computador')} · ${CT.esc(row.text)}</small></span>
+          ${icon('chevron')}
+        </button>`);
+    });
+    if (updatesPending > 0) {
+      attentionItems.push(`
+        <button class="cc-overview-attention-item warning" data-ops="updates">
+          <span class="cc-overview-alert-icon">${icon('update')}</span>
+          <span><strong>${updatesPending} atualização${updatesPending === 1 ? '' : 'ões'} disponíve${updatesPending === 1 ? 'l' : 'is'}</strong><small>Revisar e instalar as atualizações pendentes.</small></span>
+          ${icon('chevron')}
+        </button>`);
+    }
+    const attentionHtml = attentionItems.length ? attentionItems.join('') : `
+      <div class="cc-overview-attention-ok">
+        <span>${icon('check')}</span>
+        <div><strong>Nenhuma ação necessária</strong><small>Os computadores estão operando normalmente.</small></div>
+      </div>`;
 
-    const focusHtml = devices.length ? devices.map((device) => {
-      const activity = device.telemetry?.activity || {};
-      const powerOn = CT.devicePowerIsOn(device);
-      const app = powerOn && device.online ? friendlyApp(activity.process_name) : powerOn ? 'Ligado' : 'Desligado';
-      const windowTitle = powerOn && device.online ? (activity.window_title || 'Sem janela identificada') : powerOn ? 'Aguardando telemetria do CoreControl Agent' : `Último contato ${ago(device.last_seen)}`;
-      const healthAvailable = CT.healthAvailable(device);
-      const healthClass = healthAvailable ? CT.healthClass(device.health_score) : 'unavailable';
-      const healthText = healthAvailable ? `${device.health_score}/100` : '—';
-      return `<button class="ops-activity-row" data-ops="device" data-device="${device.id}"><span class="ops-activity-status ${powerOn ? 'online' : 'offline'}"></span><span class="ops-activity-device"><strong>${CT.esc(device.name || 'Computador sem nome')}</strong><small>${device.hostname ? `Nome técnico: ${CT.esc(device.hostname)}` : 'Nome técnico não informado'}</small></span><span class="ops-activity-app"><strong>${CT.esc(app)}</strong><small title="${CT.esc(windowTitle)}">${CT.esc(windowTitle)}</small></span><span class="ops-activity-health ${healthClass}">${healthText}</span>${icon('chevron')}</button>`;
-    }).join('') : '<div class="ops-empty-compact"><span>Sem atividade para exibir.</span></div>';
-
-    const last24 = operations.last_24h || {};
-    const recentHtml = (operations.recent_events || []).length ? operations.recent_events.slice(0, 8).map((event) => {
-      const copy = eventCopy(event);
-      return `<button class="ops-event-row" ${event.device_id ? `data-ops="device" data-device="${event.device_id}"` : ''}><span class="ops-event-mark ${copy.tone}"></span><span><strong>${CT.esc(copy.title)}</strong><small>${CT.esc(copy.subtitle)}</small></span><time>${CT.esc(ago(event.created_at))}</time></button>`;
-    }).join('') : '<div class="ops-empty-compact"><strong>Nenhum acontecimento recente</strong><span>As principais ações administrativas aparecerão aqui.</span></div>';
-
-    const maxTemp = onlineDevices.reduce((max, device) => {
-      const t = device.telemetry || {};
-      const value = Number(t.temperature_c ?? t.gpu_temperature_c);
-      return Number.isFinite(value) ? Math.max(max, value) : max;
-    }, 0);
-    const minDiskFree = onlineDevices.reduce((min, device) => {
-      const value = Number(device.telemetry?.disk_free_gb);
-      return Number.isFinite(value) ? Math.min(min, value) : min;
-    }, Number.POSITIVE_INFINITY);
+    const statusTitle = devices.length === 0 ? 'Aguardando computadores' : allGood ? 'Operação normal' : 'Operação com atenção';
+    const statusSubtitle = devices.length === 0 ? 'Cadastre um computador para iniciar.' : allGood ? 'Nenhum problema crítico detectado.' : 'Existem itens que merecem revisão.';
 
     CT.$('#content').innerHTML = `
-      <section class="page ops-overview">
-        <div class="ops-hero">
-          <div class="ops-hero-copy"><span class="ops-kicker">CENTRAL DE OPERAÇÃO</span><h2>${CT.esc(companyName)}</h2><div class="ops-hero-status ${allGood ? 'good' : 'attention'}"><span></span><strong>${CT.esc(statusTitle)}</strong><small>${CT.esc(statusText)}</small></div></div>
-          <div class="ops-hero-actions"><button class="btn" data-ops="devices">Computadores</button><button class="btn" data-ops="remote-page">Acesso remoto</button><button class="btn" data-ops="alerts">Alertas</button><button class="btn primary" data-ops="reports">Relatórios</button></div>
+      <section class="page cc-overview-v2">
+        <header class="cc-overview-context">
+          <div>
+            <span class="cc-overview-eyebrow">EMPRESA</span>
+            <h2>${CT.esc(companyName)}</h2>
+            <p><span class="cc-overview-live-dot ${allGood ? 'good' : 'attention'}"></span>${CT.esc(statusTitle)} <em>·</em> ${CT.esc(statusSubtitle)} <em>·</em> Atualizado às ${CT.esc(refreshedAt)}</p>
+          </div>
+          <div class="cc-overview-context-actions">
+            <button class="btn" data-ops="remote-page">${icon('remote')}<span>Acessar computador</span></button>
+            <button class="btn primary" data-ops="reports">${icon('report')}<span>Relatórios</span></button>
+          </div>
+        </header>
+
+        <div class="cc-overview-kpis">
+          <button class="cc-overview-kpi" data-ops="devices">
+            <span class="cc-overview-kpi-icon blue">${icon('monitor')}</span>
+            <span><small>Computadores</small><strong>${Number(summary.devices || 0)}</strong><p>${Number(summary.devices || 0) === 1 ? '1 cadastrado na empresa' : `${Number(summary.devices || 0)} cadastrados na empresa`}</p></span>
+            ${icon('chevron')}
+          </button>
+          <button class="cc-overview-kpi ${Number(summary.online || 0) ? 'tone-green' : ''}" data-overview-filter-shortcut="online">
+            <span class="cc-overview-kpi-icon green">${icon('pulse')}</span>
+            <span><small>Online</small><strong>${Number(summary.online || 0)}</strong><p>${Number(summary.online || 0)} com Agent conectado</p></span>
+            ${icon('chevron')}
+          </button>
+          <button class="cc-overview-kpi ${attentionDevices ? 'tone-red' : ''}" data-overview-filter-shortcut="attention">
+            <span class="cc-overview-kpi-icon red">${icon('alert')}</span>
+            <span><small>Precisam de atenção</small><strong>${attentionDevices}</strong><p>${attentionDevices ? `${attentionDevices} computador${attentionDevices === 1 ? '' : 'es'} com problema` : 'Nenhum problema ativo'}</p></span>
+            ${icon('chevron')}
+          </button>
+          <button class="cc-overview-kpi tone-blue" data-ops="updates">
+            <span class="cc-overview-kpi-icon blue">${icon('update')}</span>
+            <span><small>Atualizações</small><strong>${updatesPending}</strong><p>${updatesPending ? 'disponíveis para instalação' : 'Tudo atualizado'}</p></span>
+            ${icon('chevron')}
+          </button>
         </div>
 
-        <div class="ops-kpis">
-          <div class="ops-kpi"><span class="ops-kpi-icon">${icon('monitor')}</span><div><small>Computadores online</small><strong>${summary.online}<em>/${summary.devices}</em></strong><p>${summary.offline ? `${summary.offline} sem comunicação` : 'Todos comunicando'}</p></div></div>
-          <div class="ops-kpi"><span class="ops-kpi-icon">${icon('pulse')}</span><div><small>Saúde média</small><strong>${avgHealth == null ? '—' : avgHealth}${avgHealth == null ? '' : '<em>/100</em>'}</strong><p>${healthDevices.length ? healthLabel(avgHealth) : 'Sem leitura atual'}</p></div></div>
-          <div class="ops-kpi"><span class="ops-kpi-icon">${icon('alert')}</span><div><small>Precisam de atenção</small><strong>${attentionDevices}</strong><p>${summary.alerts_open ? `${summary.alerts_open} alerta${summary.alerts_open === 1 ? '' : 's'} ativo${summary.alerts_open === 1 ? '' : 's'}` : 'Sem alertas ativos'}</p></div></div>
-          <div class="ops-kpi"><span class="ops-kpi-icon">${icon('spark')}</span><div><small>Com otimização ativa</small><strong>${optimized}<em>/${summary.devices}</em></strong><p>${optimized ? 'Perfis aplicados' : 'Nenhum perfil ativo'}</p></div></div>
-          <div class="ops-kpi"><span class="ops-kpi-icon">${icon('update')}</span><div><small>Atualizações</small><strong>${updatesPending}</strong><p>${rebootRequired ? `${rebootRequired} aguardando reinício` : 'Sem reinício pendente'}</p></div></div>
+        <div class="cc-overview-main-grid">
+          <section class="card cc-overview-computers">
+            <div class="cc-overview-section-head">
+              <div><h2>Computadores</h2><p>Estado real de cada máquina e comunicação com o CoreControl.</p></div>
+              <div class="cc-overview-tools">
+                <label class="cc-overview-search">${icon('monitor')}<input id="overviewDeviceSearch" type="search" placeholder="Buscar computador..." autocomplete="off"></label>
+                <select id="overviewStatusFilter" class="cc-overview-filter" aria-label="Filtrar computadores por status">
+                  <option value="all">Todos os status</option>
+                  <option value="online">Online</option>
+                  <option value="attention">Com atenção</option>
+                  <option value="offline">Sem comunicação</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="cc-overview-table-head" aria-hidden="true">
+              <span>Computador</span><span>Estado</span><span>Saúde</span><span>CPU</span><span>RAM</span><span>Disco</span><span>Temp.</span><span>Último contato</span><span>Ações</span>
+            </div>
+            <div id="overviewDeviceRows" class="cc-overview-device-rows">${computerRows}</div>
+            <div id="overviewNoResults" class="cc-overview-empty hidden"><strong>Nenhum computador encontrado</strong><span>Altere a busca ou o filtro para ver outros resultados.</span></div>
+          </section>
+
+          <aside class="cc-overview-side">
+            <section class="card cc-overview-attention-card">
+              <div class="cc-overview-section-head compact"><div><h2>Atenção</h2><p>Somente o que exige alguma ação.</p></div><button class="btn small" data-ops="alerts">Ver todos</button></div>
+              <div class="cc-overview-attention-list">${attentionHtml}</div>
+            </section>
+
+            <section class="card cc-overview-system-card">
+              <div class="cc-overview-section-head compact"><div><h2>Status do sistema</h2><p>Conectividade desta empresa agora.</p></div></div>
+              <div class="cc-overview-system-summary ${allGood ? 'good' : 'attention'}">
+                <span>${icon('shield')}</span><div><strong>${allGood ? 'CoreControl operacional' : 'CoreControl operacional com alertas'}</strong><small>${allGood ? 'Monitoramento funcionando normalmente.' : 'O painel está disponível; há itens para revisar.'}</small></div>
+              </div>
+              <div class="cc-overview-system-list">
+                <div><span>Agent conectado</span><strong class="${Number(summary.online || 0) === Number(summary.devices || 0) && Number(summary.devices || 0) ? 'good' : 'warn'}">${Number(summary.online || 0)}/${Number(summary.devices || 0)}</strong></div>
+                <div><span>Acesso remoto</span><strong class="${remoteAvailableCount ? 'good' : 'muted'}">${remoteAvailableCount} disponível${remoteAvailableCount === 1 ? '' : 'is'}</strong></div>
+                <div><span>Telemetria atual</span><strong class="${telemetryCount ? 'good' : 'muted'}">${telemetryCount}/${Number(summary.devices || 0)}</strong></div>
+                <div><span>Alertas ativos</span><strong class="${Number(summary.alerts_open || 0) ? 'bad' : 'good'}">${Number(summary.alerts_open || 0)}</strong></div>
+              </div>
+            </section>
+          </aside>
         </div>
 
-        <div class="ops-main-grid">
-          <section class="card ops-computers-panel"><div class="ops-section-head"><div><span>OPERAÇÃO AGORA</span><h2>Computadores agora</h2><p>Estado, atividade em foco, saúde e desempenho de cada máquina.</p></div><button class="btn small" data-ops="devices">Ver todos</button></div><div class="ops-device-list">${computerCards}</div></section>
-          <aside class="card ops-attention-panel"><div class="ops-section-head"><div><span>PRIORIDADE</span><h2>Precisa da sua atenção</h2><p>Só o que exige alguma ação.</p></div><button class="btn small" data-ops="alerts">Ver alertas</button></div><div class="ops-attention-list">${attentionHtml}</div></aside>
-        </div>
-
-        <div class="ops-secondary-grid">
-          <section class="card"><div class="ops-section-head"><div><span>EQUIPE EM ATIVIDADE</span><h2>Em foco agora</h2><p>O que está aberto em primeiro plano em cada computador.</p></div><span class="ops-section-count">${focusDevices.length} em atividade</span></div><div class="ops-activity-list">${focusHtml}</div></section>
-          <section class="card"><div class="ops-section-head"><div><span>ÚLTIMAS 24 HORAS</span><h2>Resumo da operação</h2><p>Ações realizadas pelo CoreControl e pela administração.</p></div></div><div class="ops-summary-grid"><div><span>${icon('spark')}</span><strong>${Number(last24.optimizations || 0)}</strong><small>Otimizações</small></div><div><span>${icon('gauge')}</span><strong>${Number(last24.diagnostics || 0)}</strong><small>Diagnósticos</small></div><div><span>${icon('remote')}</span><strong>${Number(last24.remote_sessions || 0)}</strong><small>Acessos remotos</small></div><div><span>${icon('disk')}</span><strong>${Number(last24.cleanups || 0)}</strong><small>Limpezas seguras</small></div></div></section>
-        </div>
-
-        <div class="ops-secondary-grid ops-bottom-grid">
-          <section class="card"><div class="ops-section-head"><div><span>SAÚDE E OTIMIZAÇÃO</span><h2>Visão técnica simplificada</h2><p>Indicadores que ajudam a decidir quando agir.</p></div><button class="btn small" data-ops="optimize-first" ${onlineDevices.length ? '' : 'disabled'}>Analisar computador</button></div><div class="ops-health-list"><div><span class="ops-health-icon">${icon('shield')}</span><span><strong>Proteção do Windows</strong><small>${securitySamples.length ? (securityProblems ? `${securityProblems} computador${securityProblems === 1 ? '' : 'es'} com proteção incompleta` : 'Defender e Firewall sem problemas detectados') : 'Sem leitura disponível'}</small></span><b class="${securityProblems ? 'warn' : 'good'}">${securityProblems ? 'Atenção' : 'Normal'}</b></div><div><span class="ops-health-icon">${icon('disk')}</span><span><strong>Armazenamento</strong><small>${Number.isFinite(minDiskFree) ? `Menor espaço livre: ${CT.fmtNum(minDiskFree, 1)} GB` : 'Sem leitura disponível'}</small></span><b class="${Number.isFinite(minDiskFree) && minDiskFree < 15 ? 'warn' : 'good'}">${Number.isFinite(minDiskFree) && minDiskFree < 15 ? 'Atenção' : 'Normal'}</b></div><div><span class="ops-health-icon">${icon('temperature')}</span><span><strong>Temperatura</strong><small>${maxTemp ? `Maior leitura atual: ${CT.fmtNum(maxTemp, 0)} °C` : 'Sensor não disponível nos computadores atuais'}</small></span><b class="${maxTemp >= 80 ? 'warn' : 'good'}">${maxTemp >= 80 ? 'Atenção' : 'Normal'}</b></div><div><span class="ops-health-icon">${icon('clock')}</span><span><strong>Tempo ligado</strong><small>${onlineDevices.length ? `Maior uptime atual: ${duration(Math.max(...onlineDevices.map((device) => Number(device.telemetry?.uptime_seconds || 0))))}` : 'Nenhum computador online'}</small></span><b class="good">Informativo</b></div></div></section>
-          <section class="card"><div class="ops-section-head"><div><span>HISTÓRICO RECENTE</span><h2>Últimos acontecimentos</h2><p>O que mudou recentemente na operação.</p></div></div><div class="ops-events-list">${recentHtml}</div></section>
-        </div>
+        <section class="card cc-overview-activity">
+          <div class="cc-overview-section-head compact"><div><h2>Atividade recente</h2><p>Ações realizadas nas últimas 24 horas.</p></div><button class="btn small" data-ops="reports">Ver histórico completo</button></div>
+          <div class="cc-overview-activity-grid">
+            <button data-ops="remote-page"><span>${icon('remote')}</span><div><strong>${Number(last24.remote_sessions || 0)}</strong><small>Acessos remotos</small></div>${icon('chevron')}</button>
+            <button data-ops="devices"><span>${icon('spark')}</span><div><strong>${Number(last24.optimizations || 0)}</strong><small>Otimizações</small></div>${icon('chevron')}</button>
+            <button data-ops="devices"><span>${icon('gauge')}</span><div><strong>${Number(last24.diagnostics || 0)}</strong><small>Diagnósticos</small></div>${icon('chevron')}</button>
+            <button data-ops="devices"><span>${icon('disk')}</span><div><strong>${Number(last24.cleanups || 0)}</strong><small>Limpezas seguras</small></div>${icon('chevron')}</button>
+          </div>
+        </section>
       </section>`;
+
+    const searchInput = CT.$('#overviewDeviceSearch');
+    const statusFilter = CT.$('#overviewStatusFilter');
+    const noResults = CT.$('#overviewNoResults');
+
+    function applyDeviceFilters() {
+      const query = String(searchInput?.value || '').trim().toLowerCase();
+      const status = String(statusFilter?.value || 'all');
+      let visible = 0;
+      CT.$$('[data-overview-device]').forEach((row) => {
+        const matchesSearch = !query || String(row.dataset.overviewSearch || '').includes(query);
+        const rowStatuses = String(row.dataset.overviewStatus || '').split(/\s+/).filter(Boolean);
+        const matchesStatus = status === 'all' || rowStatuses.includes(status);
+        const show = matchesSearch && matchesStatus;
+        row.classList.toggle('hidden', !show);
+        if (show) visible += 1;
+      });
+      noResults?.classList.toggle('hidden', visible !== 0 || devices.length === 0);
+    }
+
+    searchInput?.addEventListener('input', applyDeviceFilters);
+    statusFilter?.addEventListener('change', applyDeviceFilters);
+    CT.$$('[data-overview-filter-shortcut]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (!statusFilter) return;
+        statusFilter.value = button.dataset.overviewFilterShortcut || 'all';
+        applyDeviceFilters();
+        CT.$('.cc-overview-computers')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
 
     CT.$$('[data-ops]').forEach((button) => {
       button.addEventListener('click', async () => {
@@ -356,48 +433,14 @@
         const deviceId = Number(button.dataset.device || 0);
         if (action === 'device' && deviceId) return CT.navigate('device', deviceId);
         if (action === 'remote' && deviceId) return CT.openRemoteSession(deviceId);
-        if (action === 'power' && deviceId) {
-          const target = devices.find((item) => Number(item.id) === deviceId);
-          if (!target) return;
-          const powerAction = button.dataset.powerAction;
-          const originalHtml = button.innerHTML;
-          try {
-            button.disabled = true;
-            button.innerHTML = CT.powerPendingButtonHtml(powerAction);
-            const response = await CT.requestDevicePower(target, powerAction);
-            if (!response) {
-              button.disabled = false;
-              button.innerHTML = originalHtml;
-              return;
-            }
-            CT.toast(response.message || (powerAction === 'activate' ? 'Computador ativado.' : 'Modo econômico ativado.'));
-            return CT.navigate('overview');
-          } catch (error) {
-            button.disabled = false;
-            button.innerHTML = originalHtml;
-            return CT.toast(error.message || 'Não foi possível alterar o modo de energia.', true);
-          }
-        }
-        if (action === 'optimize' && deviceId) {
-          await CT.navigate('device', deviceId);
-          window.requestAnimationFrame(() => CT.$('.optimization-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-          return;
-        }
-        if (action === 'optimize-first') {
-          const target = onlineDevices[0];
-          if (!target) return;
-          await CT.navigate('device', target.id);
-          window.requestAnimationFrame(() => CT.$('.optimization-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-          return;
-        }
         if (action === 'devices') return CT.navigate('devices');
         if (action === 'remote-page') return CT.navigate('remote');
         if (action === 'alerts') return CT.navigate('alerts');
+        if (action === 'updates') return CT.navigate('updates');
         if (action === 'reports') return CT.navigate('reports');
       });
     });
   }
-
   CT.registerPage('overview', async function renderOverview() {
     const [summary, companies, devices, alerts] = await Promise.all([
       CT.api('/dashboard/summary'),

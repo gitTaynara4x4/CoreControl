@@ -1,13 +1,20 @@
-CoreControl v10.39 — correção da URL de produção do instalador
+CoreControl v10.56 — Visão geral profissional
 
-Problema:
-O CoreControlSetup v0.4.18 foi compilado com http://127.0.0.1:8002.
-Em computadores de clientes, 127.0.0.1 aponta para o próprio PC e a conexão era recusada.
+Arquivos alterados:
+- app/static/js/pages/overview.js
+- app/static/styles.css
+- app/static/index.html
 
-Correção:
-- Setup v0.4.19 usa https://apps-corecontrol.9ywrah.easypanel.host como padrão.
-- CoreControl.exe também usa a URL de produção como fallback.
-- Build_Windows.ps1 não gera mais release apontando para localhost quando CORETUNER_PUBLIC_URL não estiver definida.
-- Teste de regressão adicionado.
+O que mudou:
+- Visão geral refeita com hierarquia de SaaS profissional.
+- 4 KPIs principais: computadores, online, atenção e atualizações.
+- Computadores em tabela operacional com estado separado: ligado, acesso remoto e Agent.
+- Busca e filtro por status.
+- Saúde em indicador circular.
+- Painel lateral de atenção com atualizações pendentes.
+- Status do sistema baseado em dados reais disponíveis na tela.
+- Atividade das últimas 24 horas em cards compactos.
+- Layout responsivo e tema escuro compatível.
+- Cache-busting atualizado no index.html.
 
-Após publicar os arquivos no servidor, descarte o CoreControlSetup.exe antigo do PC do cliente e baixe novamente.
+Não altera banco nem API.
