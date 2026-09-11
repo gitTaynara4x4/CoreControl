@@ -115,11 +115,14 @@
         throw new Error(`Tela não registrada: ${CT.state.page}`);
       }
       await renderer();
-      CT.$('#lastRefresh').textContent = `Atualizado ${new Date().toLocaleTimeString('pt-BR', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })}`;
+      const lastRefresh = CT.$('#lastRefresh');
+      if (lastRefresh) {
+        lastRefresh.textContent = `Atualizado ${new Date().toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })}`;
+      }
     } catch (error) {
       content.innerHTML = `<div class="card empty">${CT.esc(error.message)}</div>`;
       if (showBusy) CT.toast(error.message, true);
@@ -127,16 +130,79 @@
   };
 
   CT.bindBaseEvents = function bindBaseEvents() {
-    CT.$('#logoutBtn').addEventListener('click', async () => {
+    const appView = CT.$('#appView');
+    const profileButton = CT.$('#sidebarProfileBtn');
+    const profileMenu = CT.$('#sidebarProfileMenu');
+    const collapseButton = CT.$('#sidebarCollapseBtn');
+    const collapseKey = 'corecontrol-sidebar-collapsed';
+
+    const closeProfileMenu = () => {
+      if (!profileButton || !profileMenu) return;
+      profileMenu.classList.add('hidden');
+      profileButton.classList.remove('open');
+      profileButton.setAttribute('aria-expanded', 'false');
+    };
+
+    const setSidebarCollapsed = (collapsed, persist = true) => {
+      if (!appView) return;
+      appView.classList.toggle('sidebar-collapsed', collapsed);
+      if (collapseButton) {
+        collapseButton.setAttribute('aria-pressed', String(collapsed));
+        collapseButton.setAttribute('aria-label', collapsed ? 'Expandir menu' : 'Recolher menu');
+        collapseButton.title = collapsed ? 'Expandir menu' : 'Recolher menu';
+      }
+      CT.$$('.nav-item[data-page]').forEach((button) => {
+        const label = button.querySelector('.nav-label');
+        if (label) button.title = collapsed ? label.textContent.trim() : '';
+      });
+      closeProfileMenu();
+      if (persist) {
+        try { localStorage.setItem(collapseKey, collapsed ? '1' : '0'); } catch (_) {}
+      }
+    };
+
+    let sidebarCollapsed = false;
+    try { sidebarCollapsed = localStorage.getItem(collapseKey) === '1'; } catch (_) {}
+    setSidebarCollapsed(sidebarCollapsed, false);
+
+    if (collapseButton) {
+      collapseButton.addEventListener('click', () => {
+        setSidebarCollapsed(!appView.classList.contains('sidebar-collapsed'));
+      });
+    }
+
+    if (profileButton && profileMenu) {
+      profileButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const opening = profileMenu.classList.contains('hidden');
+        profileMenu.classList.toggle('hidden', !opening);
+        profileButton.classList.toggle('open', opening);
+        profileButton.setAttribute('aria-expanded', String(opening));
+      });
+      profileMenu.addEventListener('click', (event) => event.stopPropagation());
+      document.addEventListener('click', closeProfileMenu);
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeProfileMenu();
+      });
+    }
+
+    const logoutButton = CT.$('#logoutBtn');
+    if (logoutButton) logoutButton.addEventListener('click', async () => {
       try {
         await CT.api('/auth/logout', { method: 'POST' });
       } catch (_) {
         // A tela deve sair mesmo quando a sessão já expirou.
       }
+      closeProfileMenu();
       CT.showLogin();
     });
 
-    CT.$('#refreshBtn').addEventListener('click', () => CT.renderCurrent(true));
+    const refreshButton = CT.$('#refreshBtn');
+    if (refreshButton) refreshButton.addEventListener('click', () => {
+      closeProfileMenu();
+      CT.renderCurrent(true);
+    });
+
     window.addEventListener('corecontrol:themechange', () => {
       if (CT.state.user && !CT.$('#appView').classList.contains('hidden')) {
         CT.renderCurrent(false);
@@ -144,7 +210,10 @@
     });
     CT.$('#mainNav').addEventListener('click', (event) => {
       const button = event.target.closest('[data-page]');
-      if (button) CT.navigate(button.dataset.page);
+      if (button) {
+        closeProfileMenu();
+        CT.navigate(button.dataset.page);
+      }
     });
     window.addEventListener('popstate', async () => {
       if (!CT.state.user || CT.$('#appView').classList.contains('hidden')) return;
