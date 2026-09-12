@@ -1,4 +1,4 @@
-// CoreControl v10.56 - estilos exclusivos da Visão Geral.
+// CoreControl v10.56 - estilos exclusivos da Visão Geral (ajuste de ações do cabeçalho).
 // Carrega um CSS separado para não alterar sidebar nem estilos globais.
 (function ensureCoreControlOverviewV1056Styles(){
   const id = 'cc-overview-v1056-styles';
@@ -6,7 +6,7 @@
   const link = document.createElement('link');
   link.id = id;
   link.rel = 'stylesheet';
-  link.href = '/static/overview-v10.56.css?v=20260911-2';
+  link.href = '/static/overview-v10.56.css?v=20260912-actions-1';
   document.head.appendChild(link);
 })();
 
