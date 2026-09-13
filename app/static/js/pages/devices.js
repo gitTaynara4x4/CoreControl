@@ -3,6 +3,135 @@
 
   const CT = window.CoreTuner;
 
+  (function ensureCoreControlDeviceHeaderStyles() {
+    const id = 'cc-device-header-v1057-styles';
+    if (document.getElementById(id)) return;
+    const link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href = '/static/device-header-v10.57.css?v=20260912-1';
+    document.head.appendChild(link);
+  })();
+
+  const DEVICE_HEADER_ICONS = {
+    monitor: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M8 20h8M12 16.5V20"/></svg>',
+    leaf: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4.5C12.7 4.5 7 8.2 7 14.2c0 2.8 2 5.3 5 5.3 5.5 0 8-5.3 8-15Z"/><path d="M5 20c1.8-4.7 5.2-8.1 10.2-10.2"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.35 5.65"/><path d="M20 4v7h-7"/></svg>',
+    power: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"/><path d="M6.2 6.2a8 8 0 1 0 11.6 0"/></svg>',
+    more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.35"/><circle cx="12" cy="12" r="1.35"/><circle cx="19" cy="12" r="1.35"/></svg>',
+  };
+
+  function deviceHeaderIcon(name) {
+    return DEVICE_HEADER_ICONS[name] || '';
+  }
+
+  function mountDeviceHeader() {
+    const toolbar = CT.$('.page-device > .toolbar');
+    if (!toolbar) return;
+    toolbar.removeAttribute('style');
+    toolbar.className = 'cc-device-hero';
+    toolbar.innerHTML = `
+      <button class="cc-device-back" id="backDevices" type="button" aria-label="Voltar para computadores">
+        <span aria-hidden="true">←</span><span>Computadores</span>
+      </button>
+
+      <div class="cc-device-identity">
+        <span class="cc-device-identity-icon" aria-hidden="true">${deviceHeaderIcon('monitor')}</span>
+        <div class="cc-device-identity-copy">
+          <h2 id="deviceHeaderName">Computador</h2>
+          <div class="cc-device-status-line" aria-label="Status do computador">
+            <span id="deviceOnlineStatus" class="status cc-device-status-item"></span>
+            <span class="cc-device-status-separator" aria-hidden="true">•</span>
+            <span id="deviceAgentStatus" class="cc-device-status-item"></span>
+            <span class="cc-device-status-separator" aria-hidden="true">•</span>
+            <span id="deviceHealthStatus" class="health unavailable">Saúde —</span>
+          </div>
+          <div class="cc-device-meta">
+            <span id="deviceHeaderHostname">—</span>
+            <span class="cc-device-meta-separator" aria-hidden="true"></span>
+            <span>Último contato: <strong id="deviceHeaderLastSeen">—</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="cc-device-actions">
+        <div class="power-action-wrap cc-device-power-wrap">
+          <button class="btn cc-device-action-btn hidden" id="devicePowerBtn" type="button">${deviceHeaderIcon('leaf')}<span>Modo econômico</span></button>
+          <span id="devicePowerFeedback" class="power-action-feedback hidden" aria-live="polite"></span>
+        </div>
+
+        <button class="btn primary cc-device-action-btn hidden" id="editDeviceBtn" type="button">${deviceHeaderIcon('edit')}<span>Editar computador</span></button>
+
+        <div class="cc-device-more hidden" id="deviceMoreActionsWrap">
+          <button class="btn cc-device-more-trigger" id="deviceMoreActionsBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Mais ações" aria-label="Mais ações">
+            ${deviceHeaderIcon('more')}
+          </button>
+          <div class="cc-device-more-menu hidden" id="deviceMoreActionsMenu" role="menu" aria-label="Mais ações do computador">
+            <button class="cc-device-menu-item hidden" id="reinstallDeviceBtn" type="button" role="menuitem">${deviceHeaderIcon('refresh')}<span><strong>Reinstalar / atualizar CoreControl</strong><small>Gerar uma nova instalação para este computador</small></span></button>
+            <div class="cc-device-menu-separator" id="deviceMoreActionsSeparator" aria-hidden="true"></div>
+            <button class="cc-device-menu-item danger hidden" id="deviceShutdownBtn" type="button" role="menuitem">${deviceHeaderIcon('power')}<span><strong>Desligar completamente</strong><small>Encerra o Windows e pode impedir religamento remoto</small></span></button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function deviceLastSeenLabel(value) {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    const seconds = Math.max(0, Math.round((Date.now() - date.getTime()) / 1000));
+    if (seconds < 45) return 'Agora';
+    if (seconds < 3600) return `há ${Math.max(1, Math.floor(seconds / 60))} min`;
+    if (seconds < 86400) return `há ${Math.floor(seconds / 3600)} h`;
+    if (seconds < 604800) return `há ${Math.floor(seconds / 86400)} d`;
+    return CT.fmtDate(value);
+  }
+
+  function bindDeviceMoreActions() {
+    const wrap = CT.$('#deviceMoreActionsWrap');
+    const trigger = CT.$('#deviceMoreActionsBtn');
+    const menu = CT.$('#deviceMoreActionsMenu');
+    if (!wrap || !trigger || !menu) return;
+
+    const close = () => {
+      menu.classList.add('hidden');
+      trigger.setAttribute('aria-expanded', 'false');
+      wrap.classList.remove('open');
+    };
+
+    trigger.onclick = (event) => {
+      event.stopPropagation();
+      const opening = menu.classList.contains('hidden');
+      if (!opening) {
+        close();
+        return;
+      }
+      menu.classList.remove('hidden');
+      trigger.setAttribute('aria-expanded', 'true');
+      wrap.classList.add('open');
+      window.setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
+    };
+    menu.onclick = (event) => {
+      event.stopPropagation();
+      if (event.target.closest('.cc-device-menu-item:not(:disabled)')) close();
+    };
+  }
+
+  function refreshDeviceMoreActionsVisibility() {
+    const wrap = CT.$('#deviceMoreActionsWrap');
+    const reinstall = CT.$('#reinstallDeviceBtn');
+    const shutdown = CT.$('#deviceShutdownBtn');
+    if (!wrap) return;
+    const reinstallVisible = Boolean(reinstall && !reinstall.classList.contains('hidden'));
+    const shutdownVisible = Boolean(shutdown && !shutdown.classList.contains('hidden'));
+    const hasVisibleAction = reinstallVisible || shutdownVisible;
+    wrap.classList.toggle('hidden', !hasVisibleAction);
+    const separator = CT.$('#deviceMoreActionsSeparator');
+    if (separator) separator.classList.toggle('hidden', !(reinstallVisible && shutdownVisible));
+  }
+
   CT.registerPage('devices', async function renderDevices() {
     const devices = await CT.api('/devices');
     await CT.mountPage('devices');
@@ -1108,21 +1237,27 @@
     activityLastSuccessfulCommand = null;
     activityAssets.clear();
     await CT.mountPage('device');
+    mountDeviceHeader();
 
     CT.$('#pageTitle').textContent = device.name;
+    CT.$('#deviceHeaderName').textContent = device.name || 'Computador';
+    CT.$('#deviceHeaderHostname').textContent = device.hostname || 'Nome do dispositivo não informado';
+    CT.$('#deviceHeaderLastSeen').textContent = deviceLastSeenLabel(device.last_seen);
     const telemetry = device.telemetry || {};
     const devicePowerOn = CT.devicePowerIsOn(device);
     const economyActive = CT.deviceEconomyModeActive(device);
-    const deviceOnlineLabel = economyActive
-      ? 'Modo econômico'
-      : devicePowerOn
-        ? (device.online ? 'Online' : 'Ligado · Agent sem comunicação')
-        : 'Desligado';
-    const deviceOnlineTone = economyActive ? 'economy' : (devicePowerOn ? 'online' : 'offline');
+    const devicePowerLabel = economyActive ? 'Modo econômico' : (devicePowerOn ? 'Ligado' : 'Desligado');
+    const devicePowerTone = economyActive ? 'economy' : (devicePowerOn ? 'online' : 'offline');
 
     const deviceOnlineStatusEl = CT.$('#deviceOnlineStatus');
     CT.clearPowerPendingStatus(deviceOnlineStatusEl);
-    deviceOnlineStatusEl.innerHTML = `<i class="dot ${deviceOnlineTone}"></i>${deviceOnlineLabel}`;
+    deviceOnlineStatusEl.innerHTML = `<i class="dot ${devicePowerTone}"></i><span>${devicePowerLabel}</span>`;
+
+    const deviceAgentStatusEl = CT.$('#deviceAgentStatus');
+    const agentTone = device.online ? 'online' : (devicePowerOn ? 'warning' : 'offline');
+    const agentLabel = device.online ? 'Agent conectado' : 'Agent sem comunicação';
+    deviceAgentStatusEl.innerHTML = `<i class="dot ${agentTone}"></i><span>${agentLabel}</span>`;
+
     const healthStatusEl = CT.$('#deviceHealthStatus');
     const healthAvailable = CT.healthAvailable(device);
     healthStatusEl.className = healthAvailable ? `health ${CT.healthClass(device.health_score)}` : 'health unavailable';
@@ -1215,7 +1350,7 @@
       const powerAvailable = economyMode ? Boolean(powerState.activate_available) : Boolean(powerState.economy_available);
       devicePowerBtn.classList.remove('hidden', 'danger');
       devicePowerBtn.classList.toggle('primary', economyMode);
-      devicePowerBtn.textContent = economyMode ? 'Ativar computador' : 'Modo econômico';
+      devicePowerBtn.innerHTML = `${deviceHeaderIcon(economyMode ? 'power' : 'leaf')}<span>${economyMode ? 'Ativar computador' : 'Modo econômico'}</span>`;
       devicePowerBtn.disabled = !powerAvailable;
       devicePowerBtn.title = powerAvailable
         ? (economyMode
@@ -1281,6 +1416,9 @@
       editDeviceBtn.classList.remove('hidden');
       editDeviceBtn.onclick = () => CT.openDeviceEditModal(device);
     }
+
+    refreshDeviceMoreActionsVisibility();
+    bindDeviceMoreActions();
     CT.drawChart(CT.$('#telemetryChart'), device.history);
   });
 })();
