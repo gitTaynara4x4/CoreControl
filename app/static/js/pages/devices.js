@@ -4,12 +4,12 @@
   const CT = window.CoreTuner;
 
   (function ensureCoreControlDeviceHeaderStyles() {
-    const id = 'cc-device-header-v1057-styles';
+    const id = 'cc-device-header-v1058-styles';
     if (document.getElementById(id)) return;
     const link = document.createElement('link');
     link.id = id;
     link.rel = 'stylesheet';
-    link.href = '/static/device-header-v10.57.css?v=20260912-1';
+    link.href = '/static/device-header-v10.58.css?v=20260912-1';
     document.head.appendChild(link);
   })();
 
@@ -40,17 +40,27 @@
         <span class="cc-device-identity-icon" aria-hidden="true">${deviceHeaderIcon('monitor')}</span>
         <div class="cc-device-identity-copy">
           <h2 id="deviceHeaderName">Computador</h2>
-          <div class="cc-device-status-line" aria-label="Status do computador">
-            <span id="deviceOnlineStatus" class="status cc-device-status-item"></span>
-            <span class="cc-device-status-separator" aria-hidden="true">•</span>
-            <span id="deviceAgentStatus" class="cc-device-status-item"></span>
-            <span class="cc-device-status-separator" aria-hidden="true">•</span>
-            <span id="deviceHealthStatus" class="health unavailable">Saúde —</span>
-          </div>
-          <div class="cc-device-meta">
-            <span id="deviceHeaderHostname">—</span>
-            <span class="cc-device-meta-separator" aria-hidden="true"></span>
-            <span>Último contato: <strong id="deviceHeaderLastSeen">—</strong></span>
+          <div class="cc-device-topics" aria-label="Informações do computador">
+            <div class="cc-device-topic cc-device-topic-status">
+              <span class="cc-device-topic-label">Status</span>
+              <span id="deviceOnlineStatus" class="status cc-device-topic-value"></span>
+            </div>
+            <div class="cc-device-topic cc-device-topic-agent">
+              <span class="cc-device-topic-label">Agent</span>
+              <span id="deviceAgentStatus" class="cc-device-topic-value"></span>
+            </div>
+            <div class="cc-device-topic cc-device-topic-health">
+              <span class="cc-device-topic-label">Saúde</span>
+              <span id="deviceHealthStatus" class="health unavailable cc-device-topic-value">—</span>
+            </div>
+            <div class="cc-device-topic cc-device-topic-hostname">
+              <span class="cc-device-topic-label">Hostname</span>
+              <span id="deviceHeaderHostname" class="cc-device-topic-value">—</span>
+            </div>
+            <div class="cc-device-topic cc-device-topic-lastseen">
+              <span class="cc-device-topic-label">Último contato</span>
+              <span id="deviceHeaderLastSeen" class="cc-device-topic-value">—</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1255,13 +1265,13 @@
 
     const deviceAgentStatusEl = CT.$('#deviceAgentStatus');
     const agentTone = device.online ? 'online' : (devicePowerOn ? 'warning' : 'offline');
-    const agentLabel = device.online ? 'Agent conectado' : 'Agent sem comunicação';
+    const agentLabel = device.online ? 'Conectado' : 'Sem comunicação';
     deviceAgentStatusEl.innerHTML = `<i class="dot ${agentTone}"></i><span>${agentLabel}</span>`;
 
     const healthStatusEl = CT.$('#deviceHealthStatus');
     const healthAvailable = CT.healthAvailable(device);
-    healthStatusEl.className = healthAvailable ? `health ${CT.healthClass(device.health_score)}` : 'health unavailable';
-    healthStatusEl.textContent = healthAvailable ? `Saúde ${device.health_score}/100` : 'Saúde —';
+    healthStatusEl.className = healthAvailable ? `health ${CT.healthClass(device.health_score)} cc-device-topic-value` : 'health unavailable cc-device-topic-value';
+    healthStatusEl.textContent = healthAvailable ? `${device.health_score}/100` : '—';
     healthStatusEl.title = healthAvailable
       ? 'Saúde calculada com a telemetria atual do CoreControl Agent.'
       : (devicePowerOn ? 'Aguardando comunicação atual do CoreControl Agent.' : 'Computador desligado. Saúde indisponível.');
