@@ -13,6 +13,16 @@
     document.head.appendChild(link);
   })();
 
+  (function ensureCoreControlDevicePageStyles() {
+    const id = 'cc-device-page-v1059-styles';
+    if (document.getElementById(id)) return;
+    const link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href = '/static/device-page-v10.59.css?v=20260914-1';
+    document.head.appendChild(link);
+  })();
+
   const DEVICE_HEADER_ICONS = {
     monitor: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M8 20h8M12 16.5V20"/></svg>',
     leaf: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4.5C12.7 4.5 7 8.2 7 14.2c0 2.8 2 5.3 5 5.3 5.5 0 8-5.3 8-15Z"/><path d="M5 20c1.8-4.7 5.2-8.1 10.2-10.2"/></svg>',
@@ -40,6 +50,7 @@
         <span class="cc-device-identity-icon" aria-hidden="true">${deviceHeaderIcon('monitor')}</span>
         <div class="cc-device-identity-copy">
           <h2 id="deviceHeaderName">Computador</h2>
+          <div id="deviceHeaderHostnameSubtitle" class="cc-device-hostname-subtitle">—</div>
           <div class="cc-device-topics" aria-label="Informações do computador">
             <div class="cc-device-topic cc-device-topic-status">
               <span class="cc-device-topic-label">Status</span>
@@ -140,6 +151,141 @@
     wrap.classList.toggle('hidden', !hasVisibleAction);
     const separator = CT.$('#deviceMoreActionsSeparator');
     if (separator) separator.classList.toggle('hidden', !(reinstallVisible && shutdownVisible));
+  }
+
+
+  const DEVICE_METRIC_ICONS = {
+    cpu: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3M10 10h4v4h-4z"/></svg>',
+    ram: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 10v4M11 10v4M15 10v4M19 10v4M6 17v2M18 17v2"/></svg>',
+    disk: '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>',
+    temp: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14.8V5a2 2 0 1 1 4 0v9.8a4 4 0 1 1-4 0Z"/><path d="M12 9v7"/></svg>',
+  };
+
+  function deviceMetricNumber(value, digits = 0) {
+    if (value === null || value === undefined || value === '' || Number.isNaN(Number(value))) return '—';
+    return CT.fmtNum(Number(value), digits);
+  }
+
+  function deviceMetricCard(kind, label, value, subtext) {
+    return `<div class="cc-device-metric-card ${kind}"><span class="cc-device-metric-icon" aria-hidden="true">${DEVICE_METRIC_ICONS[kind] || ''}</span><div class="cc-device-metric-copy"><div class="cc-device-metric-label">${CT.esc(label)}</div><div class="cc-device-metric-value">${CT.esc(value)}</div><div class="cc-device-metric-sub" title="${CT.esc(subtext)}">${CT.esc(subtext)}</div></div></div>`;
+  }
+
+  function renderDeviceOverviewMetrics(telemetry) {
+    const area = CT.$('#deviceMetrics');
+    if (!area) return;
+    const cpu = telemetry.cpu_percent == null ? '—' : `${deviceMetricNumber(telemetry.cpu_percent)}%`;
+    const memory = telemetry.memory_percent == null ? '—' : `${deviceMetricNumber(telemetry.memory_percent)}%`;
+    const memorySub = telemetry.memory_used_gb != null && telemetry.memory_total_gb != null
+      ? `${deviceMetricNumber(telemetry.memory_used_gb, 1)} GB de ${deviceMetricNumber(telemetry.memory_total_gb, 1)} GB`
+      : 'Uso atual';
+    const disk = telemetry.disk_percent == null ? '—' : `${deviceMetricNumber(telemetry.disk_percent)}%`;
+    const usedDisk = telemetry.disk_total_gb != null && telemetry.disk_free_gb != null ? Math.max(0, Number(telemetry.disk_total_gb) - Number(telemetry.disk_free_gb)) : null;
+    const diskSub = usedDisk != null && telemetry.disk_total_gb != null
+      ? `${deviceMetricNumber(usedDisk)} GB de ${deviceMetricNumber(telemetry.disk_total_gb)} GB`
+      : 'Disco principal';
+    const temperature = telemetry.temperature_c == null ? '—' : `${deviceMetricNumber(telemetry.temperature_c)} °C`;
+    const source = String(telemetry.temperature_source || '').trim();
+    const limit = source === 'GPU NVIDIA' ? 88 : 85;
+    const tempSub = telemetry.temperature_c == null ? 'Sem leitura atual' : Number(telemetry.temperature_c) >= limit ? 'Atenção' : 'Normal';
+    area.innerHTML = [
+      deviceMetricCard('cpu', 'CPU', cpu, 'Uso atual'),
+      deviceMetricCard('ram', 'Memória RAM', memory, memorySub),
+      deviceMetricCard('disk', 'Disco', disk, diskSub),
+      deviceMetricCard('temp', 'Temperatura', temperature, tempSub),
+    ].join('');
+  }
+
+  function formatDeviceUptime(seconds) {
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value < 0) return '—';
+    const days = Math.floor(value / 86400);
+    const hours = Math.floor((value % 86400) / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    if (days) return `${days}d ${hours}h`;
+    if (hours) return `${hours}h ${minutes}min`;
+    return `${minutes}min`;
+  }
+
+  function renderDeviceTopicPanels(device) {
+    const telemetry = device.telemetry || {};
+    const power = device.power || {};
+
+    const network = CT.$('#deviceNetworkInfo');
+    if (network) {
+      network.innerHTML = [
+        CT.info('IP local', telemetry.ip_local || '—'),
+        CT.info('Rede detectada', telemetry.network_name || '—'),
+        CT.info('Hostname', device.hostname || '—'),
+        CT.info('Sub-rede', power.network_cidr || '—'),
+        CT.info('Acesso remoto', device.remote?.available ? 'Disponível' : device.remote?.installed ? 'Instalado · indisponível agora' : 'Não instalado'),
+        CT.info('Wake-on-LAN', power.pc_wol_prepared ? 'Preparado' : 'Não preparado / não necessário'),
+      ].join('');
+    }
+
+    const users = CT.$('#deviceUsersInfo');
+    if (users) {
+      users.innerHTML = `<div class="cc-device-empty-copy"><span class="cc-device-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 21a7 7 0 0 1 14 0"/></svg></span><strong>Sessões de usuário não são coletadas nesta versão</strong><p>O CoreControl atual monitora desempenho e atividade de aplicativos, mas não envia a lista de contas ou sessões do Windows. Esta aba fica separada para receber esse recurso sem misturar informações com as outras áreas.</p></div>`;
+    }
+
+    const extra = CT.$('#devicePerformanceExtra');
+    if (extra) {
+      const gpu = telemetry.gpu_name || 'Não informado';
+      const gpuUsage = telemetry.gpu_usage_percent == null ? '—' : `${deviceMetricNumber(telemetry.gpu_usage_percent)}%`;
+      extra.innerHTML = `<div class="cc-device-extra-metrics"><div class="cc-device-extra-metric"><span>GPU</span><strong>${CT.esc(gpu)}</strong></div><div class="cc-device-extra-metric"><span>Uso da GPU</span><strong>${CT.esc(gpuUsage)}</strong></div><div class="cc-device-extra-metric"><span>Tempo ligado</span><strong>${CT.esc(formatDeviceUptime(telemetry.uptime_seconds))}</strong></div></div>`;
+    }
+
+    const logs = CT.$('#deviceLogs');
+    if (logs) {
+      const history = Array.isArray(device.history) ? device.history.slice(-12).reverse() : [];
+      logs.innerHTML = history.length ? history.map((sample) => {
+        const summary = `CPU ${sample.cpu_percent == null ? '—' : `${deviceMetricNumber(sample.cpu_percent)}%`} · RAM ${sample.memory_percent == null ? '—' : `${deviceMetricNumber(sample.memory_percent)}%`} · Disco ${sample.disk_percent == null ? '—' : `${deviceMetricNumber(sample.disk_percent)}%`}`;
+        return `<div class="cc-device-log-row"><div class="cc-device-log-time">${CT.esc(CT.fmtDate(sample.recorded_at))}</div><div class="cc-device-log-main"><strong>Telemetria recebida</strong><span>${CT.esc(summary)}</span></div></div>`;
+      }).join('') : `<div class="cc-device-empty-state"><div class="cc-device-empty-copy"><strong>Nenhum registro recente</strong><p>Os registros aparecerão aqui conforme o Agent enviar novas amostras.</p></div></div>`;
+    }
+  }
+
+  function bindDeviceTabs(device) {
+    const tabs = Array.from(document.querySelectorAll('.page-device [data-device-tab]'));
+    const panels = Array.from(document.querySelectorAll('.page-device [data-device-panel]'));
+    if (!tabs.length || !panels.length) return;
+    const allowed = new Set(tabs.map((tab) => tab.dataset.deviceTab));
+    const storageKey = `corecontrol:device-tab:${device.id}`;
+
+    const activate = (name, persist = true) => {
+      if (!allowed.has(name)) name = 'overview';
+      tabs.forEach((tab) => {
+        const active = tab.dataset.deviceTab === name;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      panels.forEach((panel) => {
+        const active = panel.dataset.devicePanel === name;
+        panel.classList.toggle('active', active);
+        panel.hidden = !active;
+      });
+      if (persist) {
+        try { sessionStorage.setItem(storageKey, name); } catch (_) {}
+      }
+      if (name === 'telemetry') {
+        window.requestAnimationFrame(() => {
+          const chart = CT.$('#telemetryChart');
+          if (chart) CT.drawChart(chart, device.history || []);
+        });
+      }
+    };
+
+    tabs.forEach((tab) => { tab.onclick = () => activate(tab.dataset.deviceTab); });
+    document.querySelectorAll('.page-device [data-quick-device-tab]').forEach((button) => {
+      button.onclick = () => {
+        activate(button.dataset.quickDeviceTab);
+        const tabsBar = CT.$('.cc-device-tabs');
+        if (tabsBar) tabsBar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      };
+    });
+
+    let initial = 'overview';
+    try { initial = sessionStorage.getItem(storageKey) || 'overview'; } catch (_) {}
+    activate(initial, false);
   }
 
   CT.registerPage('devices', async function renderDevices() {
@@ -1252,6 +1398,8 @@
     CT.$('#pageTitle').textContent = device.name;
     CT.$('#deviceHeaderName').textContent = device.name || 'Computador';
     CT.$('#deviceHeaderHostname').textContent = device.hostname || 'Nome do dispositivo não informado';
+    const deviceHeaderHostnameSubtitle = CT.$('#deviceHeaderHostnameSubtitle');
+    if (deviceHeaderHostnameSubtitle) deviceHeaderHostnameSubtitle.textContent = device.hostname || 'Nome do dispositivo não informado';
     CT.$('#deviceHeaderLastSeen').textContent = deviceLastSeenLabel(device.last_seen);
     const telemetry = device.telemetry || {};
     const devicePowerOn = CT.devicePowerIsOn(device);
@@ -1276,21 +1424,7 @@
       ? 'Saúde calculada com a telemetria atual do CoreControl Agent.'
       : (devicePowerOn ? 'Aguardando comunicação atual do CoreControl Agent.' : 'Computador desligado. Saúde indisponível.');
 
-    const temperatureSource = String(telemetry.temperature_source || '').trim();
-    const temperatureLabel = temperatureSource === 'GPU NVIDIA' ? 'Temperatura GPU' : 'Temperatura';
-    CT.$('#deviceMetrics').innerHTML = [
-      CT.metric('Processador', telemetry.cpu_percent, '%', telemetry.cpu_percent),
-      CT.metric('Memória RAM', telemetry.memory_percent, '%', telemetry.memory_percent),
-      CT.metric('Disco principal', telemetry.disk_percent, '%', telemetry.disk_percent),
-      CT.metric('GPU', telemetry.gpu_usage_percent, '%', telemetry.gpu_usage_percent),
-      CT.metric(
-        temperatureLabel,
-        telemetry.temperature_c,
-        ' °C',
-        telemetry.temperature_c ? Math.min(100, telemetry.temperature_c) : 0,
-        telemetry.temperature_c >= (temperatureSource === 'GPU NVIDIA' ? 88 : 85) ? 'critical' : '',
-      ),
-    ].join('');
+    renderDeviceOverviewMetrics(telemetry);
 
     loadOptimization(device);
 
@@ -1320,6 +1454,8 @@
 
     const powerState = device.power || {};
     const economyMode = CT.deviceEconomyModeActive(device);
+
+    renderDeviceTopicPanels(device);
 
     CT.$('#deviceProtection').innerHTML = [
       CT.info('Memória instalada', telemetry.memory_total_gb == null ? '—' : `${CT.fmtNum(telemetry.memory_total_gb, 1)} GB`),
@@ -1429,6 +1565,6 @@
 
     refreshDeviceMoreActionsVisibility();
     bindDeviceMoreActions();
-    CT.drawChart(CT.$('#telemetryChart'), device.history);
+    bindDeviceTabs(device);
   });
 })();

@@ -13,99 +13,41 @@
     <button class="btn hidden" id="editDeviceBtn">Editar computador</button>
   </div>
 
-  <div id="deviceMetrics" class="grid detail-grid"></div>
+  <nav class="cc-device-tabs" aria-label="Seções do computador">
+    <button class="cc-device-tab active" type="button" data-device-tab="overview" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg><span>Visão geral</span></button>
+    <button class="cc-device-tab" type="button" data-device-tab="performance" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-5 3 2 5-6"/></svg><span>Desempenho</span></button>
+    <button class="cc-device-tab" type="button" data-device-tab="software" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4-8 4-8-4 8-4Z"/><path d="m4 7 8 4 8-4"/><path d="M4 7v10l8 4 8-4V7"/></svg><span>Software</span></button>
+    <button class="cc-device-tab" type="button" data-device-tab="processes" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg><span>Processos</span></button>
+    <button class="cc-device-tab" type="button" data-device-tab="users" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M5 21a7 7 0 0 1 14 0"/></svg><span>Usuários</span></button>
+    <button class="cc-device-tab" type="button" data-device-tab="network" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M12 7v4M5 16v-2h14v2M12 11H5v3M12 11h7v3"/></svg><span>Rede</span></button>
+    <button class="cc-device-tab" type="button" data-device-tab="logs" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6Z"/><path d="M15 3v5h5M9 12h6M9 16h6"/></svg><span>Logs</span></button>
+    <button class="cc-device-tab" type="button" data-device-tab="telemetry" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg><span>Telemetria</span></button>
+  </nav>
 
-  <div class="card optimization-card" style="margin-top:12px">
-    <div class="optimization-hero">
-      <div class="optimization-hero-copy">
-        <div class="optimization-hero-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M4 17a8 8 0 1 1 16 0"/><path d="m12 17 4-5"/><path d="M6.5 10.5 8 12"/><path d="M17.5 10.5 16 12"/><path d="M12 7v2"/></svg>
-        </div>
-        <div>
-          <span class="optimization-eyebrow">CONTROLE DE DESEMPENHO</span>
-          <h2>Otimização inteligente</h2>
-          <p>Ajuste o Windows remotamente para cada tipo de operação. O CoreControl cria um backup antes da primeira mudança e permite voltar ao estado original.</p>
-        </div>
+  <div class="cc-device-panels">
+    <section class="cc-device-panel active" data-device-panel="overview">
+      <div id="deviceMetrics" class="cc-device-metric-grid"></div>
+      <div class="cc-device-overview-grid">
+        <div class="card cc-device-overview-card"><div class="card-header"><div><h2>Informações do sistema</h2><p id="deviceCompanyName"></p></div></div><div id="deviceIdentity" class="info-list cc-device-overview-info"></div></div>
+        <div class="card cc-device-overview-card cc-device-quick-card"><div class="card-header"><div><h2>Ações rápidas</h2><p>Acesso e atalhos mais usados neste computador.</p></div></div><div class="cc-device-quick-actions"><div class="cc-device-remote-summary"><div><span class="cc-device-quick-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><div><div id="deviceRemoteLabel"></div><p id="deviceRemoteText"></p></div></div><button id="remoteAccessBtn" class="btn primary">Acessar computador</button></div><div class="cc-device-quick-links"><button class="cc-device-quick-link" type="button" data-quick-device-tab="performance"><span>Desempenho</span><small>Otimização e consumo</small><b>›</b></button><button class="cc-device-quick-link" type="button" data-quick-device-tab="processes"><span>Processos</span><small>Aplicativos e atividade</small><b>›</b></button><button class="cc-device-quick-link" type="button" data-quick-device-tab="software"><span>Software</span><small>Proteções e capacidade</small><b>›</b></button></div></div></div>
       </div>
-      <div id="optimizationStatus" class="optimization-status">Carregando...</div>
-    </div>
+    </section>
 
-    <div class="optimization-capabilities" aria-label="Recursos de otimização">
-      <div class="optimization-capability">
-        <span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7"/></svg></span>
-        <div><strong>Backup automático</strong><small>Antes da primeira alteração</small></div>
-      </div>
-      <div class="optimization-capability">
-        <span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="15" height="11" rx="2"/><path d="M7 19h7M10.5 15v4"/><path d="M20 13v6M17 16h6"/></svg></span>
-        <div><strong>Aplicação remota</strong><small>Sem precisar ir até o computador</small></div>
-      </div>
-      <div class="optimization-capability">
-        <span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.9 8 7 10 4.1-2 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></span>
-        <div><strong>Ajustes seguros</strong><small>Sem apagar arquivos do usuário</small></div>
-      </div>
-      <div class="optimization-capability">
-        <span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></span>
-        <div><strong>Reversível</strong><small>Restauração em um clique</small></div>
-      </div>
-    </div>
+    <section class="cc-device-panel" data-device-panel="performance" hidden>
+      <div class="card optimization-card"><div class="optimization-hero"><div class="optimization-hero-copy"><div class="optimization-hero-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17a8 8 0 1 1 16 0"/><path d="m12 17 4-5"/><path d="M6.5 10.5 8 12"/><path d="M17.5 10.5 16 12"/><path d="M12 7v2"/></svg></div><div><span class="optimization-eyebrow">CONTROLE DE DESEMPENHO</span><h2>Otimização inteligente</h2><p>Ajuste o Windows remotamente para cada tipo de operação. O CoreControl cria um backup antes da primeira mudança e permite voltar ao estado original.</p></div></div><div id="optimizationStatus" class="optimization-status">Carregando...</div></div><div class="optimization-capabilities" aria-label="Recursos de otimização"><div class="optimization-capability"><span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7"/></svg></span><div><strong>Backup automático</strong><small>Antes da primeira alteração</small></div></div><div class="optimization-capability"><span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="15" height="11" rx="2"/><path d="M7 19h7M10.5 15v4"/><path d="M20 13v6M17 16h6"/></svg></span><div><strong>Aplicação remota</strong><small>Sem precisar ir até o computador</small></div></div><div class="optimization-capability"><span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.9 8 7 10 4.1-2 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></span><div><strong>Ajustes seguros</strong><small>Sem apagar arquivos do usuário</small></div></div><div class="optimization-capability"><span class="optimization-capability-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></span><div><strong>Reversível</strong><small>Restauração em um clique</small></div></div></div><div id="optimizationDiagnostics" class="optimization-diagnostics"><div class="optimization-diagnostics-loading">Preparando diagnóstico inteligente...</div></div><div class="optimization-section-title"><div><strong>Escolha o perfil ideal</strong><span>Cada perfil combina desempenho, consumo de energia e prioridade de aplicativos.</span></div><span class="optimization-safe-label">Seguro e reversível</span></div><div id="optimizationProfiles" class="optimization-profiles"></div><div id="optimizationFeedback" class="optimization-feedback hidden"></div></div>
+      <div id="devicePerformanceExtra" class="cc-device-performance-extra"></div>
+    </section>
 
-    <div id="optimizationDiagnostics" class="optimization-diagnostics">
-      <div class="optimization-diagnostics-loading">Preparando diagnóstico inteligente...</div>
-    </div>
+    <section class="cc-device-panel" data-device-panel="software" hidden><div class="card"><div class="card-header"><div><h2>Software e proteção</h2><p>Segurança, capacidade e configuração atual do computador.</p></div><button class="btn hidden" id="wakeRouteTestBtn">Testar rota de ligamento</button></div><div id="deviceProtection" class="info-list"></div></div></section>
 
-    <div class="optimization-section-title">
-      <div><strong>Escolha o perfil ideal</strong><span>Cada perfil combina desempenho, consumo de energia e prioridade de aplicativos.</span></div>
-      <span class="optimization-safe-label">Seguro e reversível</span>
-    </div>
-    <div id="optimizationProfiles" class="optimization-profiles"></div>
-    <div id="optimizationFeedback" class="optimization-feedback hidden"></div>
-  </div>
+    <section class="cc-device-panel" data-device-panel="processes" hidden><div class="card activity-card"><div class="card-header"><div><h2>Processos e atividade</h2><p>Aplicativo em foco, janelas visíveis e tempo de uso. Sem captura de teclas ou senhas.</p></div><button class="btn" id="activityRefreshBtn">Atualizar aplicativos</button></div><div id="activityCurrent" class="activity-current"></div><div class="activity-layout"><div><div class="activity-subhead"><strong>Aplicativos abertos</strong><span id="activitySnapshotStatus">Aguardando consulta</span></div><div id="activityAppsArea" class="activity-apps-area"></div></div><div><div class="activity-subhead"><strong>Atividade recente</strong><span>Últimas mudanças de janela</span></div><div id="activityTimeline" class="activity-timeline"></div></div></div></div></section>
 
-  <div class="card activity-card" style="margin-top:12px">
-    <div class="card-header">
-      <div><h2>Atividade</h2><p>Aplicativo em foco, janelas visíveis e tempo de uso. Sem captura de teclas ou senhas.</p></div>
-      <button class="btn" id="activityRefreshBtn">Atualizar aplicativos</button>
-    </div>
-    <div id="activityCurrent" class="activity-current"></div>
-    <div class="activity-layout">
-      <div>
-        <div class="activity-subhead"><strong>Aplicativos abertos</strong><span id="activitySnapshotStatus">Aguardando consulta</span></div>
-        <div id="activityAppsArea" class="activity-apps-area"></div>
-      </div>
-      <div>
-        <div class="activity-subhead"><strong>Atividade recente</strong><span>Últimas mudanças de janela</span></div>
-        <div id="activityTimeline" class="activity-timeline"></div>
-      </div>
-    </div>
-  </div>
+    <section class="cc-device-panel" data-device-panel="users" hidden><div class="card cc-device-empty-card"><div class="card-header"><div><h2>Usuários do computador</h2><p>Sessões e usuários locais associados a este dispositivo.</p></div></div><div id="deviceUsersInfo" class="cc-device-empty-state"></div></div></section>
 
-  <div class="grid split" style="margin-top:12px">
-    <div class="card">
-      <div class="card-header"><div><h2>Histórico recente</h2><p id="deviceHistoryCount">Amostras recebidas.</p></div></div>
-      <canvas id="telemetryChart" class="chart"></canvas>
-    </div>
+    <section class="cc-device-panel" data-device-panel="network" hidden><div class="card"><div class="card-header"><div><h2>Rede</h2><p>Conectividade informada pelo CoreControl Agent.</p></div></div><div id="deviceNetworkInfo" class="info-list"></div></div></section>
 
-    <div class="card">
-      <div class="card-header"><div><h2>Identificação</h2><p id="deviceCompanyName"></p></div></div>
-      <div id="deviceIdentity" class="info-list"></div>
-    </div>
-  </div>
+    <section class="cc-device-panel" data-device-panel="logs" hidden><div class="card"><div class="card-header"><div><h2>Logs recentes</h2><p>Registros recentes recebidos deste computador.</p></div></div><div id="deviceLogs" class="cc-device-log-list"></div></div></section>
 
-  <div class="grid split" style="margin-top:12px">
-    <div class="card">
-      <div class="card-header">
-        <div><h2>Proteções e capacidade</h2><p>Coleta técnica, sem acesso a arquivos do cliente.</p></div>
-        <button class="btn hidden" id="wakeRouteTestBtn">Testar rota de ligamento</button>
-      </div>
-      <div id="deviceProtection" class="info-list"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-header"><div><h2>Acesso remoto</h2><p>A solicitação fica registrada no histórico administrativo.</p></div></div>
-      <div class="remote-panel">
-        <div><div id="deviceRemoteLabel"></div><p id="deviceRemoteText"></p></div>
-        <button id="remoteAccessBtn" class="btn primary">Acessar computador</button>
-      </div>
-    </div>
+    <section class="cc-device-panel" data-device-panel="telemetry" hidden><div class="card"><div class="card-header"><div><h2>Telemetria</h2><p id="deviceHistoryCount">Amostras recebidas.</p></div></div><canvas id="telemetryChart" class="chart"></canvas></div></section>
   </div>
 </section>
