@@ -332,7 +332,11 @@ func activityPowerShellProcessIconData(pid int, executablePath string) string {
 
 	// O caminho/PID vão por variáveis de ambiente para não haver problema de
 	// escaping com espaços, acentos ou caracteres especiais no nome da pasta.
-	script := `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Drawing; $p=$env:CORECONTROL_ICON_PATH; if ([string]::IsNullOrWhiteSpace($p) -and $env:CORECONTROL_ICON_PID) { try { $p=(Get-Process -Id ([int]$env:CORECONTROL_ICON_PID) -ErrorAction Stop).Path } catch {} }; if ([string]::IsNullOrWhiteSpace($p) -or -not (Test-Path -LiteralPath $p)) { exit 2 }; $ico=[System.Drawing.Icon]::ExtractAssociatedIcon($p); if ($null -eq $ico) { exit 3 }; try { $bmp=$ico.ToBitmap(); try { $ms=New-Object System.IO.MemoryStream; try { $bmp.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png); [Console]::Out.Write([Convert]::ToBase64String($ms.ToArray())) } finally { $ms.Dispose() } } finally { $bmp.Dispose() } } finally { $ico.Dispose() }`
+	// Normaliza o resultado para 48x48 antes de serializar. Alguns programas
+	// (principalmente .NET/Electron e softwares corporativos) expõem apenas um
+	// ícone grande no executável; salvar esse bitmap diretamente podia ultrapassar
+	// o limite do payload e fazia o painel cair no avatar com a primeira letra.
+	script := `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Drawing; $p=$env:CORECONTROL_ICON_PATH; if ([string]::IsNullOrWhiteSpace($p) -and $env:CORECONTROL_ICON_PID) { try { $p=(Get-Process -Id ([int]$env:CORECONTROL_ICON_PID) -ErrorAction Stop).Path } catch {} }; if ([string]::IsNullOrWhiteSpace($p) -or -not (Test-Path -LiteralPath $p)) { exit 2 }; $ico=[System.Drawing.Icon]::ExtractAssociatedIcon($p); if ($null -eq $ico) { exit 3 }; try { $src=$ico.ToBitmap(); try { $bmp=New-Object System.Drawing.Bitmap -ArgumentList 48,48; try { $g=[System.Drawing.Graphics]::FromImage($bmp); try { $g.Clear([System.Drawing.Color]::Transparent); $g.CompositingQuality=[System.Drawing.Drawing2D.CompositingQuality]::HighQuality; $g.InterpolationMode=[System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic; $g.SmoothingMode=[System.Drawing.Drawing2D.SmoothingMode]::HighQuality; $g.PixelOffsetMode=[System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality; $g.DrawImage($src,0,0,48,48) } finally { $g.Dispose() }; $ms=New-Object System.IO.MemoryStream; try { $bmp.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png); [Console]::Out.Write([Convert]::ToBase64String($ms.ToArray())) } finally { $ms.Dispose() } } finally { $bmp.Dispose() } } finally { $src.Dispose() } } finally { $ico.Dispose() }`
 	cmd := hiddenCommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 	cmd.Env = append(os.Environ(),
 		"CORECONTROL_ICON_PATH="+strings.TrimSpace(executablePath),
@@ -529,6 +533,25 @@ func activityEncodeIconPNG(img image.Image) string {
 	if img == nil {
 		return ""
 	}
+
+	// DrawIconEx pode informar sucesso e ainda assim devolver um DIB totalmente
+	// transparente para algumas janelas. Um PNG vazio é tecnicamente válido, mas
+	// impediria os fallbacks seguintes e pareceria um ícone ausente no navegador.
+	bounds := img.Bounds()
+	visible := false
+	for y := bounds.Min.Y; y < bounds.Max.Y && !visible; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			_, _, _, alpha := img.At(x, y).RGBA()
+			if alpha > 0x0800 {
+				visible = true
+				break
+			}
+		}
+	}
+	if !visible {
+		return ""
+	}
+
 	var encoded bytes.Buffer
 	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
 	if err := encoder.Encode(&encoded, img); err != nil || encoded.Len() == 0 || encoded.Len() > activityMaxIconBytes {

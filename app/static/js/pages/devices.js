@@ -351,7 +351,7 @@
   }
 
   function activityIconVersionSupported(version) {
-    return activityVersionAtLeast(version, '0.8.3');
+    return activityVersionAtLeast(version, '0.9.15');
   }
 
   function activityBrowserTabsVersionSupported(version) {
@@ -515,7 +515,9 @@
 
   function activityIconData(value) {
     const icon = String(value || '').trim();
-    if (icon.length > 131072 || !/^data:image\/png;base64,[a-z0-9+/=]+$/i.test(icon)) return '';
+    // O Agent normaliza os ícones para PNG pequeno. Mantemos uma margem maior
+    // para versões que recebam recursos de alta densidade sem descartar o ícone real.
+    if (icon.length > 262144 || !/^data:image\/png;base64,[a-z0-9+/=]+$/i.test(icon)) return '';
     return icon;
   }
 
@@ -563,10 +565,13 @@
     const asset = activityAssets.get(activityProcessKey(processName));
     const icon = activityIconData(asset?.icon_data);
     const classes = ['activity-app-icon', focused ? 'focused' : '', extraClass].filter(Boolean).join(' ');
+    const glyph = CT.esc(activityGlyph(processName));
     if (icon) {
-      return `<span class="${classes}" aria-hidden="true"><img src="${icon}" alt=""></span>`;
+      // Se o navegador rejeitar uma imagem corrompida, volta para a letra sem
+      // deixar o conhecido ícone de imagem quebrada na interface.
+      return `<span class="${classes}" aria-hidden="true"><img src="${icon}" alt="" onerror="this.hidden=true;this.parentNode.classList.add('fallback');const f=this.nextElementSibling;if(f)f.hidden=false;"><b hidden>${glyph}</b></span>`;
     }
-    return `<span class="${classes} fallback" aria-hidden="true"><b>${CT.esc(activityGlyph(processName))}</b></span>`;
+    return `<span class="${classes} fallback" aria-hidden="true"><b>${glyph}</b></span>`;
   }
 
   function activityBrowserProcess(browser) {
@@ -734,11 +739,14 @@
     const appRowsWithIcon = apps.filter((app) => Boolean(activityIconData(activityAssets.get(activityProcessKey(app?.process_name))?.icon_data))).length;
     const realIcons = iconCount > 0;
     const tabSuffix = browserTabs.length ? ` · ${browserTabs.length} aba${browserTabs.length === 1 ? '' : 's'}` : '';
-    status.textContent = statusText || (!realIcons && (apps.length || browserTabs.length)
-      ? `Atualizado · 0 ícones recebidos${tabSuffix}`
-      : realIcons && apps.length ? `Atualizado · ${appRowsWithIcon}/${apps.length} janelas com ícone${tabSuffix}`
-      : realIcons ? `Atualizado · ${iconCount} ícone(s) real(is)${tabSuffix}`
-      : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}${tabSuffix}` : `Atualizado${tabSuffix}`);
+    const iconUpgradeNeeded = !realIcons && activityLastDevice && !activityIconVersionSupported(activityLastDevice.agent_version);
+    status.textContent = statusText || (iconUpgradeNeeded && (apps.length || browserTabs.length)
+      ? `Atualize o Agent para 0.9.15 · ícones reais${tabSuffix}`
+      : !realIcons && (apps.length || browserTabs.length)
+        ? `Atualizado · 0 ícones recebidos${tabSuffix}`
+        : realIcons && apps.length ? `Atualizado · ${appRowsWithIcon}/${apps.length} janelas com ícone${tabSuffix}`
+        : realIcons ? `Atualizado · ${iconCount} ícone(s) real(is)${tabSuffix}`
+        : command.finished_at ? `Atualizado ${CT.fmtDate(command.finished_at)}${tabSuffix}` : `Atualizado${tabSuffix}`);
 
     const groups = activityGroupedApplications(apps, browserTabs);
     if (!groups.length) {

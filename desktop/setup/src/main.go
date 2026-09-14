@@ -24,7 +24,7 @@ import (
 )
 
 const appVersion = "0.4.22"
-const bundledAgentVersion = "0.9.14"
+const bundledAgentVersion = "0.9.15"
 
 var defaultServerURL = "https://apps-corecontrol.9ywrah.easypanel.host"
 
