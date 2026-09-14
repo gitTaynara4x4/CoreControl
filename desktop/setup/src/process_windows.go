@@ -400,3 +400,42 @@ func uninstallExistingRemoteAgent() error {
 	}
 	return fmt.Errorf("o serviço Mesh Agent antigo continuou instalado após a desinstalação")
 }
+
+func installCoreControlAgentService(agentPath, configPath, activityCachePath string) error {
+	params := strings.Join([]string{
+		"-install-service",
+		"-config", quoteSetupArgument(configPath),
+		"-activity-cache", quoteSetupArgument(activityCachePath),
+	}, " ")
+	if err := runElevatedAndWait(agentPath, params, 90*time.Second); err != nil {
+		return fmt.Errorf("não foi possível instalar o serviço permanente do CoreControl: %w", err)
+	}
+	for i := 0; i < 40; i++ {
+		if running, known := setupServiceRunning("CoreControlAgent"); known && running {
+			return nil
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return fmt.Errorf("o serviço CoreControl Agent foi instalado, mas não ficou em execução")
+}
+
+func removeCoreControlAgentServiceForUpdate(agentPath string) error {
+	if strings.TrimSpace(agentPath) == "" {
+		return nil
+	}
+	if _, known := setupServiceRunning("CoreControlAgent"); !known {
+		return nil
+	}
+	if _, err := os.Stat(agentPath); err != nil {
+		return nil
+	}
+	if err := runElevatedAndWait(agentPath, "-uninstall-service", 90*time.Second); err != nil {
+		return fmt.Errorf("não foi possível interromper o serviço CoreControl Agent para atualizar: %w", err)
+	}
+	return nil
+}
+
+func quoteSetupArgument(value string) string {
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	return `"` + value + `"`
+}

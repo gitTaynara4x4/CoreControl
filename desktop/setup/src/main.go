@@ -23,8 +23,8 @@ import (
 	"unsafe"
 )
 
-const appVersion = "0.4.22"
-const bundledAgentVersion = "0.9.15"
+const appVersion = "0.4.23"
+const bundledAgentVersion = "0.9.16"
 
 var defaultServerURL = "https://apps-corecontrol.9ywrah.easypanel.host"
 
@@ -1195,6 +1195,10 @@ func (a *App) writeEnrollmentFiles(machine Machine, name, sector, location strin
 	corePath := filepath.Join(installDir, "CoreControl.exe")
 	legacyAgentPath := filepath.Join(legacyInstallDir, "CoreTunerAgent.exe")
 	legacyCorePath := filepath.Join(legacyInstallDir, "CoreTuner.exe")
+	activityCachePath := filepath.Join(agentDataDir, "activity-cache.json")
+	if err := removeCoreControlAgentServiceForUpdate(agentPath); err != nil {
+		return err
+	}
 	stopExistingAgent(agentPath)
 	stopExistingAgent(legacyAgentPath)
 	_ = os.Remove(agentPath)
@@ -1202,6 +1206,7 @@ func (a *App) writeEnrollmentFiles(machine Machine, name, sector, location strin
 	_ = os.Remove(legacyCorePath)
 	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreTunerAgent", "/f").Run()
 	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlAgent", "/f").Run()
+	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlSessionHelper", "/f").Run()
 	time.Sleep(300 * time.Millisecond)
 
 	if err := writeAtomic(agentPath, agentBytes, 0755); err != nil {
@@ -1220,6 +1225,7 @@ func (a *App) writeEnrollmentFiles(machine Machine, name, sector, location strin
 		"name":                name,
 		"sector":              strings.TrimSpace(sector),
 		"location":            strings.TrimSpace(location),
+		"activity_cache_path": activityCachePath,
 	}
 	raw, _ := json.MarshalIndent(cfg, "", "  ")
 	configPath := filepath.Join(agentDataDir, "agent-config.json")
@@ -1233,21 +1239,20 @@ func (a *App) writeEnrollmentFiles(machine Machine, name, sector, location strin
 	// Instalação por link não deve herdar nem criar sessão administrativa.
 	_ = os.Remove(filepath.Join(userDataDir, "session.json"))
 
-	runCommand := fmt.Sprintf(`"%s" -config "%s"`, agentPath, configPath)
-	if out, err := hiddenCommand("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlAgent", "/t", "REG_SZ", "/d", runCommand, "/f").CombinedOutput(); err != nil {
-		return fmt.Errorf("não foi possível configurar a inicialização do agente: %s", strings.TrimSpace(string(out)))
-	}
-	cmd := hiddenCommand(agentPath, "-config", configPath)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("não foi possível iniciar o agente: %w", err)
+	if err := installCoreControlAgentService(agentPath, configPath, activityCachePath); err != nil {
+		return err
 	}
 
-	// Start() confirma apenas que o Windows aceitou criar o processo. Aguarda um
-	// instante e verifica se o agente realmente permaneceu em execução antes de
-	// mostrar a instalação como concluída.
-	time.Sleep(800 * time.Millisecond)
-	if !setupProcessExists("corecontrolagent.exe") && !setupProcessExists("coretuneragent.exe") {
-		return errors.New("o CoreControl foi instalado, mas o agente não permaneceu em execução")
+	// Janelas, abas e ícones só existem na sessão interativa. O helper não possui
+	// credenciais do servidor: ele grava apenas um snapshot local consumido pelo serviço.
+	helperCommand := fmt.Sprintf(`"%s" -session-helper -activity-cache "%s"`, agentPath, activityCachePath)
+	if out, err := hiddenCommand("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlSessionHelper", "/t", "REG_SZ", "/d", helperCommand, "/f").CombinedOutput(); err != nil {
+		return fmt.Errorf("não foi possível configurar o helper da sessão: %s", strings.TrimSpace(string(out)))
+	}
+	_ = hiddenCommand(agentPath, "-session-helper", "-activity-cache", activityCachePath).Start()
+
+	if running, known := setupServiceRunning("CoreControlAgent"); !known || !running {
+		return errors.New("o CoreControl foi instalado, mas o serviço permanente do Agent não permaneceu em execução")
 	}
 	return nil
 }
@@ -1306,6 +1311,12 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 	corePath := filepath.Join(installDir, "CoreControl.exe")
 	legacyAgentPath := filepath.Join(legacyInstallDir, "CoreTunerAgent.exe")
 	legacyCorePath := filepath.Join(legacyInstallDir, "CoreTuner.exe")
+	activityCachePath := filepath.Join(agentDataDir, "activity-cache.json")
+	// O Agent 0.9.16 passa a manter telemetria como serviço do Windows. Em
+	// atualizações futuras, interrompe o serviço antes de substituir o .exe.
+	if err := removeCoreControlAgentServiceForUpdate(agentPath); err != nil {
+		return err
+	}
 	// Encerra a versão atual e qualquer agente legado antes de substituir os componentes.
 	stopExistingAgent(agentPath)
 	stopExistingAgent(legacyAgentPath)
@@ -1315,6 +1326,7 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 	// Remove a inicialização anterior antes de substituir os componentes.
 	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreTunerAgent", "/f").Run()
 	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlAgent", "/f").Run()
+	_ = hiddenCommand("reg.exe", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlSessionHelper", "/f").Run()
 	time.Sleep(300 * time.Millisecond)
 	if err := writeAtomic(agentPath, agentBytes, 0755); err != nil {
 		return fmt.Errorf("não foi possível instalar o agente: %w", err)
@@ -1332,6 +1344,7 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 		"name":                name,
 		"sector":              strings.TrimSpace(sector),
 		"location":            strings.TrimSpace(location),
+		"activity_cache_path": activityCachePath,
 	}
 	raw, _ := json.MarshalIndent(cfg, "", "  ")
 	configPath := filepath.Join(agentDataDir, "agent-config.json")
@@ -1348,12 +1361,14 @@ func (a *App) installFiles(machine Machine, name, sector, location string, resp 
 		return fmt.Errorf("não foi possível salvar a sessão inicial: %w", err)
 	}
 
-	runCommand := fmt.Sprintf(`"%s" -config "%s"`, agentPath, configPath)
-	if out, err := hiddenCommand("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlAgent", "/t", "REG_SZ", "/d", runCommand, "/f").CombinedOutput(); err != nil {
-		return fmt.Errorf("não foi possível configurar a inicialização do agente: %s", strings.TrimSpace(string(out)))
+	if err := installCoreControlAgentService(agentPath, configPath, activityCachePath); err != nil {
+		return err
 	}
-	cmd := hiddenCommand(agentPath, "-config", configPath)
-	_ = cmd.Start()
+	helperCommand := fmt.Sprintf(`"%s" -session-helper -activity-cache "%s"`, agentPath, activityCachePath)
+	if out, err := hiddenCommand("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "CoreControlSessionHelper", "/t", "REG_SZ", "/d", helperCommand, "/f").CombinedOutput(); err != nil {
+		return fmt.Errorf("não foi possível configurar o helper da sessão: %s", strings.TrimSpace(string(out)))
+	}
+	_ = hiddenCommand(agentPath, "-session-helper", "-activity-cache", activityCachePath).Start()
 
 	if installRemote {
 		setText(a.status, "Preparando acesso remoto automático...")

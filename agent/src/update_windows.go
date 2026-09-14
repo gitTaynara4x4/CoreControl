@@ -73,7 +73,7 @@ type wuaInstallPayload struct {
 
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
-func executeAgentCommand(command pendingCommand) (map[string]interface{}, error) {
+func executeAgentCommandLocal(command pendingCommand) (map[string]interface{}, error) {
 	switch command.Type {
 	case "power.shutdown":
 		return executeRealShutdownCommand()
@@ -94,7 +94,7 @@ func executeAgentCommand(command pendingCommand) (map[string]interface{}, error)
 		}
 		return mapFromStruct(result)
 	case "activity.snapshot":
-		return mapFromStruct(collectActivitySnapshot())
+		return mapFromStruct(collectActivitySnapshotForAgent())
 	case "optimization.diagnose":
 		return mapFromStruct(diagnoseOptimization())
 	case "optimization.cleanup_temp":

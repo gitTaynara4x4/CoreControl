@@ -1,0 +1,2 @@
+cd8870e0f9fded9d798b6f3a474efe806f0f1971d7d98fbd953363373db0384b  app/downloads/CoreControlAgent.exe
+b83ebbe5b4f8e23cdcc19d8c1008f6910a578b3d92575bfa605982a3f6c5bbdd  app/downloads/CoreControlSetup.exe

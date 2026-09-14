@@ -1,0 +1,17 @@
+CoreControl v10.61 — Agent permanente
+
+Objetivo
+- Corrigir o caso em que o computador está ligado/online no MeshCentral, mas o CoreControl mostra "Agent sem comunicação" e "Último contato" antigo.
+
+Mudança
+- CoreControl Agent 0.9.16 agora pode rodar como serviço automático do Windows (CoreControlAgent).
+- O serviço envia telemetria e consulta comandos mesmo sem usuário logado.
+- Recuperação automática do serviço: reinício após falhas.
+- Janelas, aplicativos, abas e ícones continuam sendo lidos em um helper da sessão do usuário, separado do serviço.
+- Comandos que dependem do usuário (atividade, winget e otimização) são encaminhados ao helper; comandos de máquina continuam no serviço.
+- O instalador 0.4.23 remove o antigo startup do Agent, instala o serviço e registra somente o helper no login.
+
+Depois do deploy
+1. No computador já instalado, usar "Reinstalar / atualizar CoreControl" uma vez.
+2. Aceitar a solicitação de administrador do Windows para criar o serviço.
+3. O serviço esperado é: CoreControlAgent / "CoreControl Agent".

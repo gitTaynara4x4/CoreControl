@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const agentVersion = "0.9.15"
+const agentVersion = "0.9.16"
 
 type Config struct {
 	ServerURL         string `json:"server_url"`
@@ -32,6 +32,7 @@ type Config struct {
 	Name              string `json:"name,omitempty"`
 	Sector            string `json:"sector,omitempty"`
 	Location          string `json:"location,omitempty"`
+	ActivityCachePath string `json:"activity_cache_path,omitempty"`
 }
 
 type MachineSnapshot struct {
@@ -135,16 +136,63 @@ type Agent struct {
 }
 
 func main() {
-	releaseInstance, instanceErr := acquireSingleInstance("Global\\CoreTunerAgent")
+	configFlag := flag.String("config", "", "caminho do arquivo de configuração")
+	onceFlag := flag.Bool("once", false, "coleta e envia apenas uma vez")
+	serviceFlag := flag.Bool("service", false, "executa como serviço do Windows")
+	sessionHelperFlag := flag.Bool("session-helper", false, "coleta atividade da sessão interativa")
+	activityCacheFlag := flag.String("activity-cache", "", "arquivo compartilhado com a atividade da sessão")
+	installServiceFlag := flag.Bool("install-service", false, "instala/atualiza o serviço CoreControl Agent")
+	uninstallServiceFlag := flag.Bool("uninstall-service", false, "remove o serviço CoreControl Agent")
+	flag.Parse()
+
+	// Os modos de manutenção são executados pelo instalador com elevação UAC.
+	// Eles terminam imediatamente e não iniciam telemetria.
+	if *installServiceFlag {
+		configPath, err := resolveConfigPath(*configFlag)
+		if err == nil {
+			err = installWindowsAgentService(configPath, strings.TrimSpace(*activityCacheFlag))
+		}
+		if err != nil {
+			fallbackLog("não foi possível instalar o serviço CoreControl Agent: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *uninstallServiceFlag {
+		if err := uninstallWindowsAgentService(); err != nil {
+			fallbackLog("não foi possível remover o serviço CoreControl Agent: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *sessionHelperFlag {
+		cachePath := strings.TrimSpace(*activityCacheFlag)
+		if cachePath == "" {
+			fallbackLog("-activity-cache é obrigatório no modo session-helper")
+			return
+		}
+		releaseInstance, instanceErr := acquireSingleInstance("Local\\CoreControlSessionHelper")
+		if instanceErr != nil {
+			return
+		}
+		defer releaseInstance()
+		if err := runSessionActivityHelper(cachePath); err != nil {
+			fallbackLog("helper de atividade terminou: %v", err)
+		}
+		return
+	}
+
+	instanceName := "Global\\CoreTunerAgent"
+	if *serviceFlag {
+		instanceName = "Global\\CoreControlAgentService"
+	}
+	releaseInstance, instanceErr := acquireSingleInstance(instanceName)
 	if instanceErr != nil {
 		fallbackLog("outra instância do CoreControl Agent já está em execução: %v", instanceErr)
 		return
 	}
 	defer releaseInstance()
-
-	configFlag := flag.String("config", "", "caminho do arquivo de configuração")
-	onceFlag := flag.Bool("once", false, "coleta e envia apenas uma vez")
-	flag.Parse()
 
 	configPath, err := resolveConfigPath(*configFlag)
 	if err != nil {
@@ -156,6 +204,11 @@ func main() {
 		fallbackLog("configuração inválida: %v", err)
 		return
 	}
+	if strings.TrimSpace(*activityCacheFlag) != "" {
+		cfg.ActivityCachePath = strings.TrimSpace(*activityCacheFlag)
+	}
+	setActivityCachePath(cfg.ActivityCachePath)
+
 	logger, closer := newLogger(configPath)
 	if closer != nil {
 		defer closer.Close()
@@ -172,30 +225,85 @@ func main() {
 	}
 	logger.Printf("CoreControl Agent %s iniciado", agentVersion)
 
-	if *onceFlag {
-		if _, err := agent.runCycle(); err != nil {
-			logger.Printf("falha: %v", err)
-		}
-		return
-	}
-
 	interval := time.Duration(agent.cfg.IntervalSeconds) * time.Second
 	if interval < 15*time.Second {
 		interval = 30 * time.Second
 	}
+
+	if *serviceFlag {
+		setAgentServiceExecution(true)
+		if err := runWindowsAgentService(func(stop <-chan struct{}) {
+			agent.runLoop(interval, stop, false)
+		}); err != nil {
+			logger.Printf("serviço CoreControl Agent terminou: %v", err)
+		}
+		return
+	}
+
+	agent.runLoop(interval, nil, *onceFlag)
+}
+
+func (a *Agent) runLoop(interval time.Duration, stop <-chan struct{}, once bool) {
+	if once {
+		if _, err := a.runCycle(); err != nil {
+			a.logger.Printf("falha: %v", err)
+		}
+		return
+	}
+
 	backoff := 5 * time.Second
 	for {
-		deviceUID, err := agent.runCycle()
+		if stopRequested(stop) {
+			return
+		}
+		deviceUID, err := a.runCycle()
 		if err != nil {
-			logger.Printf("ciclo não enviado: %v", err)
-			time.Sleep(backoff)
+			a.logger.Printf("ciclo não enviado: %v", err)
+			if !sleepUntil(stop, backoff) {
+				return
+			}
 			if backoff < 5*time.Minute {
 				backoff *= 2
+				if backoff > 5*time.Minute {
+					backoff = 5 * time.Minute
+				}
 			}
 			continue
 		}
 		backoff = 5 * time.Second
-		agent.waitForNextTelemetry(interval, deviceUID)
+		if !a.waitForNextTelemetry(interval, deviceUID, stop) {
+			return
+		}
+	}
+}
+
+func stopRequested(stop <-chan struct{}) bool {
+	if stop == nil {
+		return false
+	}
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
+}
+
+func sleepUntil(stop <-chan struct{}, duration time.Duration) bool {
+	if duration <= 0 {
+		return !stopRequested(stop)
+	}
+	if stop == nil {
+		time.Sleep(duration)
+		return true
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-stop:
+		return false
 	}
 }
 
@@ -340,7 +448,7 @@ func (a *Agent) runCycle() (string, error) {
 		a.logger.Printf("computador vinculado com sucesso; device_id=%d", resp.DeviceID)
 	}
 
-	activity := collectForegroundActivity()
+	activity := collectForegroundActivityForAgent()
 	wolCapability := collectWOLCapability(snapshot.PrimaryMAC)
 	payload := telemetryRequest{
 		DeviceUID:      snapshot.DeviceUID,
@@ -391,9 +499,9 @@ func (a *Agent) runCycle() (string, error) {
 
 const commandPollInterval = 5 * time.Second
 
-func (a *Agent) waitForNextTelemetry(interval time.Duration, deviceUID string) {
+func (a *Agent) waitForNextTelemetry(interval time.Duration, deviceUID string, stop <-chan struct{}) bool {
 	if interval <= 0 {
-		return
+		return !stopRequested(stop)
 	}
 	deadline := time.NewTimer(interval)
 	ticker := time.NewTicker(commandPollInterval)
@@ -403,7 +511,7 @@ func (a *Agent) waitForNextTelemetry(interval time.Duration, deviceUID string) {
 	for {
 		select {
 		case <-deadline.C:
-			return
+			return true
 		case <-ticker.C:
 			if strings.TrimSpace(deviceUID) == "" || a.cfg.AgentSecret == "" {
 				continue
@@ -411,6 +519,8 @@ func (a *Agent) waitForNextTelemetry(interval time.Duration, deviceUID string) {
 			if err := a.pollAndExecuteCommand(deviceUID); err != nil {
 				a.logger.Printf("fila de comandos (poll rápido): %v", err)
 			}
+		case <-stop:
+			return false
 		}
 	}
 }

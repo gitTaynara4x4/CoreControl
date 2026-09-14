@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-func executeAgentCommand(command pendingCommand) (map[string]interface{}, error) {
+func executeAgentCommandLocal(command pendingCommand) (map[string]interface{}, error) {
 	if command.Type == "power.shutdown" {
 		return nil, errors.New("desligamento real ainda não é suportado neste sistema operacional")
 	}
