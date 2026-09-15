@@ -4,6 +4,7 @@
   const CT = window.CoreTuner;
   const UPDATE_TABS = new Set(['overview', 'computers', 'policies']);
   let activeTab = 'overview';
+  let updateStatusPollTimer = null;
 
   function readActiveTab() {
     const value = new URL(window.location.href).searchParams.get('tab');
@@ -43,23 +44,26 @@
   function commandLabel(device) {
     if (!device.agent_supports_updates) return statusPill('Agente desatualizado', 'warning');
     const status = device.status;
-    if (status === 'queued') return statusPill('Na fila', 'warning');
+    if (status === 'queued') return statusPill('Aguardando Agent', 'warning');
     if (status === 'scanning') return statusPill('Verificando', 'warning');
     if (status === 'installing') return statusPill('Instalando', 'warning');
+    if (status === 'expired') return statusPill('Fila expirada', 'critical');
     if (status === 'error') return statusPill('Falha', 'critical');
     if (!device.last_scan_at) return statusPill('Não verificado');
+    if (!device.inventory_fresh) return statusPill('Inventário antigo', 'warning');
     if (device.pending_total === 0) return statusPill('Atualizado', 'resolved');
     return statusPill(`${device.pending_total} pendente${device.pending_total === 1 ? '' : 's'}`, device.critical_pending ? 'critical' : 'warning');
   }
 
-  function pendingCell(value, scanned) {
-    if (!scanned) return '<span class="updates-muted-value">—</span>';
-    if (!value) return '<span class="updates-zero">0</span>';
-    return `<strong class="updates-count">${CT.esc(value)}</strong>`;
+  function pendingCell(value, device) {
+    if (!device?.last_scan_at) return '<span class="updates-muted-value">—</span>';
+    const rendered = value ? `<strong class="updates-count">${CT.esc(value)}</strong>` : '<span class="updates-zero">0</span>';
+    if (!device.inventory_fresh) return `${rendered} ${statusPill('antigo', 'warning')}`;
+    return rendered;
   }
 
-  function sum(devices, field) {
-    return devices.reduce((total, device) => total + Number(device[field] || 0), 0);
+  function sumFresh(devices, field) {
+    return devices.reduce((total, device) => total + (device.inventory_fresh ? Number(device[field] || 0) : 0), 0);
   }
 
   function overviewState(summary) {
@@ -75,8 +79,32 @@
       return {
         tone: 'working',
         iconName: 'download',
-        title: 'Verificação em andamento',
-        text: `${summary.busy} computador${summary.busy === 1 ? '' : 'es'} processando uma operação de atualização.`,
+        title: 'Operação em andamento',
+        text: `${summary.busy} computador${summary.busy === 1 ? '' : 'es'} com o Agent executando uma operação agora.`,
+      };
+    }
+    if (summary.queued) {
+      return {
+        tone: 'attention',
+        iconName: 'clock',
+        title: 'Aguardando o CoreControl Agent',
+        text: `${summary.queued} computador${summary.queued === 1 ? '' : 'es'} com solicitação na fila. Ainda não começou a verificação.`,
+      };
+    }
+    if (summary.expired) {
+      return {
+        tone: 'critical',
+        iconName: 'alert',
+        title: 'Solicitação de atualização expirou',
+        text: `${summary.expired} computador${summary.expired === 1 ? '' : 'es'} não recebeu ou não concluiu a operação dentro do tempo esperado. Envie uma nova verificação.`,
+      };
+    }
+    if (summary.stale) {
+      return {
+        tone: 'attention',
+        iconName: 'clock',
+        title: 'Inventário desatualizado',
+        text: `${summary.stale} computador${summary.stale === 1 ? '' : 'es'} com dados de atualização mais antigos que 24 horas. Faça uma nova verificação.`,
       };
     }
     if (summary.scanned < summary.devices) {
@@ -147,9 +175,9 @@
     const summary = data.summary;
     const devices = data.devices || [];
     const state = overviewState(summary);
-    const windowsPending = sum(devices, 'windows_pending');
-    const driversPending = sum(devices, 'driver_pending');
-    const appsPending = sum(devices, 'app_pending');
+    const windowsPending = sumFresh(devices, 'windows_pending');
+    const driversPending = sumFresh(devices, 'driver_pending');
+    const appsPending = sumFresh(devices, 'app_pending');
     const allScanned = summary.devices > 0 && summary.scanned === summary.devices;
     const recent = devices
       .slice()
@@ -165,9 +193,9 @@
           </div>
         </td>
         <td>${commandLabel(device)}</td>
-        <td>${pendingCell(device.windows_pending, device.last_scan_at)}</td>
-        <td>${pendingCell(device.driver_pending, device.last_scan_at)}</td>
-        <td>${pendingCell(device.app_pending, device.last_scan_at)}</td>
+        <td>${pendingCell(device.windows_pending, device)}</td>
+        <td>${pendingCell(device.driver_pending, device)}</td>
+        <td>${pendingCell(device.app_pending, device)}</td>
         <td><span class="updates-date">${device.last_scan_at ? CT.fmtDate(device.last_scan_at) : 'Nunca'}</span></td>
         <td class="table-actions-col"><button class="btn small" type="button" data-update-detail="${device.device_id}">Detalhes</button></td>
       </tr>`).join('');
@@ -183,14 +211,15 @@
           </div>
         </div>
         <div class="updates-status-meta">
-          <span><b>${summary.scanned}</b> de ${summary.devices} verificados</span>
+          <span><b>${summary.scanned}</b> de ${summary.devices} recentes</span>
+          <span><b>${summary.queued}</b> aguardando Agent</span>
           <span><b>${summary.busy}</b> em andamento</span>
         </div>
       </div>
 
       <div class="updates-kpi-grid">
-        ${kpiCard('Computadores verificados', `${summary.scanned}/${summary.devices}`, summary.scanned === summary.devices && summary.devices ? 'Inventário atualizado' : 'Aguardando coleta', summary.scanned === summary.devices && summary.devices ? 'good' : 'neutral', 'computer')}
-        ${kpiCard('Pendentes', summary.pending, 'Windows + drivers + aplicativos', summary.pending ? 'attention' : 'good', 'download')}
+        ${kpiCard('Inventário recente', `${summary.scanned}/${summary.devices}`, summary.scanned === summary.devices && summary.devices ? 'Atualizado nas últimas 24h' : (summary.stale ? `${summary.stale} desatualizado${summary.stale === 1 ? '' : 's'}` : 'Aguardando coleta'), summary.scanned === summary.devices && summary.devices ? 'good' : 'neutral', 'computer')}
+        ${kpiCard('Pendentes', summary.pending, summary.stale_pending ? `${summary.stale_pending} antigo${summary.stale_pending === 1 ? '' : 's'} fora do total` : 'Windows + drivers + aplicativos', summary.pending ? 'attention' : 'good', 'download')}
         ${kpiCard('Críticas', summary.critical, 'Segurança e correções do Windows', summary.critical ? 'critical' : 'good', 'alert')}
         ${kpiCard('Reinício necessário', summary.reboot_required, 'Reinício continua sob aprovação', summary.reboot_required ? 'attention' : 'good', 'restart')}
       </div>
@@ -219,7 +248,7 @@
           <div><span class="updates-eyebrow">COMPUTADORES</span><h2>Situação atual</h2><p>Veja rapidamente quais máquinas precisam ser verificadas ou têm atualizações disponíveis.</p></div>
           <button class="btn" type="button" data-go-computers>Ver todos</button>
         </div>
-        ${summary.devices && !allScanned ? `<div class="updates-notice"><span>${icon('clock')}</span><div><strong>${summary.devices - summary.scanned} computador${summary.devices - summary.scanned === 1 ? '' : 'es'} aguardando verificação</strong><p>Use “Verificar agora” para coletar Windows Update, drivers e aplicativos.</p></div></div>` : ''}
+        ${summary.devices && !allScanned ? `<div class="updates-notice"><span>${icon('clock')}</span><div><strong>${summary.devices - summary.scanned} computador${summary.devices - summary.scanned === 1 ? '' : 'es'} sem inventário recente</strong><p>${summary.queued ? 'Há solicitação aguardando o Agent. A verificação só começa quando o Agent receber a fila.' : 'Use “Verificar agora” para coletar dados atuais de Windows Update, drivers e aplicativos.'}</p></div></div>` : ''}
         <div class="table-wrap updates-table-wrap">
           <table class="updates-table">
             <thead><tr><th>Computador</th><th>Status</th><th>Windows</th><th>Drivers</th><th>Apps</th><th>Última verificação</th><th></th></tr></thead>
@@ -231,7 +260,7 @@
 
   function renderComputers(devices) {
     const rows = devices.map((device) => {
-      const rowStatus = !device.last_scan_at ? 'not-scanned' : device.pending_total ? 'pending' : 'updated';
+      const rowStatus = !device.last_scan_at ? 'not-scanned' : !device.inventory_fresh ? 'stale' : device.pending_total ? 'pending' : 'updated';
       return `
         <tr data-update-device-row data-search="${CT.esc(`${device.device_name} ${device.hostname || ''} ${device.company_name || ''}`.toLowerCase())}" data-update-status="${rowStatus}">
           <td>
@@ -243,9 +272,9 @@
           <td>${CT.esc(device.company_name || '—')}</td>
           <td>${device.online ? '<span class="status"><i class="dot online"></i>Online</span>' : '<span class="status"><i class="dot offline"></i>Offline</span>'}</td>
           <td>${commandLabel(device)}</td>
-          <td>${pendingCell(device.windows_pending, device.last_scan_at)}</td>
-          <td>${pendingCell(device.driver_pending, device.last_scan_at)}</td>
-          <td>${pendingCell(device.app_pending, device.last_scan_at)}</td>
+          <td>${pendingCell(device.windows_pending, device)}</td>
+          <td>${pendingCell(device.driver_pending, device)}</td>
+          <td>${pendingCell(device.app_pending, device)}</td>
           <td>${device.reboot_required ? statusPill('Necessário', 'warning') : '<span class="updates-muted-value">—</span>'}</td>
           <td class="table-actions-col update-row-actions">
             <button class="btn small" type="button" data-update-check="${device.device_id}" ${!device.agent_supports_updates || ['queued','scanning','installing'].includes(device.status) ? 'disabled' : ''}>Verificar</button>
@@ -270,6 +299,7 @@
             <option value="pending">Com pendências</option>
             <option value="updated">Atualizados</option>
             <option value="not-scanned">Não verificados</option>
+            <option value="stale">Inventário desatualizado</option>
           </select>
         </div>
         <div class="table-wrap updates-table-wrap">
@@ -357,11 +387,14 @@
       return `<div class="update-operation-notice queued"><span class="update-operation-icon">${icon('clock')}</span><div><strong>${title}</strong><span>${text}</span></div></div>`;
     }
     if (commandStatus === 'queued' && commandType === 'updates.scan') {
-      const title = device.online ? 'Verificação aguardando execução' : 'Verificação aguardando o computador ficar online';
+      const title = device.online ? 'Aguardando o CoreControl Agent' : 'Verificação aguardando o computador ficar online';
       const text = device.online
-        ? 'A solicitação de verificação já está na fila e será recebida pelo Agent em seguida.'
+        ? 'A solicitação está na fila, mas o Agent ainda não a recebeu. A tela não considera isso como verificação em andamento.'
         : 'A solicitação foi guardada. A nova verificação será executada assim que o computador voltar a ficar online.';
       return `<div class="update-operation-notice queued"><span class="update-operation-icon">${icon('clock')}</span><div><strong>${title}</strong><span>${text}</span></div></div>`;
+    }
+    if (commandStatus === 'expired' || device.status === 'expired') {
+      return `<div class="update-operation-notice offline"><span class="update-operation-icon">${icon('alert')}</span><div><strong>Solicitação anterior expirou</strong><span>O Agent não recebeu ou não concluiu a operação dentro do tempo esperado. Você pode enviar uma nova verificação agora.</span></div></div>`;
     }
     if (!device.online) {
       return `<div class="update-operation-notice offline"><span class="update-operation-icon">${icon('computer')}</span><div><strong>Computador offline</strong><span>Você pode escolher o que deseja atualizar. Ao confirmar, o CoreControl guarda o pedido e instala automaticamente quando este computador voltar a ficar online.</span></div></div>`;
@@ -374,7 +407,7 @@
       const items = (device.items || []).filter((item) => item.source === source);
       const rows = items.map((item) => `
         <label class="update-item-row">
-          <input type="checkbox" data-update-item value="${CT.esc(item.key)}">
+          <input type="checkbox" data-update-item value="${CT.esc(item.key)}" ${device.inventory_fresh ? '' : 'disabled'}>
           <span class="update-item-copy"><strong>${CT.esc(item.title || item.id)}</strong><small>${CT.esc(itemMeta(item))}</small></span>
           ${item.severity ? statusPill(item.severity, String(item.severity).toLowerCase() === 'critical' ? 'critical' : '') : ''}
         </label>`).join('');
@@ -411,6 +444,7 @@
       </div>
 
       ${!device.agent_supports_updates ? `<div class="update-warning"><strong>CoreControl Agent precisa ser atualizado</strong><span>Este computador está usando ${CT.esc(device.agent_version || 'uma versão antiga')}. Reinstale/atualize o CoreControl Agent antes de gerenciar atualizações.</span></div>` : ''}
+      ${device.last_scan_at && !device.inventory_fresh ? `<div class="update-warning"><strong>Dados antigos — não instale com este inventário</strong><span>A última verificação foi em ${CT.esc(CT.fmtDate(device.last_scan_at))}. Faça uma nova verificação para confirmar quais atualizações ainda estão disponíveis.</span></div>` : ''}
       ${device.last_error ? `<div class="update-warning"><strong>Última verificação com aviso</strong><span>${CT.esc(device.last_error)}</span></div>` : ''}
 
       <div class="update-choice-help">
@@ -436,10 +470,12 @@
         const selected = checks().filter((input) => input.checked);
         const count = selected.length;
         const busy = ['queued','scanning','installing'].includes(device.status);
-        CT.$('#installSelectedBtn').disabled = count === 0 || busy;
-        CT.$('#installSelectedBtn').textContent = count
-          ? (device.online ? `Instalar ${count} agora` : `Colocar ${count} na fila`)
-          : (device.online ? 'Instalar agora' : 'Colocar na fila');
+        CT.$('#installSelectedBtn').disabled = count === 0 || busy || !device.inventory_fresh;
+        CT.$('#installSelectedBtn').textContent = !device.inventory_fresh
+          ? 'Verifique novamente antes de instalar'
+          : (count
+            ? (device.online ? `Instalar ${count} agora` : `Colocar ${count} na fila`)
+            : (device.online ? 'Instalar agora' : 'Colocar na fila'));
         const counter = CT.$('#updateSelectionCount');
         if (counter) counter.textContent = `${count} selecionada${count === 1 ? '' : 's'}`;
         const all = checks();
@@ -452,9 +488,9 @@
       checks().forEach((input) => { input.onchange = sync; });
       CT.$('#checkAgainBtn').onclick = async () => {
         try {
-          await CT.api('/updates/check', { method: 'POST', body: JSON.stringify({ device_ids: [deviceId] }) });
+          const result = await CT.api('/updates/check', { method: 'POST', body: JSON.stringify({ device_ids: [deviceId] }) });
           CT.closeModal();
-          CT.toast('Verificação enviada para o computador.');
+          CT.toast(result.queued ? 'Verificação colocada na fila do computador.' : 'A verificação já está aguardando o CoreControl Agent.');
           await refreshView();
         } catch (error) { CT.toast(error.message, true); }
       };
@@ -589,17 +625,42 @@
     if (empty) empty.classList.toggle('hidden', visible > 0 || rows.length === 0);
   }
 
+  function stopUpdateStatusPolling() {
+    if (updateStatusPollTimer) {
+      window.clearTimeout(updateStatusPollTimer);
+      updateStatusPollTimer = null;
+    }
+  }
+
+  function scheduleUpdateStatusPolling(data) {
+    stopUpdateStatusPolling();
+    if (CT.state.page !== 'updates' || activeTab === 'policies') return;
+    const devices = data?.devices || [];
+    const hasActiveOperation = devices.some((device) => ['queued', 'scanning', 'installing'].includes(device.status));
+    if (!hasActiveOperation) return;
+    updateStatusPollTimer = window.setTimeout(async () => {
+      updateStatusPollTimer = null;
+      if (CT.state.page !== 'updates' || activeTab === 'policies') return;
+      try {
+        await renderTab(activeTab, { syncRoute: false, silent: true });
+      } catch (_) {
+        scheduleUpdateStatusPolling(data);
+      }
+    }, 4000);
+  }
+
   async function renderTab(tab, options = {}) {
     const view = CT.$('#updatesView');
     if (!view) return;
     activeTab = UPDATE_TABS.has(tab) ? tab : 'overview';
     if (options.syncRoute !== false) writeActiveTab(activeTab);
     setTabState(activeTab);
-    view.innerHTML = renderLoading();
+    if (!options.silent) view.innerHTML = renderLoading();
 
     tab = activeTab;
 
     if (tab === 'policies') {
+      stopUpdateStatusPolling();
       const policies = await CT.api('/updates/policies');
       view.innerHTML = renderPolicies(policies);
       setScanButtonState(null);
@@ -609,6 +670,7 @@
     const data = await CT.api('/updates');
     setScanButtonState(data);
     view.innerHTML = tab === 'computers' ? renderComputers(data.devices) : renderOverview(data);
+    scheduleUpdateStatusPolling(data);
   }
 
   async function refreshView() {
@@ -629,7 +691,12 @@
     try {
       const result = await CT.api('/updates/check', { method: 'POST', body: JSON.stringify({}) });
       const extra = result.unsupported ? ` · ${result.unsupported} Agent${result.unsupported === 1 ? '' : 's'} precisa${result.unsupported === 1 ? '' : 'm'} ser atualizado${result.unsupported === 1 ? '' : 's'}` : '';
-      CT.toast(`${result.queued} verificação${result.queued === 1 ? '' : 'ões'} enviada${result.queued === 1 ? '' : 's'}${extra}.`);
+      const message = result.queued
+        ? `${result.queued} verificação${result.queued === 1 ? '' : 'ões'} colocada${result.queued === 1 ? '' : 's'} na fila${extra}.`
+        : result.already_pending
+          ? `A verificação já está aguardando o CoreControl Agent${extra}.`
+          : `Nenhuma nova verificação foi enviada${extra}.`;
+      CT.toast(message);
       await refreshView();
     } catch (error) {
       CT.toast(error.message, true);
@@ -648,6 +715,7 @@
   }
 
   CT.registerPage('updates', async function renderUpdates() {
+    stopUpdateStatusPolling();
     activeTab = readActiveTab();
     await CT.mountPage('updates');
     const page = CT.$('.page-updates');
@@ -674,8 +742,8 @@
       if (check) {
         check.disabled = true;
         try {
-          await CT.api('/updates/check', { method: 'POST', body: JSON.stringify({ device_ids: [Number(check.dataset.updateCheck)] }) });
-          CT.toast('Verificação enviada para o computador.');
+          const result = await CT.api('/updates/check', { method: 'POST', body: JSON.stringify({ device_ids: [Number(check.dataset.updateCheck)] }) });
+          CT.toast(result.queued ? 'Verificação colocada na fila do computador.' : 'A verificação já está aguardando o CoreControl Agent.');
           return refreshView();
         } catch (error) {
           check.disabled = false;

@@ -1,0 +1,28 @@
+CoreControl v10.62 — Atualizações com estado real
+Data: 14/09/2026
+
+CORREÇÕES
+- "queued" não é mais apresentado como "verificação em andamento".
+- A fila agora aparece como "Aguardando o CoreControl Agent".
+- Só comandos realmente "running" contam como operação em andamento.
+- Inventários com mais de 24 horas são marcados como desatualizados.
+- Pendências antigas deixam de entrar nos totais atuais; continuam visíveis como dados antigos.
+- O CoreControl bloqueia instalação usando inventário antigo e exige nova verificação.
+- Verificações/instalações travadas deixam de bloquear o módulo para sempre.
+- Fila de scan: se o Agent está comunicando e não pega o comando, expira após 15 min.
+- Se o Agent está offline, o scan permanece guardado por até 24h para ser recebido quando voltar.
+- Instalações aguardam até 72h quando o Agent está offline.
+- Scan em execução com mais de 45 min é encerrado como falha; instalação em execução usa limite próprio.
+- Quando o Agent volta após ficar offline, a limpeza ocorre antes de atualizar presença, preservando o comando válido para ser recebido naquele poll.
+- A página passa a atualizar automaticamente a cada 4s enquanto houver fila/verificação/instalação ativa.
+- Mensagens de "Verificar agora" agora distinguem pedido novo de pedido que já estava aguardando o Agent.
+
+ARQUIVOS ALTERADOS
+- app/update_api.py
+- app/update_service.py
+- app/static/js/pages/updates.js
+- app/static/index.html
+
+OBSERVAÇÃO
+- Esta versão não exige recompilar/reinstalar o Agent. Basta publicar estes arquivos na Central.
+- O Agent 0.9.16 da v10.61 continua compatível e é o recomendado.

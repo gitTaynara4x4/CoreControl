@@ -33,10 +33,13 @@ from .update_service import (
     active_update_command,
     apply_scan_result,
     build_install_payload,
+    expire_stale_update_commands,
     get_update_state,
     json_list,
     json_object,
     queue_agent_command,
+    update_command_is_stale,
+    update_inventory_is_fresh,
     utcnow,
 )
 
@@ -123,13 +126,21 @@ def _latest_command(db: Session, device_id: int) -> AgentCommand | None:
     )
 
 
-def _command_public(command: AgentCommand | None) -> dict | None:
+def _command_public(command: AgentCommand | None, now=None, device_last_seen=None) -> dict | None:
     if not command:
         return None
+    current = now or utcnow()
+    expired_failure = command.status == "failed" and any(
+        marker in str(command.error_text or "").lower()
+        for marker in ("expirou", "excedeu o tempo")
+    )
+    stale = update_command_is_stale(command, current, device_last_seen)
     return {
         "id": command.id,
         "type": command.command_type,
-        "status": command.status,
+        "status": "expired" if stale or expired_failure else command.status,
+        "stored_status": command.status,
+        "stale": stale,
         "created_at": iso(command.created_at),
         "claimed_at": iso(command.claimed_at),
         "finished_at": iso(command.finished_at),
@@ -138,9 +149,18 @@ def _command_public(command: AgentCommand | None) -> dict | None:
 
 
 def _state_public(db: Session, device: Device, *, include_items: bool = False) -> dict:
+    now = utcnow()
     state = get_update_state(db, device.id)
     command = _latest_command(db, device.id)
-    if command and command.status in {"queued", "running"}:
+    command_stale = update_command_is_stale(command, now, device.last_seen)
+    command_expired_failure = bool(
+        command
+        and command.status == "failed"
+        and any(marker in str(command.error_text or "").lower() for marker in ("expirou", "excedeu o tempo"))
+    )
+    if command_stale or command_expired_failure:
+        status = "expired"
+    elif command and command.status in {"queued", "running"}:
         status = "installing" if command.command_type == "updates.install" and command.status == "running" else "scanning" if command.command_type == "updates.scan" and command.status == "running" else "queued"
     elif command and command.status == "failed":
         status = "error"
@@ -148,6 +168,10 @@ def _state_public(db: Session, device: Device, *, include_items: bool = False) -
         status = "ready"
     else:
         status = "not_scanned"
+
+    last_scan = as_utc(state.last_scan_at) if state and state.last_scan_at else None
+    inventory_fresh = update_inventory_is_fresh(last_scan, now)
+    scan_age_seconds = max(0, int((now - last_scan).total_seconds())) if last_scan else None
 
     windows_pending = int(state.windows_pending if state else 0)
     driver_pending = int(state.driver_pending if state else 0)
@@ -163,6 +187,8 @@ def _state_public(db: Session, device: Device, *, include_items: bool = False) -
         "agent_supports_updates": _agent_supports_updates(device),
         "status": status,
         "last_scan_at": iso(state.last_scan_at) if state else None,
+        "inventory_fresh": inventory_fresh,
+        "scan_age_seconds": scan_age_seconds,
         "last_install_at": iso(state.last_install_at) if state else None,
         "windows_pending": windows_pending,
         "driver_pending": driver_pending,
@@ -171,7 +197,7 @@ def _state_public(db: Session, device: Device, *, include_items: bool = False) -
         "critical_pending": int(state.critical_pending if state else 0),
         "reboot_required": bool(state.reboot_required if state else False),
         "last_error": state.last_error if state else None,
-        "command": _command_public(command),
+        "command": _command_public(command, now, device.last_seen),
     }
     if include_items:
         result["items"] = json_list(state.inventory_json if state else None)
@@ -198,11 +224,16 @@ def updates_dashboard(user: CurrentUser, db: Db):
     return {
         "summary": {
             "devices": len(entries),
-            "scanned": sum(1 for item in entries if item["last_scan_at"]),
-            "pending": sum(item["pending_total"] for item in entries),
-            "critical": sum(item["critical_pending"] for item in entries),
+            "scanned": sum(1 for item in entries if item["inventory_fresh"]),
+            "stale": sum(1 for item in entries if item["last_scan_at"] and not item["inventory_fresh"]),
+            "never_scanned": sum(1 for item in entries if not item["last_scan_at"]),
+            "pending": sum(item["pending_total"] for item in entries if item["inventory_fresh"]),
+            "stale_pending": sum(item["pending_total"] for item in entries if item["last_scan_at"] and not item["inventory_fresh"]),
+            "critical": sum(item["critical_pending"] for item in entries if item["inventory_fresh"]),
             "reboot_required": sum(1 for item in entries if item["reboot_required"]),
-            "busy": sum(1 for item in entries if item["status"] in {"queued", "scanning", "installing"}),
+            "busy": sum(1 for item in entries if item["status"] in {"scanning", "installing"}),
+            "queued": sum(1 for item in entries if item["status"] == "queued"),
+            "expired": sum(1 for item in entries if item["status"] == "expired"),
         },
         "devices": entries,
     }
@@ -285,6 +316,11 @@ def queue_update_install(payload: UpdateInstallRequest, user: CurrentUser, db: D
     state = get_update_state(db, device.id)
     if not state or not state.last_scan_at:
         raise HTTPException(status_code=409, detail="Verifique as atualizações antes de instalar")
+    if not update_inventory_is_fresh(state.last_scan_at):
+        raise HTTPException(
+            status_code=409,
+            detail="O inventário de atualizações está desatualizado. Faça uma nova verificação antes de instalar.",
+        )
     try:
         command_payload = build_install_payload(state, payload.item_keys)
     except ValueError as exc:
@@ -467,6 +503,10 @@ def agent_next_command(
         .order_by(desc(AgentCommand.finished_at), desc(AgentCommand.id))
         .limit(1)
     )
+    # Expire old update commands before touching presence. If the Agent is just
+    # coming back after hours offline, the queued request must survive long
+    # enough to be claimed on this very poll.
+    expired_updates = expire_stale_update_commands(db, device.id, now)
     # After a shutdown ACK we need a much tighter liveness signal so the UI can
     # distinguish "Windows is still alive" from "shutdown confirmed" in
     # seconds, not the generic 3-minute telemetry timeout.
@@ -503,7 +543,7 @@ def agent_next_command(
                 "payload": json_object(command.payload_json),
             }
         }
-    if stale or presence_touched:
+    if stale or presence_touched or expired_updates:
         db.commit()
     return {"command": None}
 

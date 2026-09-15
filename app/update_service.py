@@ -10,6 +10,16 @@ from sqlalchemy.orm import Session
 from .models import AgentCommand, Device, DeviceUpdateState, UpdatePolicy
 
 
+UPDATE_INVENTORY_FRESH_FOR = timedelta(hours=24)
+UPDATE_AGENT_RECENT_FOR = timedelta(minutes=5)
+UPDATE_SCAN_QUEUE_TIMEOUT_ONLINE = timedelta(minutes=15)
+UPDATE_SCAN_QUEUE_TIMEOUT_OFFLINE = timedelta(hours=24)
+UPDATE_INSTALL_QUEUE_TIMEOUT_ONLINE = timedelta(minutes=30)
+UPDATE_INSTALL_QUEUE_TIMEOUT_OFFLINE = timedelta(hours=72)
+UPDATE_SCAN_RUNNING_TIMEOUT = timedelta(minutes=45)
+UPDATE_INSTALL_RUNNING_TIMEOUT = timedelta(hours=4)
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -51,7 +61,79 @@ def get_update_state(db: Session, device_id: int, *, create: bool = False) -> De
     return state
 
 
+def update_inventory_is_fresh(last_scan_at: datetime | None, now: datetime | None = None) -> bool:
+    scan_at = as_utc(last_scan_at)
+    if scan_at is None:
+        return False
+    current = now or utcnow()
+    return current - scan_at <= UPDATE_INVENTORY_FRESH_FOR
+
+
+def update_command_is_stale(
+    command: AgentCommand | None,
+    now: datetime | None = None,
+    device_last_seen: datetime | None = None,
+) -> bool:
+    if command is None or command.status not in {"queued", "running"}:
+        return False
+    current = now or utcnow()
+    reference = as_utc(command.claimed_at if command.status == "running" else command.created_at)
+    if reference is None:
+        return False
+    age = current - reference
+    if command.status == "running":
+        if command.command_type == "updates.scan":
+            return age > UPDATE_SCAN_RUNNING_TIMEOUT
+        if command.command_type == "updates.install":
+            return age > UPDATE_INSTALL_RUNNING_TIMEOUT
+        return False
+
+    last_seen = as_utc(device_last_seen)
+    agent_recent = bool(last_seen and current - last_seen <= UPDATE_AGENT_RECENT_FOR)
+    if command.command_type == "updates.scan":
+        timeout = UPDATE_SCAN_QUEUE_TIMEOUT_ONLINE if agent_recent else UPDATE_SCAN_QUEUE_TIMEOUT_OFFLINE
+    elif command.command_type == "updates.install":
+        timeout = UPDATE_INSTALL_QUEUE_TIMEOUT_ONLINE if agent_recent else UPDATE_INSTALL_QUEUE_TIMEOUT_OFFLINE
+    else:
+        return False
+    return age > timeout
+
+
+def expire_stale_update_commands(db: Session, device_id: int, now: datetime | None = None) -> int:
+    current = now or utcnow()
+    device = db.get(Device, device_id)
+    device_last_seen = device.last_seen if device else None
+    commands = list(
+        db.scalars(
+            select(AgentCommand).where(
+                AgentCommand.device_id == device_id,
+                AgentCommand.command_type.in_(["updates.scan", "updates.install"]),
+                AgentCommand.status.in_(["queued", "running"]),
+            )
+        ).all()
+    )
+    expired = 0
+    for command in commands:
+        if not update_command_is_stale(command, current, device_last_seen):
+            continue
+        command.status = "failed"
+        command.finished_at = current
+        if command.command_type == "updates.scan" and command.claimed_at is None:
+            command.error_text = "A verificação expirou na fila sem ser recebida pelo CoreControl Agent. Envie uma nova verificação."
+        elif command.command_type == "updates.scan":
+            command.error_text = "A verificação excedeu o tempo esperado e foi encerrada. Tente novamente."
+        elif command.claimed_at is None:
+            command.error_text = "A instalação expirou na fila sem ser recebida pelo CoreControl Agent. Revise as atualizações antes de reenviar."
+        else:
+            command.error_text = "A instalação excedeu o tempo esperado e foi encerrada. Revise o computador antes de tentar novamente."
+        expired += 1
+    if expired:
+        db.flush()
+    return expired
+
+
 def active_update_command(db: Session, device_id: int) -> AgentCommand | None:
+    expire_stale_update_commands(db, device_id)
     return db.scalar(
         select(AgentCommand)
         .where(
@@ -73,6 +155,8 @@ def queue_agent_command(
     created_by: int | None = None,
     deduplicate: bool = True,
 ) -> tuple[AgentCommand, bool]:
+    if command_type in {"updates.scan", "updates.install"}:
+        expire_stale_update_commands(db, device.id)
     if deduplicate:
         existing = db.scalar(
             select(AgentCommand)
